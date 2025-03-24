@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { ArrowRight, Mic, Brain, BarChart as ChartBar, CheckCircle, Users, Shield, Zap, BookOpen, Award } from 'lucide-react';
+import { ArrowRight, Mic, Brain, BarChart as ChartBar, CheckCircle, Zap, BookOpen, Award } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Spline from '../components/Spline'
 
