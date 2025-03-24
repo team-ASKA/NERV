@@ -249,10 +249,10 @@ const Interview = () => {
   const progress = ((currentQuestion + 1) / questions.length) * 100;
 
   return (
-    <div className="min-h-screen bg-black flex flex-col">
+    <div className="min-h-screen bg-black flex flex-col h-screen overflow-hidden">
       <style>{pulseStyle}</style>
       
-      {/* Progress bar */}
+      {/* Progress bar - fixed at top */}
       <div className="fixed top-0 left-0 w-full h-1 bg-black z-10">
         <motion.div
           className="h-full bg-white"
@@ -262,8 +262,8 @@ const Interview = () => {
         />
       </div>
 
-      {/* Interview header */}
-      <div className="bg-black py-4 px-6 border-b border-white/10">
+      {/* Interview header - fixed */}
+      <div className="bg-black py-4 px-6 border-b border-white/10 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <div>
             <h1 className="text-xl font-semibold">Technical Interview</h1>
@@ -290,12 +290,12 @@ const Interview = () => {
         </div>
       </div>
 
-      {/* Main content area */}
+      {/* Main content area - flex-1 to take remaining height */}
       <div className="flex-1 overflow-hidden">
         <div className="h-full max-w-6xl mx-auto p-4">
           <div className="flex flex-col md:flex-row h-full gap-4">
-            {/* User video section - hidden on mobile when in chat mode */}
-            <div className={`md:w-1/3 h-full md:block ${viewMode === 'chat' ? 'hidden' : 'block'}`}>
+            {/* User video section - fixed height on desktop */}
+            <div className={`md:w-1/3 md:h-full md:block ${viewMode === 'chat' ? 'hidden' : 'block'}`}>
               <div className="bg-black/30 border border-white/10 rounded-xl h-full flex flex-col">
                 <div className="p-4 border-b border-white/10 flex justify-between items-center">
                   <h2 className="font-medium">Your Camera</h2>
@@ -371,10 +371,10 @@ const Interview = () => {
               </div>
             </div>
             
-            {/* AI chat section - hidden on mobile when in camera mode */}
+            {/* AI chat section - scrollable content */}
             <div className={`md:w-2/3 h-full md:block ${viewMode === 'camera' ? 'hidden' : 'block'}`}>
               <div className="bg-black/30 border border-white/10 rounded-xl h-full flex flex-col">
-                <div className="p-4 border-b border-white/10">
+                <div className="p-4 border-b border-white/10 flex-shrink-0">
                   <div className="flex items-center">
                     <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center mr-2">
                       <Bot className="h-4 w-4 text-white" />
@@ -383,7 +383,8 @@ const Interview = () => {
                   </div>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto p-4">
+                {/* This div is scrollable */}
+                <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                   <div className="space-y-6">
                     {messages.map((message) => (
                       <div
@@ -440,8 +441,8 @@ const Interview = () => {
                   </div>
                 </div>
                 
-                {/* Input area */}
-                <div className="p-4 border-t border-white/10">
+                {/* Input area - fixed at bottom */}
+                <div className="p-4 border-t border-white/10 flex-shrink-0">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={toggleRecording}
