@@ -1,7 +1,7 @@
-import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, Mic, Brain, BarChart as ChartBar, CheckCircle, Users, Shield, Zap, BookOpen, Award } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import Spline from '../components/Spline'
 
 const features = [
   {
@@ -108,48 +108,41 @@ const testimonials = [
 const LandingPage = () => {
   return (
     <div className="relative">
-      {/* Hero Section */}
-      <section className="pt-40 pb-24 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            className="text-center"
-          >
-            <h1 className="font-montserrat font-bold text-4xl sm:text-5xl md:text-6xl mb-8">
-              Master Your Interviews with
-              <span className="text-accent"> AI-Powered</span> Practice
-            </h1>
-            <p className="text-gray-400 text-lg sm:text-xl max-w-3xl mx-auto mb-12">
-              Elevate your interview skills with real-time AI feedback, natural conversations, and comprehensive performance analysis. Practice makes perfect, and we make practice effortless.
-            </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-              <Link
-                to="/signup"
-                className="flex items-center px-10 py-4 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors font-semibold text-lg"
-              >
-                Get Started
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Link>
-              <Link
-                to="/login"
-                className="px-10 py-4 bg-secondary text-white rounded-lg hover:bg-secondary/80 transition-colors font-semibold text-lg"
-              >
-                Login
-              </Link>
-            </div>
-          </motion.div>
+      {/* Spline component as the main interactive element with responsive handling */}
+      <div className="h-screen w-full overflow-hidden">
+        <div className="scale-105 md:block hidden">
+          <Spline />
         </div>
-      </section>
-
+        <div className="md:hidden flex flex-col items-center justify-center h-full px-4 bg-black">
+          <h1 className="font-montserrat font-bold text-4xl text-center mb-8">
+            Master Your Interviews with
+            <span className="text-green"> AI-Powered</span> Practice
+          </h1>
+          <div className="flex flex-col items-center gap-4 w-full">
+            <Link
+              to="/signup"
+              className="flex items-center justify-center w-full px-10 py-4 bg-white text-black rounded-lg hover:bg-black hover:text-white transition-colors font-semibold text-lg"
+            >
+              Get Started
+              <ArrowRight className="ml-2 h-5 w-5" />
+            </Link>
+            <Link
+              to="/login"
+              className="w-full text-center px-10 py-4 bg-secondary text-white rounded-lg hover:bg-white hover:text-black transition-colors font-semibold text-lg"
+            >
+              Login
+            </Link>
+          </div>
+        </div>
+      </div>
+      
       {/* Features Section */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8 bg-secondary/50">
+      <section className="py-24 px-4 sm:px-6 lg:px-8 bg-transparent relative z-10">
         <div className="max-w-7xl mx-auto">
           <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
             viewport={{ once: true }}
             className="text-center mb-16"
           >
@@ -163,20 +156,21 @@ const LandingPage = () => {
           <motion.div
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
+            transition={{ duration: 0.5 }}
             viewport={{ once: true }}
             className="grid grid-cols-1 md:grid-cols-3 gap-10"
           >
             {features.map((feature, index) => (
               <motion.div
                 key={index}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 50 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.2 }}
+                transition={{ duration: 0.5, delay: index * 0.2, ease: "easeOut" }}
+                whileHover={{ y: -10, transition: { duration: 0.2 } }}
                 viewport={{ once: true }}
-                className="p-8 rounded-xl bg-secondary/80 backdrop-blur-sm hover:shadow-lg hover:shadow-accent/10 transition-all"
+                className="p-8 rounded-xl bg-black/80 backdrop-blur-sm border border-white/10 hover:border-white/30 transition-all"
               >
-                <div className="text-accent mb-6 p-3 bg-accent/10 inline-block rounded-lg">{feature.icon}</div>
+                <div className="text-white mb-6 p-3 bg-white/10 inline-block rounded-lg">{feature.icon}</div>
                 <h3 className="font-montserrat font-semibold text-2xl mb-3">
                   {feature.title}
                 </h3>
@@ -191,9 +185,9 @@ const LandingPage = () => {
       <section className="py-24 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
             viewport={{ once: true }}
             className="text-center mb-16"
           >
@@ -207,7 +201,7 @@ const LandingPage = () => {
           <motion.div
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
+            transition={{ duration: 0.5 }}
             viewport={{ once: true }}
             className="grid grid-cols-1 md:grid-cols-3 gap-8"
           >
@@ -230,13 +224,14 @@ const LandingPage = () => {
             ].map((item, index) => (
               <motion.div
                 key={index}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 50 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.2 }}
+                transition={{ duration: 0.5, delay: index * 0.2, ease: "easeOut" }}
+                whileHover={{ scale: 1.05, transition: { duration: 0.2 } }}
                 viewport={{ once: true }}
-                className="relative p-8 rounded-xl border border-gray-700 hover:border-accent/50 transition-all"
+                className="relative p-8 rounded-xl border border-white/20 hover:border-white/50 transition-all bg-black/50"
               >
-                <div className="absolute -top-5 -left-5 bg-accent text-white text-xl font-bold rounded-full w-10 h-10 flex items-center justify-center">
+                <div className="absolute -top-5 -left-5 bg-white text-black text-xl font-bold rounded-full w-10 h-10 flex items-center justify-center">
                   {item.step}
                 </div>
                 <h3 className="font-montserrat font-semibold text-xl mb-3 mt-4">
@@ -250,12 +245,12 @@ const LandingPage = () => {
       </section>
 
       {/* Benefits Section */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-secondary/30 to-transparent">
+      <section className="py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-black/30 to-transparent">
         <div className="max-w-7xl mx-auto">
           <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
             viewport={{ once: true }}
             className="text-center mb-16"
           >
@@ -269,20 +264,24 @@ const LandingPage = () => {
           <motion.div
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
+            transition={{ duration: 0.5 }}
             viewport={{ once: true }}
             className="grid grid-cols-1 md:grid-cols-2 gap-8"
           >
             {benefits.map((benefit, index) => (
               <motion.div
                 key={index}
-                initial={{ opacity: 0, x: index % 2 === 0 ? -20 : 20 }}
+                initial={{ opacity: 0, x: index % 2 === 0 ? -30 : 30 }}
                 whileInView={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
+                transition={{ duration: 0.6, delay: index * 0.15, ease: "easeOut" }}
+                whileHover={{ 
+                  backgroundColor: "rgba(255, 255, 255, 0.05)",
+                  transition: { duration: 0.2 }
+                }}
                 viewport={{ once: true }}
-                className="flex items-start p-6 rounded-lg"
+                className="flex items-start p-6 rounded-lg transition-colors"
               >
-                <div className="text-accent mr-4 mt-1">{benefit.icon}</div>
+                <div className="text-white mr-4 mt-1">{benefit.icon}</div>
                 <div>
                   <h3 className="font-montserrat font-semibold text-xl mb-2">
                     {benefit.title}
@@ -299,9 +298,9 @@ const LandingPage = () => {
       <section className="py-24 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
             viewport={{ once: true }}
             className="text-center mb-16"
           >
@@ -315,24 +314,25 @@ const LandingPage = () => {
           <motion.div
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
+            transition={{ duration: 0.5 }}
             viewport={{ once: true }}
             className="grid grid-cols-1 md:grid-cols-3 gap-8"
           >
             {testimonials.map((testimonial, index) => (
               <motion.div
                 key={index}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 50 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.2 }}
+                transition={{ duration: 0.5, delay: index * 0.2, ease: "easeOut" }}
+                whileHover={{ y: -10, transition: { duration: 0.2 } }}
                 viewport={{ once: true }}
-                className="p-8 rounded-xl bg-secondary/30 backdrop-blur-sm relative"
+                className="p-8 rounded-xl bg-black/30 backdrop-blur-sm border border-white/10 hover:border-white/30 relative transition-all"
               >
-                <div className="text-4xl text-accent/20 absolute top-4 left-4">"</div>
+                <div className="text-4xl text-white/20 absolute top-4 left-4">"</div>
                 <p className="text-gray-300 mb-6 relative z-10 pt-6">"{testimonial.quote}"</p>
-                <div className="border-t border-gray-700 pt-4">
+                <div className="border-t border-white/20 pt-4">
                   <p className="font-semibold">{testimonial.author}</p>
-                  <p className="text-accent text-sm">{testimonial.company}</p>
+                  <p className="text-white/70 text-sm">{testimonial.company}</p>
                 </div>
               </motion.div>
             ))}
@@ -344,11 +344,11 @@ const LandingPage = () => {
       <section className="py-24 px-4 sm:px-6 lg:px-8">
         <div className="max-w-5xl mx-auto">
           <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
             viewport={{ once: true }}
-            className="text-center p-12 rounded-2xl bg-gradient-to-r from-accent/20 to-secondary/50 backdrop-blur-sm"
+            className="text-center p-12 rounded-2xl bg-gradient-to-r from-white/10 to-black/50 backdrop-blur-sm border border-white/10"
           >
             <h2 className="font-montserrat font-bold text-3xl sm:text-4xl mb-6">
               Ready to Ace Your Next Interview?
@@ -356,13 +356,18 @@ const LandingPage = () => {
             <p className="text-gray-300 text-lg max-w-2xl mx-auto mb-8">
               Join thousands of professionals who have transformed their interview skills with our platform.
             </p>
-            <Link
-              to="/signup"
-              className="inline-flex items-center px-8 py-4 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors font-semibold text-lg"
+            <motion.div
+              whileHover={{ scale: 1.05 }}
+              transition={{ duration: 0.2 }}
             >
-              Start Practicing Now
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Link>
+              <Link
+                to="/signup"
+                className="inline-flex items-center px-8 py-4 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all font-semibold text-lg"
+              >
+                Start Practicing Now
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Link>
+            </motion.div>
           </motion.div>
         </div>
       </section>
