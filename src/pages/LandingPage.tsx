@@ -62,48 +62,6 @@ const testimonials = [
   }
 ];
 
-// const pricingPlans = [
-//   {
-//     name: "Free",
-//     price: "$0",
-//     period: "forever",
-//     features: [
-//       "5 practice interviews per month",
-//       "Basic feedback",
-//       "Text-only interface"
-//     ],
-//     cta: "Get Started",
-//     highlighted: false
-//   },
-//   {
-//     name: "Pro",
-//     price: "$19",
-//     period: "per month",
-//     features: [
-//       "Unlimited practice interviews",
-//       "Advanced AI feedback",
-//       "Voice recognition",
-//       "Performance analytics",
-//       "Industry-specific questions"
-//     ],
-//     cta: "Try Pro",
-//     highlighted: true
-//   },
-//   {
-//     name: "Enterprise",
-//     price: "Custom",
-//     period: "pricing",
-//     features: [
-//       "Everything in Pro",
-//       "Custom question sets",
-//       "Team management",
-//       "Branded experience",
-//       "Priority support"
-//     ],
-//     cta: "Contact Us",
-//     highlighted: false
-//   }
-// ];
 
 const LandingPage = () => {
   return (
@@ -135,7 +93,7 @@ const LandingPage = () => {
           </div>
         </div>
       </div>
-      
+
       {/* Features Section */}
       <section className="py-24 px-4 sm:px-6 lg:px-8 bg-transparent relative z-10">
         <div className="max-w-7xl mx-auto">
@@ -181,69 +139,6 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* How It Works Section */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, ease: "easeOut" }}
-            viewport={{ once: true }}
-            className="text-center mb-16"
-          >
-            <h2 className="font-montserrat font-bold text-3xl sm:text-4xl mb-4">
-              How It Works
-            </h2>
-            <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-              A simple three-step process to transform your interview skills
-            </p>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.5 }}
-            viewport={{ once: true }}
-            className="grid grid-cols-1 md:grid-cols-3 gap-8"
-          >
-            {[
-              {
-                step: "01",
-                title: "Choose Your Interview Type",
-                description: "Select from various interview types including technical, behavioral, or industry-specific scenarios."
-              },
-              {
-                step: "02",
-                title: "Practice with AI",
-                description: "Engage in realistic interview simulations with our advanced AI interviewer that adapts to your responses."
-              },
-              {
-                step: "03",
-                title: "Review & Improve",
-                description: "Get detailed feedback, suggestions for improvement, and track your progress over time."
-              }
-            ].map((item, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 50 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.2, ease: "easeOut" }}
-                whileHover={{ scale: 1.05, transition: { duration: 0.2 } }}
-                viewport={{ once: true }}
-                className="relative p-8 rounded-xl border border-white/20 hover:border-white/50 transition-all bg-black/50"
-              >
-                <div className="absolute -top-5 -left-5 bg-white text-black text-xl font-bold rounded-full w-10 h-10 flex items-center justify-center">
-                  {item.step}
-                </div>
-                <h3 className="font-montserrat font-semibold text-xl mb-3 mt-4">
-                  {item.title}
-                </h3>
-                <p className="text-gray-400">{item.description}</p>
-              </motion.div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
-
       {/* Benefits Section */}
       <section className="py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-black/30 to-transparent">
         <div className="max-w-7xl mx-auto">
@@ -274,7 +169,7 @@ const LandingPage = () => {
                 initial={{ opacity: 0, x: index % 2 === 0 ? -30 : 30 }}
                 whileInView={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.6, delay: index * 0.15, ease: "easeOut" }}
-                whileHover={{ 
+                whileHover={{
                   backgroundColor: "rgba(255, 255, 255, 0.05)",
                   transition: { duration: 0.2 }
                 }}

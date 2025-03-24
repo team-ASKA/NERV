@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, AlertCircle } from 'lucide-react';
+import { Mail, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 type LoginFormData = {
@@ -14,6 +14,7 @@ const Login = () => {
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -34,13 +35,17 @@ const Login = () => {
     }
   };
 
+  const togglePasswordVisibility = () => {
+    setShowPassword(!showPassword);
+  };
+
   return (
-    <div className="min-h-screen pt-24 px-4 sm:px-6 lg:px-8 bg-primary">
-      <div className="max-w-md mx-auto">
-        <div className="bg-secondary p-8 rounded-xl shadow-xl">
+    <div className="min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-black">
+      <div className="max-w-md w-full">
+        <div className="bg-black/80 p-8 rounded-xl shadow-2xl border border-white/10">
           <h2 className="text-3xl font-bold text-center mb-8">Welcome Back</h2>
           {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/50 rounded-lg flex items-center gap-2 text-red-500">
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-lg flex items-center gap-3 text-red-500">
               <AlertCircle className="h-5 w-5" />
               <p className="text-sm">{error}</p>
             </div>
@@ -59,7 +64,7 @@ const Login = () => {
                     },
                   })}
                   type="email"
-                  className="w-full pl-10 pr-4 py-2 bg-input-bg rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
+                  className="w-full pl-10 pr-4 py-3 bg-black/50 border border-white/20 rounded-lg focus:ring-2 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
                   placeholder="you@example.com"
                 />
               </div>
@@ -74,10 +79,17 @@ const Login = () => {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                 <input
                   {...register('password', { required: 'Password is required' })}
-                  type="password"
-                  className="w-full pl-10 pr-4 py-2 bg-input-bg rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
+                  type={showPassword ? "text" : "password"}
+                  className="w-full pl-10 pr-12 py-3 bg-black/50 border border-white/20 rounded-lg focus:ring-2 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
                   placeholder="••••••••"
                 />
+                <button 
+                  type="button"
+                  onClick={togglePasswordVisibility}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                >
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
               </div>
               {errors.password && (
                 <p className="mt-1 text-sm text-red-500">{errors.password.message}</p>
@@ -88,13 +100,13 @@ const Login = () => {
               <label className="flex items-center">
                 <input
                   type="checkbox"
-                  className="rounded bg-input-bg border-gray-600 text-accent focus:ring-accent"
+                  className="rounded-sm bg-transparent border-white/30 text-white focus:ring-white"
                 />
                 <span className="ml-2 text-sm text-gray-400">Remember me</span>
               </label>
               <Link
                 to="/forgot-password"
-                className="text-sm text-accent hover:text-accent/90"
+                className="text-sm text-white hover:text-gray-300 underline transition-colors"
               >
                 Forgot password?
               </Link>
@@ -103,15 +115,15 @@ const Login = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 px-4 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-3 px-4 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-gray-400">
+          <p className="mt-8 text-center text-sm text-gray-400">
             Don't have an account?{' '}
-            <Link to="/signup" className="text-accent hover:text-accent/90">
+            <Link to="/signup" className="text-white hover:text-gray-300 underline transition-colors">
               Sign up here
             </Link>
           </p>
