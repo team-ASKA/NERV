@@ -73,12 +73,19 @@ const Interview = () => {
   const [hasVideoPermission, setHasVideoPermission] = useState(false);
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [viewMode, setViewMode] = useState<'camera' | 'chat'>('camera');
+  const [transcription, setTranscription] = useState('');
+  const [isUserTurn, setIsUserTurn] = useState(false);
+  const [interviewState, setInterviewState] = useState<'idle' | 'ai-speaking' | 'ai-thinking' | 'user-speaking'>('idle');
 
   useEffect(() => {
     if (!currentUser) {
       navigate('/login');
       return;
     }
+    
+    // Start the interview with AI speaking
+    setInterviewState('ai-speaking');
+    setIsSpeaking(true);
     
     // Add initial AI message with first question
     setMessages([
@@ -95,6 +102,15 @@ const Interview = () => {
         timestamp: new Date()
       }
     ]);
+    
+    // Simulate AI finishing speaking after 3 seconds
+    const timer = setTimeout(() => {
+      setIsSpeaking(false);
+      setInterviewState('idle');
+      setIsUserTurn(true);
+    }, 3000);
+    
+    return () => clearTimeout(timer);
   }, [currentUser, navigate, questions]);
 
   // Scroll to bottom of messages
@@ -103,17 +119,67 @@ const Interview = () => {
   }, [messages]);
 
   const toggleRecording = () => {
-    setIsRecording(!isRecording);
+    if (interviewState === 'ai-speaking' || interviewState === 'ai-thinking') {
+      // Can't record while AI is speaking or thinking
+      return;
+    }
+    
     if (!isRecording) {
-      // Start recording logic here
-      setUserInput('');
+      // Start recording
+      setIsRecording(true);
+      setInterviewState('user-speaking');
+      setTranscription('');
+      
+      // Simulate speech-to-text with a timer that adds words
+      const words = [
+        "I believe", "that React", "is a powerful", "library for", 
+        "building user interfaces.", "I've used it", "in several projects", 
+        "including a dashboard", "and an e-commerce site."
+      ];
+      
+      let wordIndex = 0;
+      const transcriptionInterval = setInterval(() => {
+        if (wordIndex < words.length) {
+          setTranscription(prev => prev + " " + words[wordIndex]);
+          wordIndex++;
+        } else {
+          clearInterval(transcriptionInterval);
+        }
+      }, 700);
+      
+      // Store the interval ID for cleanup
+      return () => clearInterval(transcriptionInterval);
     } else {
-      // Stop recording logic here
+      // Stop recording
+      setIsRecording(false);
+      setInterviewState('idle');
+      
+      // If we have transcription, send it as a message
+      if (transcription.trim()) {
+        setUserInput(transcription.trim());
+        handleSendMessage(transcription.trim());
+      }
     }
   };
 
   const toggleSpeech = () => {
-    setIsSpeaking(!isSpeaking);
+    if (interviewState === 'ai-speaking') {
+      // Stop AI from speaking
+      setIsSpeaking(false);
+      setInterviewState('idle');
+      setIsUserTurn(true);
+    } else if (isSpeaking === false && !isRecording && !isThinking) {
+      // Restart AI speaking if it's not already speaking and user is not recording
+      setIsSpeaking(true);
+      setInterviewState('ai-speaking');
+      
+      // Simulate AI finishing speaking after 3 seconds
+      setTimeout(() => {
+        setIsSpeaking(false);
+        setInterviewState('idle');
+        setIsUserTurn(true);
+      }, 3000);
+    }
   };
 
   const toggleCamera = async () => {
@@ -168,20 +234,25 @@ const Interview = () => {
     };
   }, []);
 
-  const handleSendMessage = () => {
-    if (!userInput.trim()) return;
+  const handleSendMessage = (text = userInput) => {
+    if (!text.trim()) return;
     
     // Add user message
     const newUserMessage: Message = {
       id: Date.now().toString(),
-      text: userInput,
+      text: text.trim(),
       sender: 'user',
       timestamp: new Date()
     };
     
     setMessages(prev => [...prev, newUserMessage]);
     setUserInput('');
+    setTranscription('');
+    setIsUserTurn(false);
+    
+    // AI starts thinking
     setIsThinking(true);
+    setInterviewState('ai-thinking');
     
     // Simulate AI processing
     setTimeout(() => {
@@ -189,47 +260,75 @@ const Interview = () => {
       if (currentQuestion < questions.length - 1) {
         setCurrentQuestion(prev => prev + 1);
         
+        // AI stops thinking and starts speaking
+        setIsThinking(false);
+        setIsSpeaking(true);
+        setInterviewState('ai-speaking');
+        
         // Add AI response and next question
+        const feedback = generateFeedback();
+        const nextQuestion = questions[currentQuestion + 1].text;
+        
         setMessages(prev => [
           ...prev,
           {
             id: Date.now().toString() + '-feedback',
-            text: generateFeedback(),
+            text: feedback,
             sender: 'ai',
             timestamp: new Date()
           },
           {
             id: Date.now().toString() + '-question',
-            text: questions[currentQuestion + 1].text,
-            sender: 'ai',
-            timestamp: new Date(Date.now() + 1000)
-          }
-        ]);
-      } else {
-        // Interview complete
-        setMessages(prev => [
-          ...prev,
-          {
-            id: Date.now().toString() + '-feedback',
-            text: generateFeedback(),
-            sender: 'ai',
-            timestamp: new Date()
-          },
-          {
-            id: Date.now().toString() + '-complete',
-            text: "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.",
+            text: nextQuestion,
             sender: 'ai',
             timestamp: new Date(Date.now() + 1000)
           }
         ]);
         
-        // Navigate to results after a delay
+        // Simulate AI finishing speaking after a delay proportional to message length
+        const speakingTime = (feedback.length + nextQuestion.length) * 30;
         setTimeout(() => {
-          navigate('/results');
-        }, 3000);
+          setIsSpeaking(false);
+          setInterviewState('idle');
+          setIsUserTurn(true);
+        }, Math.min(speakingTime, 5000)); // Cap at 5 seconds max
+        
+      } else {
+        // Interview complete
+        setIsThinking(false);
+        setIsSpeaking(true);
+        setInterviewState('ai-speaking');
+        
+        const feedback = generateFeedback();
+        const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
+        
+        setMessages(prev => [
+          ...prev,
+          {
+            id: Date.now().toString() + '-feedback',
+            text: feedback,
+            sender: 'ai',
+            timestamp: new Date()
+          },
+          {
+            id: Date.now().toString() + '-complete',
+            text: completionMessage,
+            sender: 'ai',
+            timestamp: new Date(Date.now() + 1000)
+          }
+        ]);
+        
+        // Simulate AI finishing speaking
+        setTimeout(() => {
+          setIsSpeaking(false);
+          setInterviewState('idle');
+          
+          // Navigate to results after a delay
+          setTimeout(() => {
+            navigate('/results');
+          }, 2000);
+        }, 4000);
       }
-      
-      setIsThinking(false);
     }, 2000);
   };
 
@@ -247,6 +346,12 @@ const Interview = () => {
   };
 
   const progress = ((currentQuestion + 1) / questions.length) * 100;
+
+  // Determine if recording button should be disabled
+  const isRecordingDisabled = interviewState === 'ai-speaking' || interviewState === 'ai-thinking';
+  
+  // Determine if send button should be disabled
+  const isSendDisabled = !userInput.trim() || isThinking || isSpeaking;
 
   return (
     <div className="min-h-screen bg-black flex flex-col h-screen overflow-hidden">
@@ -275,6 +380,7 @@ const Interview = () => {
               className={`p-2 rounded-full ${
                 isSpeaking ? 'bg-white text-black' : 'bg-black/50 text-gray-400 border border-white/30'
               }`}
+              disabled={isRecording || isThinking}
             >
               {isSpeaking ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
             </button>
@@ -292,9 +398,9 @@ const Interview = () => {
 
       {/* Main content area - flex-1 to take remaining height */}
       <div className="flex-1 overflow-hidden">
-        <div className="h-full max-w-7xl mx-auto p-4">
+        <div className="h-full max-w-6xl mx-auto p-4">
           <div className="flex flex-col md:flex-row h-full gap-4">
-            {/* AI Avatar Section - Now on the left */}
+            {/* AI Avatar Section */}
             <div className="md:w-1/4 md:h-full hidden md:block">
               <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg">
                 <div className="p-4 border-b border-white/20 bg-white/10 rounded-t-xl">
@@ -325,7 +431,9 @@ const Interview = () => {
                     </div>
                   ) : (
                     <div className="text-center">
-                      <p className="text-gray-400">Listening to your response</p>
+                      <p className="text-gray-400">
+                        {isUserTurn ? "Waiting for your response..." : "Listening..."}
+                      </p>
                     </div>
                   )}
                   
@@ -418,6 +526,26 @@ const Interview = () => {
                       </div>
                     )}
                     
+                    {isRecording && (
+                      <div className="flex justify-end">
+                        <div className="bg-white/10 text-white rounded-2xl rounded-tr-none p-4 max-w-[80%]">
+                          <div className="flex items-center mb-2">
+                            <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center mr-2">
+                              <User className="h-3 w-3" />
+                            </div>
+                            <span className="text-sm font-medium">You</span>
+                            <div className="ml-2 flex items-center">
+                              <div className="w-2 h-2 rounded-full bg-red-500 mr-1 animate-pulse"></div>
+                              <span className="text-xs text-red-400">Recording</span>
+                            </div>
+                          </div>
+                          <p className="whitespace-pre-wrap text-sm">
+                            {transcription || "Listening..."}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    
                     <div ref={messagesEndRef} />
                   </div>
                 </div>
@@ -427,10 +555,13 @@ const Interview = () => {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={toggleRecording}
+                      disabled={isRecordingDisabled}
                       className={`p-4 rounded-full flex items-center justify-center transition-all ${
                         isRecording 
                           ? 'bg-red-500 text-white pulsate-recording' 
-                          : 'bg-white text-black hover:bg-white/80'
+                          : isRecordingDisabled
+                            ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                            : 'bg-white text-black hover:bg-white/80'
                       }`}
                       style={{ minWidth: '48px', minHeight: '48px' }}
                     >
@@ -442,15 +573,22 @@ const Interview = () => {
                         type="text"
                         value={userInput}
                         onChange={(e) => setUserInput(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                        placeholder={isRecording ? "Listening..." : "Type your response..."}
-                        disabled={isThinking || isRecording}
+                        onKeyPress={(e) => e.key === 'Enter' && !isSendDisabled && handleSendMessage()}
+                        placeholder={
+                          isRecording ? "Listening..." : 
+                          isSpeaking ? "AI is speaking..." :
+                          isThinking ? "AI is thinking..." :
+                          "Type your response..."
+                        }
+                        disabled={isRecording || isSpeaking || isThinking}
                         className="w-full py-3 px-4 bg-black/30 border border-white/10 rounded-lg focus:ring-2 focus:ring-white/30 focus:outline-none pr-12"
                       />
                       <button
-                        onClick={handleSendMessage}
-                        disabled={!userInput.trim() || isThinking}
-                        className="absolute right-2 top-1/2 transform -translate-y-1/2 p-2 text-white disabled:text-gray-600"
+                        onClick={() => handleSendMessage()}
+                        disabled={isSendDisabled}
+                        className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-2 ${
+                          isSendDisabled ? 'text-gray-600 cursor-not-allowed' : 'text-white hover:text-white/80'
+                        }`}
                       >
                         <Send className="h-5 w-5" />
                       </button>
@@ -460,7 +598,7 @@ const Interview = () => {
               </div>
             </div>
             
-            {/* User video section - Now on the right */}
+            {/* User video section */}
             <div className={`md:w-1/4 md:h-full md:block ${viewMode === 'chat' ? 'hidden' : 'block'}`}>
               <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg">
                 <div className="p-4 border-b border-white/20 flex justify-between items-center bg-white/10 rounded-t-xl">
@@ -476,8 +614,13 @@ const Interview = () => {
                     </button>
                     <button
                       onClick={toggleRecording}
+                      disabled={isRecordingDisabled}
                       className={`p-2 rounded-full ${
-                        isRecording ? 'bg-red-500/20 text-red-500' : 'bg-white/20 text-white'
+                        isRecording 
+                          ? 'bg-red-500/20 text-red-500' 
+                          : isRecordingDisabled
+                            ? 'bg-gray-700/20 text-gray-400 cursor-not-allowed'
+                            : 'bg-white/20 text-white'
                       }`}
                     >
                       {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
