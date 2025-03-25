@@ -263,7 +263,7 @@ const Interview = () => {
       </div>
 
       {/* Interview header - fixed */}
-      <div className="bg-black py-4 px-6 border-b border-white/10 sticky top-0 z-10">
+      <div className="bg-black/80 py-4 px-6 border-b border-white/20 sticky top-0 z-10 backdrop-blur-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <div>
             <h1 className="text-xl font-semibold">Technical Interview</h1>
@@ -273,7 +273,7 @@ const Interview = () => {
             <button
               onClick={toggleSpeech}
               className={`p-2 rounded-full ${
-                isSpeaking ? 'bg-white/20 text-white' : 'bg-black/20 text-gray-400 border border-white/20'
+                isSpeaking ? 'bg-white text-black' : 'bg-black/50 text-gray-400 border border-white/30'
               }`}
             >
               {isSpeaking ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
@@ -281,7 +281,7 @@ const Interview = () => {
             <div className="md:hidden">
               <button
                 onClick={() => setViewMode(viewMode === 'camera' ? 'chat' : 'camera')}
-                className="p-2 rounded-full bg-white/10 text-white"
+                className="p-2 rounded-full bg-white text-black"
               >
                 {viewMode === 'camera' ? <MessageSquare className="h-5 w-5" /> : <Camera className="h-5 w-5" />}
               </button>
@@ -292,89 +292,70 @@ const Interview = () => {
 
       {/* Main content area - flex-1 to take remaining height */}
       <div className="flex-1 overflow-hidden">
-        <div className="h-full max-w-6xl mx-auto p-4">
+        <div className="h-full max-w-7xl mx-auto p-4">
           <div className="flex flex-col md:flex-row h-full gap-4">
-            {/* User video section - fixed height on desktop */}
-            <div className={`md:w-1/3 md:h-full md:block ${viewMode === 'chat' ? 'hidden' : 'block'}`}>
-              <div className="bg-black/30 border border-white/10 rounded-xl h-full flex flex-col">
-                <div className="p-4 border-b border-white/10 flex justify-between items-center">
-                  <h2 className="font-medium">Your Camera</h2>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={toggleCamera}
-                      className={`p-2 rounded-full ${
-                        isCameraOn ? 'bg-white/20 text-white' : 'bg-black/20 text-gray-400 border border-white/20'
-                      }`}
-                    >
-                      {isCameraOn ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
-                    </button>
-                    <button
-                      onClick={toggleRecording}
-                      className={`p-2 rounded-full ${
-                        isRecording ? 'bg-red-500/20 text-red-500' : 'bg-white/20 text-white'
-                      }`}
-                    >
-                      {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                    </button>
-                  </div>
+            {/* AI Avatar Section - Now on the left */}
+            <div className="md:w-1/4 md:h-full hidden md:block">
+              <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg">
+                <div className="p-4 border-b border-white/20 bg-white/10 rounded-t-xl">
+                  <h2 className="font-medium">AI Interviewer</h2>
                 </div>
                 
-                <div className="flex-1 flex items-center justify-center p-4 relative">
-                  {isCameraOn ? (
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover rounded-lg"
-                      style={{ transform: 'scaleX(-1)' }} // Mirror effect for selfie view
-                    />
+                <div className="flex-1 flex flex-col items-center justify-center p-6">
+                  <div className="w-32 h-32 bg-gradient-to-br from-white/20 to-white/5 rounded-full flex items-center justify-center mb-6 border border-white/10">
+                    <Bot className="h-16 w-16 text-white/80" />
+                  </div>
+                  
+                  {isThinking ? (
+                    <div className="text-center">
+                      <div className="flex items-center justify-center gap-2 mb-3">
+                        <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                        <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                        <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                      </div>
+                      <p className="text-gray-400">Thinking...</p>
+                    </div>
+                  ) : isSpeaking ? (
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-white/5 rounded-full animate-ping opacity-75"></div>
+                      <div className="relative bg-white/10 p-3 rounded-full">
+                        <Volume2 className="h-6 w-6 text-white" />
+                      </div>
+                      <p className="text-center mt-3 text-gray-400">Speaking...</p>
+                    </div>
                   ) : (
                     <div className="text-center">
-                      {hasVideoPermission ? (
-                        <div>
-                          <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <User className="h-10 w-10 text-gray-400" />
-                          </div>
-                          <p className="text-gray-400">Camera is turned off</p>
-                          <button
-                            onClick={toggleCamera}
-                            className="mt-4 px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
-                          >
-                            Turn on camera
-                          </button>
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Camera className="h-10 w-10 text-gray-400" />
-                          </div>
-                          <p className="text-gray-400">Camera access required</p>
-                          <button
-                            onClick={toggleCamera}
-                            className="mt-4 px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
-                          >
-                            Allow camera access
-                          </button>
-                        </div>
-                      )}
+                      <p className="text-gray-400">Listening to your response</p>
                     </div>
                   )}
                   
-                  {isRecording && (
-                    <div className="absolute top-2 right-2 flex items-center bg-black/70 px-2 py-1 rounded-full">
-                      <div className="w-2 h-2 rounded-full bg-red-500 mr-2 animate-pulse"></div>
-                      <span className="text-xs text-white">Recording</span>
+                  <div className="mt-8 space-y-3 w-full">
+                    <div className="bg-white/5 p-3 rounded-lg">
+                      <p className="text-xs text-gray-400 mb-1">Current Topic</p>
+                      <p className="text-sm">{questions[currentQuestion].text.length > 60 ? 
+                        questions[currentQuestion].text.substring(0, 60) + '...' : 
+                        questions[currentQuestion].text}
+                      </p>
                     </div>
-                  )}
+                    
+                    <div className="bg-white/5 p-3 rounded-lg">
+                      <p className="text-xs text-gray-400 mb-1">Interview Progress</p>
+                      <div className="w-full bg-black/50 rounded-full h-2.5">
+                        <div className="bg-white h-2.5 rounded-full" style={{ width: `${progress}%` }}></div>
+                      </div>
+                      <p className="text-xs text-right mt-1 text-gray-400">
+                        {currentQuestion + 1} of {questions.length} questions
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
             
             {/* AI chat section - scrollable content */}
-            <div className={`md:w-2/3 h-full md:block ${viewMode === 'camera' ? 'hidden' : 'block'}`}>
-              <div className="bg-black/30 border border-white/10 rounded-xl h-full flex flex-col">
-                <div className="p-4 border-b border-white/10 flex-shrink-0">
+            <div className={`md:w-2/4 h-full md:block ${viewMode === 'camera' ? 'hidden' : 'block'}`}>
+              <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg">
+                <div className="p-4 border-b border-white/20 flex-shrink-0 bg-white/10 rounded-t-xl">
                   <div className="flex items-center">
                     <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center mr-2">
                       <Bot className="h-4 w-4 text-white" />
@@ -442,7 +423,7 @@ const Interview = () => {
                 </div>
                 
                 {/* Input area - fixed at bottom */}
-                <div className="p-4 border-t border-white/10 flex-shrink-0">
+                <div className="p-4 border-t border-white/20 flex-shrink-0 bg-white/5">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={toggleRecording}
@@ -464,7 +445,7 @@ const Interview = () => {
                         onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                         placeholder={isRecording ? "Listening..." : "Type your response..."}
                         disabled={isThinking || isRecording}
-                        className="w-full py-3 px-4 bg-white/5 border border-white/10 rounded-lg focus:ring-2 focus:ring-white/30 focus:outline-none pr-12"
+                        className="w-full py-3 px-4 bg-black/30 border border-white/10 rounded-lg focus:ring-2 focus:ring-white/30 focus:outline-none pr-12"
                       />
                       <button
                         onClick={handleSendMessage}
@@ -475,6 +456,83 @@ const Interview = () => {
                       </button>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* User video section - Now on the right */}
+            <div className={`md:w-1/4 md:h-full md:block ${viewMode === 'chat' ? 'hidden' : 'block'}`}>
+              <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg">
+                <div className="p-4 border-b border-white/20 flex justify-between items-center bg-white/10 rounded-t-xl">
+                  <h2 className="font-medium">Your Camera</h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={toggleCamera}
+                      className={`p-2 rounded-full ${
+                        isCameraOn ? 'bg-white/20 text-white' : 'bg-black/50 text-gray-400 border border-white/30'
+                      }`}
+                    >
+                      {isCameraOn ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
+                    </button>
+                    <button
+                      onClick={toggleRecording}
+                      className={`p-2 rounded-full ${
+                        isRecording ? 'bg-red-500/20 text-red-500' : 'bg-white/20 text-white'
+                      }`}
+                    >
+                      {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="flex-1 flex items-center justify-center p-4 relative">
+                  {isCameraOn ? (
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover rounded-lg"
+                      style={{ transform: 'scaleX(-1)' }} // Mirror effect for selfie view
+                    />
+                  ) : (
+                    <div className="text-center">
+                      {hasVideoPermission ? (
+                        <div>
+                          <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <User className="h-10 w-10 text-gray-400" />
+                          </div>
+                          <p className="text-gray-400">Camera is turned off</p>
+                          <button
+                            onClick={toggleCamera}
+                            className="mt-4 px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
+                          >
+                            Turn on camera
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Camera className="h-10 w-10 text-gray-400" />
+                          </div>
+                          <p className="text-gray-400">Camera access required</p>
+                          <button
+                            onClick={toggleCamera}
+                            className="mt-4 px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
+                          >
+                            Allow camera access
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {isRecording && (
+                    <div className="absolute top-2 right-2 flex items-center bg-black/70 px-2 py-1 rounded-full">
+                      <div className="w-2 h-2 rounded-full bg-red-500 mr-2 animate-pulse"></div>
+                      <span className="text-xs text-white">Recording</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
