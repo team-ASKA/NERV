@@ -1,8 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Mic, MicOff, Camera, CameraOff, Volume2, VolumeX, Loader2, ArrowRight, Send, User, Bot, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, Camera, CameraOff, Volume2, VolumeX, Loader2, ArrowRight, Send, User, Bot, MessageSquare, Brain } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { transcribeAudio } from '../services/whisperService';
+import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
 
 interface Message {
   id: string;
@@ -76,6 +79,10 @@ const Interview = () => {
   const [transcription, setTranscription] = useState('');
   const [isUserTurn, setIsUserTurn] = useState(false);
   const [interviewState, setInterviewState] = useState<'idle' | 'ai-speaking' | 'ai-thinking' | 'user-speaking'>('idle');
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!currentUser) {
@@ -118,6 +125,62 @@ const Interview = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const startRecording = async () => {
+    try {
+      setTranscriptionError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm', // Specify the MIME type explicitly
+      });
+      const audioChunks: BlobPart[] = [];
+      
+      recorder.ondataavailable = (e) => {
+        audioChunks.push(e.data);
+      };
+      
+      recorder.onstop = async () => {
+        try {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          console.log('Recording stopped, blob created:', audioBlob.size, 'bytes');
+          
+          setIsTranscribing(true);
+          const text = await transcribeAudio(audioBlob);
+          setIsTranscribing(false);
+          
+          if (text) {
+            setUserInput(text);
+            handleSendMessage(text);
+          } else {
+            setTranscriptionError("Received empty transcription. Please try again or type your response.");
+          }
+        } catch (error) {
+          console.error("Transcription error:", error);
+          setIsTranscribing(false);
+          setTranscriptionError(error instanceof Error ? error.message : "Error transcribing audio. Please try again.");
+        } finally {
+          // Always clean up the stream
+          stream.getTracks().forEach(track => track.stop());
+        }
+      };
+      
+      setMediaRecorder(recorder);
+      recorder.start();
+      setIsRecording(true);
+      setInterviewState('user-speaking');
+    } catch (err) {
+      console.error("Error starting recording:", err);
+      setTranscriptionError("Couldn't access microphone. Please check permissions and try again.");
+    }
+  };
+  
+  const stopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      setInterviewState('idle');
+    }
+  };
+
   const toggleRecording = () => {
     if (interviewState === 'ai-speaking' || interviewState === 'ai-thinking') {
       // Can't record while AI is speaking or thinking
@@ -125,40 +188,9 @@ const Interview = () => {
     }
     
     if (!isRecording) {
-      // Start recording
-      setIsRecording(true);
-      setInterviewState('user-speaking');
-      setTranscription('');
-      
-      // Simulate speech-to-text with a timer that adds words
-      const words = [
-        "I believe", "that React", "is a powerful", "library for", 
-        "building user interfaces.", "I've used it", "in several projects", 
-        "including a dashboard", "and an e-commerce site."
-      ];
-      
-      let wordIndex = 0;
-      const transcriptionInterval = setInterval(() => {
-        if (wordIndex < words.length) {
-          setTranscription(prev => prev + " " + words[wordIndex]);
-          wordIndex++;
-        } else {
-          clearInterval(transcriptionInterval);
-        }
-      }, 700);
-      
-      // Store the interval ID for cleanup
-      return () => clearInterval(transcriptionInterval);
+      startRecording();
     } else {
-      // Stop recording
-      setIsRecording(false);
-      setInterviewState('idle');
-      
-      // If we have transcription, send it as a message
-      if (transcription.trim()) {
-        setUserInput(transcription.trim());
-        handleSendMessage(transcription.trim());
-      }
+      stopRecording();
     }
   };
 
@@ -546,6 +578,28 @@ const Interview = () => {
                       </div>
                     )}
                     
+                    {isTranscribing && !isRecording && (
+                      <div className="flex justify-end">
+                        <div className="bg-white/10 text-white rounded-2xl rounded-tr-none p-4 max-w-[80%]">
+                          <div className="flex items-center mb-2">
+                            <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center mr-2">
+                              <User className="h-3 w-3" />
+                            </div>
+                            <span className="text-sm font-medium">You</span>
+                            <div className="ml-2 flex items-center">
+                              <div className="w-2 h-2 rounded-full bg-blue-500 mr-1 animate-pulse"></div>
+                              <span className="text-xs text-blue-400">Transcribing...</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
                     <div ref={messagesEndRef} />
                   </div>
                 </div>
@@ -555,17 +609,21 @@ const Interview = () => {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={toggleRecording}
-                      disabled={isRecordingDisabled}
+                      disabled={isRecordingDisabled || isTranscribing}
                       className={`p-4 rounded-full flex items-center justify-center transition-all ${
                         isRecording 
                           ? 'bg-red-500 text-white pulsate-recording' 
-                          : isRecordingDisabled
-                            ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                            : 'bg-white text-black hover:bg-white/80'
+                          : isTranscribing
+                            ? 'bg-blue-500 text-white'
+                            : isRecordingDisabled
+                              ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                              : 'bg-white text-black hover:bg-white/80'
                       }`}
                       style={{ minWidth: '48px', minHeight: '48px' }}
                     >
-                      {isRecording ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+                      {isRecording ? <MicOff className="h-6 w-6" /> : 
+                       isTranscribing ? <Loader2 className="h-6 w-6 animate-spin" /> : 
+                       <Mic className="h-6 w-6" />}
                     </button>
                     
                     <div className="flex-1 relative">
@@ -576,11 +634,12 @@ const Interview = () => {
                         onKeyPress={(e) => e.key === 'Enter' && !isSendDisabled && handleSendMessage()}
                         placeholder={
                           isRecording ? "Listening..." : 
+                          isTranscribing ? "Transcribing..." :
                           isSpeaking ? "AI is speaking..." :
                           isThinking ? "AI is thinking..." :
                           "Type your response..."
                         }
-                        disabled={isRecording || isSpeaking || isThinking}
+                        disabled={isRecording || isSpeaking || isThinking || isTranscribing}
                         className="w-full py-3 px-4 bg-black/30 border border-white/10 rounded-lg focus:ring-2 focus:ring-white/30 focus:outline-none pr-12"
                       />
                       <button
@@ -611,19 +670,6 @@ const Interview = () => {
                       }`}
                     >
                       {isCameraOn ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
-                    </button>
-                    <button
-                      onClick={toggleRecording}
-                      disabled={isRecordingDisabled}
-                      className={`p-2 rounded-full ${
-                        isRecording 
-                          ? 'bg-red-500/20 text-red-500' 
-                          : isRecordingDisabled
-                            ? 'bg-gray-700/20 text-gray-400 cursor-not-allowed'
-                            : 'bg-white/20 text-white'
-                      }`}
-                    >
-                      {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
@@ -682,6 +728,11 @@ const Interview = () => {
           </div>
         </div>
       </div>
+      {transcriptionError && (
+        <div className="p-2 mt-2 bg-red-500/20 border border-red-500/30 rounded-lg text-sm text-red-300">
+          {transcriptionError}
+        </div>
+      )}
     </div>
   );
 };
