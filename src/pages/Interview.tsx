@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion} from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Mic, MicOff, Camera, CameraOff, Volume2, VolumeX, Loader2, ArrowRight, Send, User, Bot, MessageSquare, Brain } from 'lucide-react';
+import { Mic, MicOff, Camera, CameraOff, Volume2, VolumeX, Loader2, Send, User, Bot, MessageSquare } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { transcribeAudio } from '../services/whisperService';
-import axios from 'axios';
-import { v4 as uuidv4 } from 'uuid';
+
 
 interface Message {
   id: string;
