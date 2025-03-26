@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion} from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Mic, MicOff, Camera, CameraOff, Volume2, VolumeX, Loader2, Send, User, Bot, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, Camera, CameraOff, Volume2, VolumeX, Loader2, Send, User, Bot, MessageSquare, Brain } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { transcribeAudio } from '../services/whisperService';
-
+import { FaVideo } from 'react-icons/fa';
+import { HumeClient } from "hume";
 
 interface Message {
   id: string;
@@ -82,6 +83,25 @@ const Interview = () => {
   const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [humeApiKey, setHumeApiKey] = useState<string>(
+    import.meta.env.VITE_HUME_API_KEY || ''
+  );
+  const [humeSecretKey, setHumeSecretKey] = useState<string>(
+    import.meta.env.VITE_HUME_SECRET_KEY || ''
+  );
+  const [facialExpressions, setFacialExpressions] = useState<any>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [captureInterval, setCaptureInterval] = useState<NodeJS.Timeout | null>(null);
+
+  // Create a Hume client instance
+  const humeClient = useMemo(() => 
+    new HumeClient({
+      apiKey: humeApiKey,
+    }), 
+    [humeApiKey]
+  );
 
   useEffect(() => {
     if (!currentUser) {
@@ -213,6 +233,179 @@ const Interview = () => {
     }
   };
 
+  const captureAndAnalyzeFrame = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current || !isCameraOn || !videoStream) return;
+    
+    try {
+      setIsAnalyzing(true);
+      console.log("Starting facial analysis...");
+      
+      // Capture frame from video
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      
+      if (!context) return;
+      
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Convert to blob
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.8);
+      });
+      
+      if (!blob) return;
+      console.log("Image captured, size:", blob.size, "bytes");
+      
+      // Create a File object from the blob
+      const file = new File([blob], "frame.jpg", { type: "image/jpeg" });
+      
+      // Start inference job
+      console.log("Starting inference job...");
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('json', JSON.stringify({
+        models: { face: {} }
+      }));
+      
+      const jobResponse = await fetch('https://api.hume.ai/v0/batch/jobs', {
+        method: 'POST',
+        headers: { 'X-Hume-Api-Key': humeApiKey },
+        body: formData,
+      });
+      
+      if (!jobResponse.ok) {
+        const errorText = await jobResponse.text();
+        console.error("Job creation error:", errorText);
+        throw new Error(`API error: ${jobResponse.status}`);
+      }
+      
+      const jobData = await jobResponse.json();
+      const jobId = jobData.job_id;
+      console.log("Job created with ID:", jobId);
+      
+      // Poll for job completion
+      let jobStatus = 'RUNNING';
+      let attempts = 0;
+      const maxAttempts = 30; // Maximum polling attempts
+      
+      console.log("Polling for job completion...");
+      while (jobStatus === 'RUNNING' && attempts < maxAttempts) {
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const statusResponse = await fetch(`https://api.hume.ai/v0/batch/jobs/${jobId}`, {
+          method: 'GET',
+          headers: { 'X-Hume-Api-Key': humeApiKey },
+        });
+        
+        if (!statusResponse.ok) {
+          console.error("Status check failed:", await statusResponse.text());
+          break;
+        }
+        
+        const statusData = await statusResponse.json();
+        jobStatus = statusData.state?.status || statusData.status;
+        console.log(`Job status (attempt ${attempts}): ${jobStatus}`);
+        
+        if (jobStatus === 'COMPLETED') {
+          console.log("Job completed, waiting before fetching predictions...");
+          // Add a small delay to ensure predictions are ready
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Try up to 3 times to get predictions
+          let predictionsFound = false;
+          for (let predAttempt = 1; predAttempt <= 3; predAttempt++) {
+            console.log(`Fetching predictions (attempt ${predAttempt})...`);
+            
+            const predictionsResponse = await fetch(`https://api.hume.ai/v0/batch/jobs/${jobId}/predictions`, {
+              method: 'GET',
+              headers: { 
+                'X-Hume-Api-Key': humeApiKey,
+                'accept': 'application/json; charset=utf-8'
+              },
+            });
+            
+            if (!predictionsResponse.ok) {
+              console.error(`Predictions fetch failed (attempt ${predAttempt}):`, await predictionsResponse.text());
+              if (predAttempt < 3) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                continue;
+              }
+              break;
+            }
+            
+            const predictions = await predictionsResponse.json();
+            console.log(`Predictions response (attempt ${predAttempt}):`, predictions);
+            
+            if (predictions && Array.isArray(predictions) && predictions.length > 0) {
+              console.log("Processing predictions structure...");
+              
+              // Check if we have predictions array in the results
+              if (predictions[0].results?.predictions && 
+                  Array.isArray(predictions[0].results.predictions) && 
+                  predictions[0].results.predictions.length > 0) {
+                
+                // Get the first prediction which contains the file data
+                const filePrediction = predictions[0].results.predictions[0];
+                console.log("File prediction:", filePrediction);
+                
+                // Check if we have face model results with grouped_predictions
+                if (filePrediction.models?.face?.grouped_predictions && 
+                    filePrediction.models.face.grouped_predictions.length > 0 &&
+                    filePrediction.models.face.grouped_predictions[0].predictions &&
+                    filePrediction.models.face.grouped_predictions[0].predictions.length > 0) {
+                  
+                  // Extract the emotions array from the first prediction
+                  const emotions = filePrediction.models.face.grouped_predictions[0].predictions[0].emotions;
+                  
+                  if (emotions && emotions.length > 0) {
+                    console.log("Emotions found:", emotions.length, "emotions");
+                    setFacialExpressions({ emotions });
+                    predictionsFound = true;
+                  } else {
+                    console.log("No emotions array in the prediction");
+                  }
+                  
+                  break;
+                } else {
+                  console.log("No grouped_predictions in face model results");
+                }
+              } else {
+                console.log("No predictions array in results");
+              }
+            }
+            
+            if (predAttempt < 3 && !predictionsFound) {
+              console.log("Waiting before retrying predictions...");
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          }
+          
+          if (!predictionsFound) {
+            console.log("Failed to get valid predictions after multiple attempts");
+          }
+          
+          break;
+        } else if (jobStatus === 'FAILED') {
+          console.error("Job failed");
+          break;
+        }
+      }
+      
+      if (attempts >= maxAttempts) {
+        console.log("Max polling attempts reached");
+      }
+      
+    } catch (error) {
+      console.error('Error analyzing facial expressions:', error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [videoRef, canvasRef, isCameraOn, videoStream, humeApiKey]);
+
   const toggleCamera = async () => {
     if (isCameraOn) {
       // Turn off camera
@@ -221,49 +414,59 @@ const Interview = () => {
         setVideoStream(null);
       }
       setIsCameraOn(false);
+      
+      // Stop the analysis interval
+      if (captureInterval) {
+        clearInterval(captureInterval);
+        setCaptureInterval(null);
+      }
     } else {
       // Turn on camera
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        setCameraError(null);
+        
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: true,
+          audio: false
+        });
+        
+        setVideoStream(stream);
+        
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
-        setVideoStream(stream);
+        
         setIsCameraOn(true);
         setHasVideoPermission(true);
+        
+        // Start the analysis interval (every 5 seconds)
+        const interval = setInterval(() => {
+          captureAndAnalyzeFrame();
+        }, 5000);
+        
+        setCaptureInterval(interval);
       } catch (err) {
-        console.error("Error accessing camera:", err);
         setHasVideoPermission(false);
+        setCameraError('Could not access camera. Please check permissions.');
       }
     }
   };
 
-  // Initialize camera when component mounts
   useEffect(() => {
-    const initCamera = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-        setVideoStream(stream);
-        setIsCameraOn(true);
-        setHasVideoPermission(true);
-      } catch (err) {
-        console.error("Error accessing camera:", err);
-        setHasVideoPermission(false);
-      }
-    };
+    if (videoRef.current && videoStream) {
+      videoRef.current.srcObject = videoStream;
+    }
     
-    initCamera();
-    
-    // Cleanup function to stop all tracks when component unmounts
     return () => {
       if (videoStream) {
         videoStream.getTracks().forEach(track => track.stop());
       }
+      
+      if (captureInterval) {
+        clearInterval(captureInterval);
+      }
     };
-  }, []);
+  }, [videoStream, captureInterval]);
 
   const handleSendMessage = (text = userInput) => {
     if (!text.trim()) return;
@@ -674,46 +877,73 @@ const Interview = () => {
                 </div>
                 
                 <div className="flex-1 flex items-center justify-center p-4 relative">
-                  {isCameraOn ? (
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover rounded-lg"
-                      style={{ transform: 'scaleX(-1)' }} // Mirror effect for selfie view
-                    />
-                  ) : (
-                    <div className="text-center">
-                      {hasVideoPermission ? (
-                        <div>
-                          <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <User className="h-10 w-10 text-gray-400" />
-                          </div>
-                          <p className="text-gray-400">Camera is turned off</p>
-                          <button
-                            onClick={toggleCamera}
-                            className="mt-4 px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
-                          >
-                            Turn on camera
-                          </button>
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Camera className="h-10 w-10 text-gray-400" />
-                          </div>
-                          <p className="text-gray-400">Camera access required</p>
-                          <button
-                            onClick={toggleCamera}
-                            className="mt-4 px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
-                          >
-                            Allow camera access
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <div className="relative w-full h-48 md:h-64 bg-gray-800 rounded-lg overflow-hidden">
+                    {isCameraOn ? (
+                      <>
+                        <video
+                          ref={videoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          className="w-full h-full object-cover rounded-lg"
+                          style={{ transform: 'scaleX(-1)' }}
+                        />
+                        <canvas ref={canvasRef} className="hidden" />
+                        
+                        {/* Brain button for manual analysis */}
+                        <button
+                          onClick={captureAndAnalyzeFrame}
+                          disabled={isAnalyzing}
+                          className="absolute top-2 right-2 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+                          title="Analyze facial expressions"
+                        >
+                          <Brain className={`h-5 w-5 ${isAnalyzing ? 'text-blue-400 animate-pulse' : 'text-white'}`} />
+                        </button>
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <FaVideo className="text-gray-400 text-4xl" />
+                      </div>
+                    )}
+                    {cameraError && (
+                      <div className="absolute bottom-0 left-0 right-0 bg-red-500 text-white p-1 text-xs text-center">
+                        {cameraError}
+                      </div>
+                    )}
+                    
+                    {/* Facial expression display */}
+                    {facialExpressions && facialExpressions.emotions && (
+                      <div className="absolute top-2 left-2 bg-black/70 p-2 rounded text-xs max-w-[180px] overflow-auto">
+                        <p className="text-white font-bold mb-1">Emotions:</p>
+                        {facialExpressions.emotions.length > 0 ? (
+                          // Sort emotions by score and display top 5
+                          [...facialExpressions.emotions]
+                            .sort((a, b) => b.score - a.score)
+                            .slice(0, 5)
+                            .map((emotion) => (
+                              <div key={emotion.name} className="flex justify-between items-center mb-1">
+                                <span className="text-gray-300 capitalize">{emotion.name}:</span>
+                                <div className="flex items-center">
+                                  <div 
+                                    className="bg-white h-1.5 rounded-full" 
+                                    style={{ width: `${emotion.score * 50}px` }}
+                                  ></div>
+                                  <span className="text-white ml-1">{(emotion.score * 100).toFixed(0)}%</span>
+                                </div>
+                              </div>
+                            ))
+                        ) : (
+                          <p className="text-gray-400">No emotions detected</p>
+                        )}
+                      </div>
+                    )}
+                    
+                    {isAnalyzing && (
+                      <div className="absolute bottom-2 right-2 bg-blue-500/70 px-2 py-1 rounded-full">
+                        <span className="text-xs text-white">Analyzing...</span>
+                      </div>
+                    )}
+                  </div>
                   
                   {isRecording && (
                     <div className="absolute top-2 right-2 flex items-center bg-black/70 px-2 py-1 rounded-full">
