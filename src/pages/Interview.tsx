@@ -146,49 +146,79 @@ const Interview = () => {
 
   const startRecording = async () => {
     try {
+      setIsRecording(true);
       setTranscriptionError(null);
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm', // Specify the MIME type explicitly
-      });
+      const mediaRecorder = new MediaRecorder(stream);
       const audioChunks: BlobPart[] = [];
       
-      recorder.ondataavailable = (e) => {
-        audioChunks.push(e.data);
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
       };
       
-      recorder.onstop = async () => {
+      mediaRecorder.onstop = async () => {
+        setIsRecording(false);
+        setIsTranscribing(true);
+        
         try {
-          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-          console.log('Recording stopped, blob created:', audioBlob.size, 'bytes');
+          const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+          console.log("Audio recording complete, size:", audioBlob.size, "bytes");
           
-          setIsTranscribing(true);
-          const text = await transcribeAudio(audioBlob);
-          setIsTranscribing(false);
+          // Get the Azure API key from environment variables
+          const azureApiKey = import.meta.env.VITE_APP_AZURE_API_KEY;
+          const endpoint = "https://kusha-m8fgqe1k-eastus2.cognitiveservices.azure.com";
+          const deploymentName = "whisper";
           
-          if (text) {
-            setUserInput(text);
-            handleSendMessage(text);
+          // Create FormData to send the audio file
+          const formData = new FormData();
+          formData.append('file', audioBlob, 'recording.wav');
+          
+          console.log("Sending transcription request to Azure Whisper API...");
+          
+          // Call Azure Whisper endpoint with the correct path and API version
+          const response = await fetch(
+            `${endpoint}/openai/deployments/${deploymentName}/audio/transcriptions?api-version=2023-09-01-preview`,
+            {
+              method: 'POST',
+              headers: {
+                'api-key': azureApiKey,
+              },
+              body: formData,
+            }
+          );
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error("Azure API error response:", errorText);
+            throw new Error(`Transcription failed: ${response.status} ${response.statusText}`);
+          }
+          
+          const result = await response.json();
+          console.log("Transcription result:", result);
+          
+          // Azure Whisper returns text in the 'text' field
+          if (result.text) {
+            setTranscription(result.text);
+            setUserInput(result.text);
           } else {
-            setTranscriptionError("Received empty transcription. Please try again or type your response.");
+            setTranscriptionError('No transcription returned');
           }
         } catch (error) {
-          console.error("Transcription error:", error);
-          setIsTranscribing(false);
-          setTranscriptionError(error instanceof Error ? error.message : "Error transcribing audio. Please try again.");
+          console.error('Transcription error:', error);
+          setTranscriptionError(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
-          // Always clean up the stream
-          stream.getTracks().forEach(track => track.stop());
+          setIsTranscribing(false);
         }
       };
       
-      setMediaRecorder(recorder);
-      recorder.start();
-      setIsRecording(true);
-      setInterviewState('user-speaking');
-    } catch (err) {
-      console.error("Error starting recording:", err);
-      setTranscriptionError("Couldn't access microphone. Please check permissions and try again.");
+      mediaRecorder.start();
+      setMediaRecorder(mediaRecorder);
+      
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      setIsRecording(false);
+      setTranscriptionError(`Microphone error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
   
