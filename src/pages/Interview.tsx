@@ -94,6 +94,10 @@ const Interview = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [captureInterval, setCaptureInterval] = useState<NodeJS.Timeout | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [ttsApiKey, setTtsApiKey] = useState<string>(
+    import.meta.env.VITE_APP_AZURE_TTS_API_KEY || ''
+  );
 
   // Create a Hume client instance
   const humeClient = useMemo(() => 
@@ -177,6 +181,7 @@ const Interview = () => {
           console.log("Sending transcription request to Azure Whisper API...");
           
           // Call Azure Whisper endpoint with the correct path and API version
+          // Using the format from the documentation
           const response = await fetch(
             `${endpoint}/openai/deployments/${deploymentName}/audio/transcriptions?api-version=2023-09-01-preview`,
             {
@@ -199,8 +204,103 @@ const Interview = () => {
           
           // Azure Whisper returns text in the 'text' field
           if (result.text) {
-            setTranscription(result.text);
-            setUserInput(result.text);
+            const transcribedText = result.text;
+            setTranscription(transcribedText);
+            
+            // Clear the input field immediately
+            setUserInput('');
+            
+            // Add user message to chat
+            const userMessage: Message = {
+              id: Date.now().toString(),
+              text: transcribedText,
+              sender: 'user',
+              timestamp: new Date()
+            };
+            
+            // Update messages state with the new user message
+            const updatedMessages = [...messages, userMessage];
+            setMessages(updatedMessages);
+            
+            setIsThinking(true);
+            setInterviewState('ai-thinking');
+            
+            // Simulate AI processing
+            setTimeout(() => {
+              // Move to next question if available
+              if (currentQuestion < questions.length - 1) {
+                setCurrentQuestion(prev => prev + 1);
+                
+                // AI stops thinking and starts speaking
+                setIsThinking(false);
+                setIsSpeaking(true);
+                setInterviewState('ai-speaking');
+                
+                // Add AI response and next question
+                const feedback = generateFeedback();
+                const nextQuestion = questions[currentQuestion + 1].text;
+                
+                setMessages(prev => [
+                  ...prev,
+                  {
+                    id: Date.now().toString() + '-feedback',
+                    text: feedback,
+                    sender: 'ai',
+                    timestamp: new Date()
+                  },
+                  {
+                    id: Date.now().toString() + '-question',
+                    text: nextQuestion,
+                    sender: 'ai',
+                    timestamp: new Date(Date.now() + 1000)
+                  }
+                ]);
+                
+                // Simulate AI finishing speaking after a delay proportional to message length
+                const speakingTime = (feedback.length + nextQuestion.length) * 30;
+                setTimeout(() => {
+                  setIsSpeaking(false);
+                  setInterviewState('idle');
+                  setIsUserTurn(true);
+                }, Math.min(speakingTime, 5000)); // Cap at 5 seconds max
+                
+              } else {
+                // Interview complete
+                setIsThinking(false);
+                setIsSpeaking(true);
+                setInterviewState('ai-speaking');
+                
+                const feedback = generateFeedback();
+                const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
+                
+                setMessages(prev => [
+                  ...prev,
+                  {
+                    id: Date.now().toString() + '-feedback',
+                    text: feedback,
+                    sender: 'ai',
+                    timestamp: new Date()
+                  },
+                  {
+                    id: Date.now().toString() + '-complete',
+                    text: completionMessage,
+                    sender: 'ai',
+                    timestamp: new Date(Date.now() + 1000)
+                  }
+                ]);
+                
+                // Simulate AI finishing speaking
+                setTimeout(() => {
+                  setIsSpeaking(false);
+                  setInterviewState('idle');
+                  
+                  // Navigate to results after a delay
+                  setTimeout(() => {
+                    navigate('/results');
+                  }, 2000);
+                }, 4000);
+              }
+            }, 2000);
           } else {
             setTranscriptionError('No transcription returned');
           }
@@ -498,7 +598,7 @@ const Interview = () => {
     };
   }, [videoStream, captureInterval]);
 
-  const handleSendMessage = (text = userInput) => {
+  const handleSendMessage = async (text = userInput) => {
     if (!text.trim()) return;
     
     // Add user message
@@ -594,19 +694,92 @@ const Interview = () => {
         }, 4000);
       }
     }, 2000);
+
+    // Update the chat response handling to properly speak the AI response
+    try {
+      // Send to API
+      const chatResponse = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: updatedMessages,
+        }),
+      });
+      
+      if (!chatResponse.ok) {
+        throw new Error(`API error: ${chatResponse.status}`);
+      }
+      
+      const chatData = await chatResponse.json();
+      console.log("Chat API response:", chatData);
+      
+      // Extract the assistant's message
+      let assistantMessage = '';
+      
+      if (chatData && chatData.content) {
+        assistantMessage = chatData.content;
+      } else if (chatData && chatData.message) {
+        assistantMessage = chatData.message;
+      } else if (chatData && typeof chatData === 'string') {
+        assistantMessage = chatData;
+      } else {
+        console.error("Unexpected API response structure:", chatData);
+        setError('Received an invalid response format from the API.');
+        
+        // For hardcoded responses, use a default message
+        assistantMessage = "I understand what you're saying. Let me think about that for a moment.";
+      }
+      
+      // Add assistant response to chat
+      const newAssistantMessage = {
+        role: 'assistant',
+        content: assistantMessage
+      };
+      
+      setMessages(prev => [...prev, newAssistantMessage]);
+      
+      // Speak the assistant's response
+      console.log("Speaking assistant message:", assistantMessage);
+      speakResponse(assistantMessage);
+      
+    } catch (error) {
+      console.error('Error sending message:', error);
+      setError('Failed to send message. Please try again.');
+      
+      // For hardcoded fallback in case of error
+      const fallbackMessage = "I'm sorry, I couldn't process your request. Could you try again?";
+      
+      // Add fallback message to chat
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: fallbackMessage
+      }]);
+      
+      // Speak the fallback message
+      speakResponse(fallbackMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Generate random feedback (in a real app, this would be AI-generated)
   const generateFeedback = () => {
     const feedbacks = [
-      "That's a good point. I like how you provided specific examples.",
-      "Your answer demonstrates good technical knowledge. Consider adding more details about the implementation challenges.",
-      "Great response! You clearly explained the concepts and your approach.",
-      "That's a solid answer. You might want to also mention how you handle edge cases.",
-      "Good explanation. It would be even better if you could quantify the impact of your solution."
+      "That's a great point. I appreciate your thoughtful response.",
+      "Interesting perspective. Let me ask you something else.",
+      "Thank you for sharing that. Your approach makes a lot of sense.",
+      "I see what you mean. That's a solid explanation.",
+      "That's helpful context. Let's move on to the next question."
     ];
     
-    return feedbacks[Math.floor(Math.random() * feedbacks.length)];
+    const randomFeedback = feedbacks[Math.floor(Math.random() * feedbacks.length)];
+    
+    // Speak the feedback when it's generated
+    speakResponse(randomFeedback);
+    
+    return randomFeedback;
   };
 
   const progress = ((currentQuestion + 1) / questions.length) * 100;
@@ -616,6 +789,108 @@ const Interview = () => {
   
   // Determine if send button should be disabled
   const isSendDisabled = !userInput.trim() || isThinking || isSpeaking;
+
+  // Update the speakResponse function to use the TTS-specific API key
+  const speakResponse = async (text: string) => {
+    try {
+      setIsSpeaking(true);
+      
+      // Get the Azure TTS API key from environment variables
+      const ttsApiKey = import.meta.env.VITE_APP_AZURE_TTS_API_KEY;
+      const endpoint = "https://kusha-m8t3pks8-swedencentral.cognitiveservices.azure.com";
+      const deploymentName = "tts";
+      
+      console.log("Converting text to speech...");
+      console.log("Text to convert:", text);
+      console.log("Using TTS-specific API key");
+      
+      // Ensure we have text to convert
+      if (!text || text.trim() === '') {
+        console.error("Empty text provided for TTS");
+        setIsSpeaking(false);
+        return;
+      }
+      
+      // Call Azure OpenAI TTS endpoint with the TTS-specific API key
+      const response = await fetch(
+        `${endpoint}/openai/deployments/${deploymentName}/audio/speech?api-version=2024-05-01-preview`,
+        {
+          method: 'POST',
+          headers: {
+            'api-key': ttsApiKey, // Use the TTS-specific API key
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: "tts-1", // Use the specific model name
+            voice: "alloy",
+            input: text
+          }),
+        }
+      );
+      
+      console.log("TTS API response status:", response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Text-to-speech error response:", errorText);
+        throw new Error(`Text-to-speech failed: ${response.status} ${response.statusText}`);
+      }
+      
+      // Convert the response to a blob
+      const audioBlob = await response.blob();
+      console.log("Audio blob created, size:", audioBlob.size, "bytes, type:", audioBlob.type);
+      
+      if (audioBlob.size === 0) {
+        throw new Error("Received empty audio blob from TTS API");
+      }
+      
+      const audioUrl = URL.createObjectURL(audioBlob);
+      console.log("Audio URL created:", audioUrl);
+      
+      // Set the audio source and play
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
+        audioRef.current.onloadedmetadata = () => {
+          console.log("Audio metadata loaded, duration:", audioRef.current?.duration);
+        };
+        audioRef.current.oncanplay = async () => {
+          console.log("Audio can play now");
+          try {
+            const playPromise = audioRef.current?.play();
+            if (playPromise) {
+              await playPromise;
+              console.log("Audio playback started successfully");
+            }
+          } catch (playError) {
+            console.error("Error playing audio:", playError);
+          }
+        };
+        audioRef.current.onended = () => {
+          console.log("Audio playback ended");
+          setIsSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+        };
+        audioRef.current.onerror = (e) => {
+          console.error("Audio element error:", e);
+          setIsSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+        };
+      } else {
+        console.error("Audio element reference is null");
+        setIsSpeaking(false);
+      }
+      
+    } catch (error) {
+      console.error('Text-to-speech error:', error);
+      setIsSpeaking(false);
+    }
+  };
+
+  // Add a test function to directly test TTS
+  const testTextToSpeech = () => {
+    const testText = "This is a test of the text to speech functionality. If you can hear this, it's working correctly.";
+    speakResponse(testText);
+  };
 
   return (
     <div className="min-h-screen bg-black flex flex-col h-screen overflow-hidden">
@@ -990,6 +1265,28 @@ const Interview = () => {
       {transcriptionError && (
         <div className="p-2 mt-2 bg-red-500/20 border border-red-500/30 rounded-lg text-sm text-red-300">
           {transcriptionError}
+        </div>
+      )}
+      
+      {/* Add audio element for text-to-speech with controls for debugging */}
+      <audio 
+        ref={audioRef} 
+        className="fixed bottom-4 left-4 z-50" 
+        controls 
+      />
+      
+      {/* Add test button */}
+      <button
+        onClick={testTextToSpeech}
+        className="fixed bottom-4 right-4 bg-blue-500 text-white px-4 py-2 rounded-md"
+      >
+        Test TTS
+      </button>
+      
+      {/* Add speaking indicator */}
+      {isSpeaking && (
+        <div className="fixed bottom-24 right-4 bg-blue-500 text-white px-3 py-1 rounded-full text-xs animate-pulse">
+          Speaking...
         </div>
       )}
     </div>
