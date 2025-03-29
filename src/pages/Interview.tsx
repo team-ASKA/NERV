@@ -796,13 +796,12 @@ const Interview = () => {
       setIsSpeaking(true);
       
       // Get the Azure TTS API key from environment variables
-      const ttsApiKey = import.meta.env.VITE_APP_AZURE_TTS_API_KEY;
+      const ttsApiKey = import.meta.env.VITE_APP_AZURE_TTS_API_KEY || '';
       const endpoint = "https://kusha-m8t3pks8-swedencentral.cognitiveservices.azure.com";
       const deploymentName = "tts";
       
       console.log("Converting text to speech...");
       console.log("Text to convert:", text);
-      console.log("Using TTS-specific API key");
       
       // Ensure we have text to convert
       if (!text || text.trim() === '') {
@@ -811,20 +810,25 @@ const Interview = () => {
         return;
       }
       
-      // Call Azure OpenAI TTS endpoint with the TTS-specific API key
+      // Prepare the request payload
+      const payload = {
+        text: text,
+        voice: "en-US-JennyNeural",
+        style: "conversational",
+        rate: "1.0",
+        pitch: "1.0"
+      };
+      
+      // Make the API request
       const response = await fetch(
         `${endpoint}/openai/deployments/${deploymentName}/audio/speech?api-version=2024-05-01-preview`,
         {
           method: 'POST',
           headers: {
-            'api-key': ttsApiKey, // Use the TTS-specific API key
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'api-key': ttsApiKey,
           },
-          body: JSON.stringify({
-            model: "tts-1", // Use the specific model name
-            voice: "alloy",
-            input: text
-          }),
+          body: JSON.stringify(payload),
         }
       );
       
@@ -833,32 +837,28 @@ const Interview = () => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Text-to-speech error response:", errorText);
-        throw new Error(`Text-to-speech failed: ${response.status} ${response.statusText}`);
+        throw new Error(`Text-to-speech failed: ${response.status}`);
       }
       
-      // Convert the response to a blob
+      // Get the audio blob
       const audioBlob = await response.blob();
-      console.log("Audio blob created, size:", audioBlob.size, "bytes, type:", audioBlob.type);
+      console.log("Audio blob received, size:", audioBlob.size, "bytes");
       
-      if (audioBlob.size === 0) {
-        throw new Error("Received empty audio blob from TTS API");
-      }
-      
+      // Create a URL for the audio blob
       const audioUrl = URL.createObjectURL(audioBlob);
-      console.log("Audio URL created:", audioUrl);
       
-      // Set the audio source and play
+      // Play the audio
       if (audioRef.current) {
         audioRef.current.src = audioUrl;
         audioRef.current.onloadedmetadata = () => {
-          console.log("Audio metadata loaded, duration:", audioRef.current?.duration);
-        };
-        audioRef.current.oncanplay = async () => {
-          console.log("Audio can play now");
           try {
             const playPromise = audioRef.current?.play();
             if (playPromise) {
-              await playPromise;
+              playPromise.catch(error => {
+                console.error("Error playing audio:", error);
+                setIsSpeaking(false);
+              });
+            } else {
               console.log("Audio playback started successfully");
             }
           } catch (playError) {
