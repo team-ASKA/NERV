@@ -1,4 +1,4 @@
-# Orato - AI-Powered Interview Platform
+# NERV - AI-Powered Interview Platform
 
 ## Environment Setup
 
