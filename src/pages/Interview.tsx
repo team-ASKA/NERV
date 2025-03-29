@@ -618,149 +618,103 @@ const Interview = () => {
     setIsThinking(true);
     setInterviewState('ai-thinking');
     
-    // Simulate AI processing
-    setTimeout(() => {
-      // Move to next question if available
-      if (currentQuestion < questions.length - 1) {
-        setCurrentQuestion(prev => prev + 1);
-        
-        // AI stops thinking and starts speaking
-        setIsThinking(false);
-        setIsSpeaking(true);
-        setInterviewState('ai-speaking');
-        
-        // Add AI response and next question
-        const feedback = generateFeedback();
-        const nextQuestion = questions[currentQuestion + 1].text;
-        
-        setMessages(prev => [
-          ...prev,
-          {
+    try {
+      // Simulate AI processing
+      setTimeout(async () => {
+        // Move to next question if available
+        if (currentQuestion < questions.length - 1) {
+          setCurrentQuestion(prev => prev + 1);
+          
+          // AI stops thinking and starts speaking
+          setIsThinking(false);
+          setIsSpeaking(true);
+          setInterviewState('ai-speaking');
+          
+          // Add AI response and next question
+          const feedback = generateFeedback();
+          const nextQuestion = questions[currentQuestion + 1].text;
+          
+          // Add messages one at a time and speak them
+          const feedbackMessage: Message = {
             id: Date.now().toString() + '-feedback',
             text: feedback,
             sender: 'ai',
             timestamp: new Date()
-          },
-          {
+          };
+          
+          setMessages(prev => [...prev, feedbackMessage]);
+          
+          // Speak the feedback first
+          await speakResponse(feedback);
+          
+          // Short pause between feedback and next question
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Add and speak the next question
+          const questionMessage: Message = {
             id: Date.now().toString() + '-question',
             text: nextQuestion,
             sender: 'ai',
-            timestamp: new Date(Date.now() + 1000)
-          }
-        ]);
-        
-        // Simulate AI finishing speaking after a delay proportional to message length
-        const speakingTime = (feedback.length + nextQuestion.length) * 30;
-        setTimeout(() => {
+            timestamp: new Date()
+          };
+          
+          setMessages(prev => [...prev, questionMessage]);
+          await speakResponse(nextQuestion);
+          
+          // After both messages are spoken, set the interview state back to idle
           setIsSpeaking(false);
           setInterviewState('idle');
           setIsUserTurn(true);
-        }, Math.min(speakingTime, 5000)); // Cap at 5 seconds max
-        
-      } else {
-        // Interview complete
-        setIsThinking(false);
-        setIsSpeaking(true);
-        setInterviewState('ai-speaking');
-        
-        const feedback = generateFeedback();
-        const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
-        
-        setMessages(prev => [
-          ...prev,
-          {
+          
+        } else {
+          // Interview complete
+          setIsThinking(false);
+          setIsSpeaking(true);
+          setInterviewState('ai-speaking');
+          
+          const feedback = generateFeedback();
+          const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
+          
+          // Add and speak the final feedback
+          const feedbackMessage: Message = {
             id: Date.now().toString() + '-feedback',
             text: feedback,
             sender: 'ai',
             timestamp: new Date()
-          },
-          {
+          };
+          
+          setMessages(prev => [...prev, feedbackMessage]);
+          await speakResponse(feedback);
+          
+          // Short pause
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Add and speak the completion message
+          const completionMsg: Message = {
             id: Date.now().toString() + '-complete',
             text: completionMessage,
             sender: 'ai',
-            timestamp: new Date(Date.now() + 1000)
-          }
-        ]);
-        
-        // Simulate AI finishing speaking
-        setTimeout(() => {
+            timestamp: new Date()
+          };
+          
+          setMessages(prev => [...prev, completionMsg]);
+          await speakResponse(completionMessage);
+          
+          // After speaking, navigate to results
           setIsSpeaking(false);
           setInterviewState('idle');
           
           // Navigate to results after a delay
           setTimeout(() => {
             navigate('/results');
-          }, 2000);
-        }, 4000);
-      }
-    }, 2000);
-
-    // Update the chat response handling to properly speak the AI response
-    try {
-      // Send to API
-      const chatResponse = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: updatedMessages,
-        }),
-      });
-      
-      if (!chatResponse.ok) {
-        throw new Error(`API error: ${chatResponse.status}`);
-      }
-      
-      const chatData = await chatResponse.json();
-      console.log("Chat API response:", chatData);
-      
-      // Extract the assistant's message
-      let assistantMessage = '';
-      
-      if (chatData && chatData.content) {
-        assistantMessage = chatData.content;
-      } else if (chatData && chatData.message) {
-        assistantMessage = chatData.message;
-      } else if (chatData && typeof chatData === 'string') {
-        assistantMessage = chatData;
-      } else {
-        console.error("Unexpected API response structure:", chatData);
-        setError('Received an invalid response format from the API.');
-        
-        // For hardcoded responses, use a default message
-        assistantMessage = "I understand what you're saying. Let me think about that for a moment.";
-      }
-      
-      // Add assistant response to chat
-      const newAssistantMessage = {
-        role: 'assistant',
-        content: assistantMessage
-      };
-      
-      setMessages(prev => [...prev, newAssistantMessage]);
-      
-      // Speak the assistant's response
-      console.log("Speaking assistant message:", assistantMessage);
-      speakResponse(assistantMessage);
-      
+          }, 1000);
+        }
+      }, 1500);
     } catch (error) {
-      console.error('Error sending message:', error);
-      setError('Failed to send message. Please try again.');
-      
-      // For hardcoded fallback in case of error
-      const fallbackMessage = "I'm sorry, I couldn't process your request. Could you try again?";
-      
-      // Add fallback message to chat
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: fallbackMessage
-      }]);
-      
-      // Speak the fallback message
-      speakResponse(fallbackMessage);
-    } finally {
-      setIsLoading(false);
+      console.error('Error processing message:', error);
+      setIsThinking(false);
+      setInterviewState('idle');
+      setIsUserTurn(true);
     }
   };
 
@@ -790,7 +744,7 @@ const Interview = () => {
   // Determine if send button should be disabled
   const isSendDisabled = !userInput.trim() || isThinking || isSpeaking;
 
-  // Update the speakResponse function to use the TTS-specific API key
+  // Update the speakResponse function with a valid voice parameter
   const speakResponse = async (text: string) => {
     try {
       setIsSpeaking(true);
@@ -810,14 +764,14 @@ const Interview = () => {
         return;
       }
       
-      // Prepare the request payload
+      // Prepare the request payload with a valid voice from the allowed list
       const payload = {
-        text: text,
-        voice: "en-US-JennyNeural",
-        style: "conversational",
-        rate: "1.0",
-        pitch: "1.0"
+        model: "tts-1",
+        input: text,
+        voice: "nova" // Using one of the allowed voices: nova, shimmer, echo, onyx, fable, alloy
       };
+      
+      console.log("TTS payload:", payload);
       
       // Make the API request
       const response = await fetch(
