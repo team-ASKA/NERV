@@ -330,14 +330,20 @@ const Dashboard = () => {
       <AnimatePresence>
         {isMenuOpen && (
           <>
-            {/* Backdrop */}
+            {/* Backdrop with localized blur effect */}
             <motion.div
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+              className="fixed inset-0 z-40"
               onClick={toggleMenu}
-            />
+            >
+              {/* This creates a gradient that only blurs the right side of the screen */}
+              <div className="h-full w-full bg-gradient-to-r from-black/30 to-black/70 backdrop-blur-[2px]">
+                {/* Additional stronger blur for the area directly behind the menu */}
+                <div className="absolute top-0 right-0 h-full w-[320px] bg-black/40 backdrop-blur-md" />
+              </div>
+            </motion.div>
             
             {/* Menu Panel */}
             <motion.div

@@ -1,11 +1,18 @@
+import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { motion} from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Mic, MicOff, Camera, CameraOff, Volume2, VolumeX, Loader2, Send, User, Bot, MessageSquare, Brain } from 'lucide-react';
+import { 
+  Mic, MicOff, Camera, CameraOff, Volume2, VolumeX, 
+  Loader2, Send, User, Bot, MessageSquare, Brain, 
+  Menu, Edit, LogOut, Linkedin, Globe, X, FileText, ArrowLeft
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { transcribeAudio } from '../services/whisperService';
 import { FaVideo } from 'react-icons/fa';
 import { HumeClient } from "hume";
+import { auth, db, storage } from '../lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { ref, getDownloadURL } from 'firebase/storage';
 
 interface Message {
   id: string;
@@ -98,6 +105,8 @@ const Interview = () => {
   const [ttsApiKey, setTtsApiKey] = useState<string>(
     import.meta.env.VITE_APP_AZURE_TTS_API_KEY || ''
   );
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [userDetails, setUserDetails] = useState<any>(null);
 
   // Create a Hume client instance
   const humeClient = useMemo(() => 
@@ -846,6 +855,66 @@ const Interview = () => {
     speakResponse(testText);
   };
 
+  const toggleMenu = () => {
+    setIsMenuOpen(!isMenuOpen);
+  };
+
+  useEffect(() => {
+    const fetchUserDetails = async () => {
+      try {
+        // Get current user
+        const user = auth.currentUser;
+        
+        if (!user) {
+          console.log('No user logged in');
+          return;
+        }
+        
+        // Get user document from Firestore
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDoc = await getDoc(userDocRef);
+        
+        if (!userDoc.exists()) {
+          console.log('User document not found');
+          return;
+        }
+        
+        const userData = userDoc.data();
+        
+        // Get resume download URL if resumePath exists
+        let resumeURL = null;
+        let resumeName = null;
+        
+        if (userData.resumePath) {
+          try {
+            const resumeRef = ref(storage, userData.resumePath);
+            resumeURL = await getDownloadURL(resumeRef);
+            // Extract filename from path
+            resumeName = userData.resumePath.split('/').pop();
+          } catch (error) {
+            console.error('Error getting resume URL:', error);
+          }
+        }
+        
+        // Set user details with all available information
+        setUserDetails({
+          name: userData.name || user.displayName || 'User',
+          email: user.email || 'No email provided',
+          resumeURL,
+          resumeName,
+          linkedinURL: userData.linkedinURL || null,
+          portfolioURL: userData.portfolioURL || null,
+          // Add any other fields you need
+        });
+        
+      } catch (error) {
+        console.error('Error fetching user details:', error);
+      }
+    };
+
+    fetchUserDetails();
+  }, []);
+
   return (
     <div className="min-h-screen bg-black flex flex-col h-screen overflow-hidden">
       <style>{pulseStyle}</style>
@@ -885,9 +954,139 @@ const Interview = () => {
                 {viewMode === 'camera' ? <MessageSquare className="h-5 w-5" /> : <Camera className="h-5 w-5" />}
               </button>
             </div>
+            {/* Hamburger Menu Button */}
+            <button
+              onClick={toggleMenu}
+              className="p-2 rounded-full hover:bg-white/10 transition-colors"
+              aria-label="Open menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </div>
+
+      {/* User Menu */}
+      <AnimatePresence>
+        {isMenuOpen && (
+          <>
+            {/* Backdrop with localized blur effect */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40"
+              onClick={toggleMenu}
+            >
+              {/* This creates a gradient that only blurs the right side of the screen */}
+              <div className="h-full w-full bg-gradient-to-r from-black/30 to-black/70 backdrop-blur-[2px]">
+                {/* Additional stronger blur for the area directly behind the menu */}
+                <div className="absolute top-0 right-0 h-full w-[320px] bg-black/40 backdrop-blur-md" />
+              </div>
+            </motion.div>
+            
+            {/* Menu Panel */}
+            <motion.div
+              initial={{ opacity: 0, x: 300 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 300 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="fixed right-0 top-0 h-full w-80 bg-black border-l border-white/10 z-50 overflow-y-auto"
+            >
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-bold">Menu</h2>
+                  <button
+                    onClick={toggleMenu}
+                    className="p-1 rounded-full hover:bg-white/10 transition-colors"
+                    aria-label="Close menu"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                
+                {userDetails && (
+                  <div className="mb-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
+                        <User className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <h3 className="font-medium">{userDetails.name}</h3>
+                        <p className="text-sm text-gray-400">{userDetails.email}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      {userDetails.resumeURL && (
+                        <a
+                          href={userDetails.resumeURL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-sm text-gray-300 hover:text-white transition-colors"
+                        >
+                          <FileText className="h-4 w-4" />
+                          View Resume
+                        </a>
+                      )}
+                      
+                      {userDetails.linkedinURL && (
+                        <a
+                          href={userDetails.linkedinURL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-sm text-gray-300 hover:text-white transition-colors"
+                        >
+                          <Linkedin className="h-4 w-4" />
+                          LinkedIn Profile
+                        </a>
+                      )}
+                      
+                      {userDetails.portfolioURL && (
+                        <a
+                          href={userDetails.portfolioURL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-sm text-gray-300 hover:text-white transition-colors"
+                        >
+                          <Globe className="h-4 w-4" />
+                          Portfolio Website
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="space-y-2 border-t border-white/10 pt-4">
+                  <button
+                    onClick={() => navigate('/dashboard')}
+                    className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors text-left"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    <span>Back to Dashboard</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => navigate('/profile')}
+                    className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors text-left"
+                  >
+                    <Edit className="h-4 w-4" />
+                    <span>Edit Profile</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => navigate('/login')}
+                    className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors text-left"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Main content area - flex-1 to take remaining height */}
       <div className="flex-1 overflow-hidden">
