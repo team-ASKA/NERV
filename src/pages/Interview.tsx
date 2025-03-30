@@ -140,7 +140,7 @@ const Interview = () => {
     setMessages([
       {
         id: '1',
-        text: "Hello! I'm your AI interviewer today. Let's start with the first question.",
+        text: "Hello! I'm your NERV interviewer today. Let's start with the first question.",
         sender: 'ai',
         timestamp: new Date()
       },
@@ -1079,7 +1079,7 @@ const Interview = () => {
             <div className="md:w-1/4 md:h-full hidden md:block">
               <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg">
                 <div className="p-4 border-b border-white/20 bg-white/10 rounded-t-xl">
-                  <h2 className="font-medium">AI Interviewer</h2>
+                  <h2 className="font-medium">NERV Interviewer</h2>
                 </div>
                 
                 <div className="flex-1 flex flex-col items-center justify-center p-6">
@@ -1143,7 +1143,7 @@ const Interview = () => {
                     <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center mr-2">
                       <Bot className="h-4 w-4 text-white" />
                     </div>
-                    <h2 className="font-medium">AI Interviewer</h2>
+                    <h2 className="font-medium">NERV Interviewer</h2>
                   </div>
                 </div>
                 
@@ -1189,7 +1189,7 @@ const Interview = () => {
                             <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center mr-2">
                               <Bot className="h-3 w-3" />
                             </div>
-                            <span className="text-sm font-medium">AI Interviewer</span>
+                            <span className="text-sm font-medium">NERV Interviewer</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
@@ -1316,8 +1316,8 @@ const Interview = () => {
                   </div>
                 </div>
                 
-                <div className="flex-1 flex items-center justify-center p-4 relative">
-                  <div className="relative w-full h-48 md:h-64 bg-gray-800 rounded-lg overflow-hidden">
+                <div className="relative flex-1 flex items-center justify-center bg-black/50 rounded-b-xl overflow-hidden">
+                  <div className="relative w-full h-full">
                     {isCameraOn ? (
                       <>
                         <video
@@ -1325,8 +1325,7 @@ const Interview = () => {
                           autoPlay
                           playsInline
                           muted
-                          className="w-full h-full object-cover rounded-lg"
-                          style={{ transform: 'scaleX(-1)' }}
+                          className="w-full h-full object-cover transform scale-x-[-1]"
                         />
                         <canvas ref={canvasRef} className="hidden" />
                         
