@@ -13,6 +13,8 @@ import { HumeClient } from "hume";
 import { auth, db, storage } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
+import { initializeInterview, processAnswer, generateNextQuestion, generateInterviewSummary, getEmotionData } from '../services/geminiService';
+import { extractTextFromPDF } from '../services/pdfService';
 
 interface Message {
   id: string;
@@ -76,7 +78,13 @@ const Interview = () => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [userInput, setUserInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
-  const [questions] = useState<Question[]>(mockQuestions);
+  const [questions, setQuestions] = useState<Question[]>([
+    {
+      id: 1,
+      text: "Can you tell me about your experience and skills?",
+      isAsked: true
+    }
+  ]);
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -107,6 +115,8 @@ const Interview = () => {
   );
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [userDetails, setUserDetails] = useState<any>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [currentEmotions, setCurrentEmotions] = useState<any[]>([]);
 
   // Create a Hume client instance
   const humeClient = useMemo(() => 
@@ -146,7 +156,7 @@ const Interview = () => {
       },
       {
         id: '2',
-        text: questions[0].text,
+        text: questions && questions.length > 0 ? questions[0].text : "Can you tell me about your experience and skills?",
         sender: 'ai',
         timestamp: new Date()
       }
@@ -342,6 +352,9 @@ const Interview = () => {
   
   const stopRecording = () => {
     if (mediaRecorder && isRecording) {
+      // Capture emotions before stopping recording
+      captureAndAnalyzeFrame();
+      
       mediaRecorder.stop();
       // Note: We don't set isRecording to false here because that's handled in the onstop handler
     }
@@ -511,6 +524,7 @@ const Interview = () => {
                   if (emotions && emotions.length > 0) {
                     console.log("Emotions found:", emotions.length, "emotions");
                     setFacialExpressions({ emotions });
+                    setCurrentEmotions(emotions); // Store the current emotions
                     predictionsFound = true;
                   } else {
                     console.log("No emotions array in the prediction");
@@ -520,8 +534,6 @@ const Interview = () => {
                 } else {
                   console.log("No grouped_predictions in face model results");
                 }
-              } else {
-                console.log("No predictions array in results");
               }
             }
             
@@ -634,7 +646,7 @@ const Interview = () => {
     
     try {
       // Process the user's answer
-      await processUserAnswer(userInput);
+      const feedback = await processUserAnswer(userInput);
       
       // Short delay before AI response
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -642,9 +654,6 @@ const Interview = () => {
       setIsThinking(false);
       setIsSpeaking(true);
       setInterviewState('ai-speaking');
-      
-      // Generate feedback for the current question
-      const feedback = generateFeedback();
       
       // Add feedback message
       const feedbackMessage: Message = {
@@ -665,7 +674,7 @@ const Interview = () => {
         setCurrentQuestion(prev => prev + 1);
         
         // Get the next question
-        const nextQuestion = questions[currentQuestion + 1];
+        const nextQuestion = questions[currentQuestion + 1].text;
         
         // Add question message
         const questionMessage: Message = {
@@ -685,29 +694,72 @@ const Interview = () => {
         setIsUserTurn(true);
         
       } else {
-        // Interview complete
-        const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
+        // Generate a new question with Gemini
+        const newQuestion = await generateNextQuestion();
         
-        // Add completion message
-        const completionMsg: Message = {
-          id: Date.now().toString() + '-complete',
-          text: completionMessage,
+        // Add the new question to the questions array
+        setQuestions(prev => [
+          ...prev,
+          {
+            id: prev.length + 1,
+            text: newQuestion,
+            isAsked: true
+          }
+        ]);
+        
+        // Add question message
+        const questionMessage: Message = {
+          id: Date.now().toString() + '-question',
+          text: newQuestion,
           sender: 'ai',
           timestamp: new Date()
         };
         
-        setMessages(prev => [...prev, completionMsg]);
+        setMessages(prev => [...prev, questionMessage]);
         
-        // Speak the completion message
-        await speakResponse(completionMessage);
+        // Speak the next question
+        await speakResponse(newQuestion);
         
-        // After speaking, navigate to results
-        setInterviewState('idle');
-        
-        // Navigate to results after a delay
-        setTimeout(() => {
-          navigate('/results');
-        }, 1000);
+        // Check if we've asked enough questions (e.g., 10)
+        if (questions.length >= 9) {
+          // Interview complete
+          const summary = await generateInterviewSummary();
+          const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
+          
+          // Add completion messages
+          const summaryMessage: Message = {
+            id: Date.now().toString() + '-summary',
+            text: summary,
+            sender: 'ai',
+            timestamp: new Date()
+          };
+          
+          const completionMsg: Message = {
+            id: Date.now().toString() + '-complete',
+            text: completionMessage,
+            sender: 'ai',
+            timestamp: new Date()
+          };
+          
+          setMessages(prev => [...prev, summaryMessage, completionMsg]);
+          
+          // Speak the completion messages
+          await speakResponse(summary);
+          await speakResponse(completionMessage);
+          
+          // After speaking, navigate to results
+          setInterviewState('idle');
+          
+          // Navigate to results after a delay
+          setTimeout(() => {
+            navigate('/results');
+          }, 1000);
+        } else {
+          // Continue the interview
+          setCurrentQuestion(questions.length);
+          setInterviewState('idle');
+          setIsUserTurn(true);
+        }
       }
     } catch (error) {
       console.error('Error processing message:', error);
@@ -797,34 +849,41 @@ const Interview = () => {
         
         // Return a promise that resolves when the audio finishes playing
         return new Promise((resolve) => {
-          audioRef.current.onloadedmetadata = () => {
-            try {
-              const playPromise = audioRef.current?.play();
-              if (playPromise) {
-                playPromise.catch(error => {
-                  console.error("Error playing audio:", error);
-                  setIsSpeaking(false);
-                  resolve(false);
-                });
-              }
-            } catch (playError) {
-              console.error("Error playing audio:", playError);
+          if (audioRef.current) {
+            // Set up event handlers before setting src to avoid race conditions
+            audioRef.current.onended = () => {
               setIsSpeaking(false);
+              URL.revokeObjectURL(audioUrl);
+              resolve(true);
+            };
+            
+            audioRef.current.onerror = () => {
+              console.error("Audio playback error");
+              setIsSpeaking(false);
+              URL.revokeObjectURL(audioUrl);
               resolve(false);
-            }
-          };
-          
-          audioRef.current.onended = () => {
-            setIsSpeaking(false);
-            URL.revokeObjectURL(audioUrl);
-            resolve(true);
-          };
-          
-          audioRef.current.onerror = () => {
+            };
+            
+            // Handle play() promise properly
+            audioRef.current.oncanplaythrough = () => {
+              if (audioRef.current) {
+                audioRef.current.play()
+                  .then(() => {
+                    // Play started successfully, will resolve via onended
+                  })
+                  .catch(error => {
+                    console.error("Error playing audio:", error);
+                    setIsSpeaking(false);
+                    URL.revokeObjectURL(audioUrl);
+                    resolve(false);
+                  });
+              }
+            };
+          } else {
             setIsSpeaking(false);
             URL.revokeObjectURL(audioUrl);
             resolve(false);
-          };
+          }
         });
       } else {
         setIsSpeaking(false);
@@ -897,6 +956,111 @@ const Interview = () => {
 
     fetchUserDetails();
   }, []);
+
+  // Initialize the interview with the user's resume
+  useEffect(() => {
+    const initializeWithResume = async () => {
+      if (!currentUser || isInitialized) return;
+      
+      try {
+        setIsThinking(true);
+        
+        let resumeText = '';
+        
+        // Try to get the user's resume
+        if (userDetails?.resumeURL) {
+          try {
+            // Fetch the resume file
+            const response = await fetch(userDetails.resumeURL);
+            const blob = await response.blob();
+            const file = new File([blob], userDetails.resumeName || 'resume.pdf', { type: 'application/pdf' });
+            
+            // Extract text from the PDF
+            resumeText = await extractTextFromPDF(file);
+          } catch (error) {
+            console.error('Error processing resume:', error);
+            resumeText = 'Unable to process resume. Using default questions.';
+          }
+        } else {
+          resumeText = 'No resume provided. Using default questions.';
+        }
+        
+        // Initialize the interview with Gemini
+        const generatedQuestions = await initializeInterview(resumeText);
+        
+        // Format the questions
+        const formattedQuestions: Question[] = generatedQuestions.map((text, index) => ({
+          id: index + 1,
+          text,
+          isAsked: index === 0 // Mark the first question as asked
+        }));
+        
+        setQuestions(formattedQuestions);
+        setCurrentQuestion(0);
+        
+        // Add initial AI messages
+        setMessages([
+          {
+            id: '1',
+            text: "Hello! I'm your NERV interviewer today. Let's start with the first question.",
+            sender: 'ai',
+            timestamp: new Date()
+          },
+          {
+            id: '2',
+            text: formattedQuestions[0].text,
+            sender: 'ai',
+            timestamp: new Date()
+          }
+        ]);
+        
+        // Start TTS for the introduction and first question
+        setIsSpeaking(true);
+        setInterviewState('ai-speaking');
+        
+        await speakResponse("Hello! I'm your NERV interviewer today. Let's start with the first question.");
+        await speakResponse(formattedQuestions[0].text);
+        
+        setIsSpeaking(false);
+        setInterviewState('idle');
+        setIsUserTurn(true);
+        setIsInitialized(true);
+        
+      } catch (error) {
+        console.error('Error initializing interview:', error);
+        
+        // Fall back to mock questions if there's an error
+        setQuestions(mockQuestions);
+        setIsInitialized(true);
+        
+      } finally {
+        setIsThinking(false);
+      }
+    };
+    
+    initializeWithResume();
+  }, [currentUser, userDetails, isInitialized]);
+
+  // Update the processUserAnswer function
+  const processUserAnswer = async (userText: string) => {
+    try {
+      // Get the current question
+      const questionText = questions && questions[currentQuestion] 
+        ? questions[currentQuestion].text 
+        : "Default question text";
+      
+      // Process the answer with Gemini
+      const feedback = await processAnswer(questionText, userText, currentEmotions);
+      
+      // Reset emotions after processing
+      setCurrentEmotions([]);
+      
+      return feedback;
+    } catch (error) {
+      console.error('Error processing user answer:', error);
+      return generateFeedback(); // Fall back to random feedback
+    }
+  };
 
   return (
     <div className="min-h-screen bg-black flex flex-col h-screen overflow-hidden">
@@ -1115,9 +1279,9 @@ const Interview = () => {
                   <div className="mt-8 space-y-3 w-full">
                     <div className="bg-white/5 p-3 rounded-lg">
                       <p className="text-xs text-gray-400 mb-1">Current Topic</p>
-                      <p className="text-sm">{questions[currentQuestion].text.length > 60 ? 
+                      <p className="text-sm">{questions && questions[currentQuestion] ? questions[currentQuestion].text.length > 60 ? 
                         questions[currentQuestion].text.substring(0, 60) + '...' : 
-                        questions[currentQuestion].text}
+                        questions[currentQuestion].text : "Loading question..."}
                       </p>
                     </div>
                     
@@ -1189,7 +1353,7 @@ const Interview = () => {
                             <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center mr-2">
                               <Bot className="h-3 w-3" />
                             </div>
-                            <span className="text-sm font-medium">NERV Interviewer</span>
+                            <span className="text-sm font-medium">NERV Interview chat</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>

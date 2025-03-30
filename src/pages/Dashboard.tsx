@@ -122,8 +122,8 @@ const Dashboard = () => {
         resumeURL: resumeLink
       });
       
-      // Update local state
-      setUserDetails(prev => {
+      // Update local state with proper typing
+      setUserDetails((prev: any) => {
         if (!prev) return { resumeURL: resumeLink };
         return { ...prev, resumeURL: resumeLink };
       });
@@ -151,7 +151,7 @@ const Dashboard = () => {
     
     try {
       const skillsArray = editForm.skills
-        ? editForm.skills.split(',').map(skill => skill.trim())
+        ? editForm.skills.split(',').map(skill => skill.trim()).filter(skill => skill !== '')
         : [];
       
       const userDocRef = doc(db, 'users', currentUser.uid);
@@ -166,8 +166,8 @@ const Dashboard = () => {
         skills: skillsArray
       });
       
-      // Update local state
-      setUserDetails(prev => {
+      // Update local state with proper typing
+      setUserDetails((prev: any) => {
         if (!prev) return { ...editForm, skills: skillsArray };
         return { 
           ...prev, 
@@ -252,59 +252,8 @@ const Dashboard = () => {
 
   // Add this function to handle resume upload
   const handleResumeFileUpload = async () => {
-    if (!file || !currentUser) return;
-    
-    setUploading(true);
-    setUploadError('');
-    
-    try {
-      // Create a FormData object to send the file
-      const formData = new FormData();
-      formData.append('resume', file);
-      formData.append('userId', currentUser.uid);
-      
-      // Send the file to your server endpoint
-      const response = await fetch('https://your-backend-api.com/upload-resume', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to upload resume');
-      }
-      
-      const data = await response.json();
-      
-      // Update Firestore with the resume URL from your server
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, {
-        resumeURL: data.fileUrl,
-        resumeName: file.name
-      });
-      
-      // Update local state
-      setUserDetails(prev => {
-        if (!prev) return { resumeURL: data.fileUrl, resumeName: file.name };
-        return { ...prev, resumeURL: data.fileUrl, resumeName: file.name };
-      });
-      
-      setUploadSuccess(true);
-      setFile(null);
-      
-      // Reset file input
-      const fileInput = document.getElementById('resume-file-input') as HTMLInputElement;
-      if (fileInput) fileInput.value = '';
-      
-      // Reset success message after 3 seconds
-      setTimeout(() => {
-        setUploadSuccess(false);
-      }, 3000);
-    } catch (err: any) {
-      console.error('Resume upload error:', err);
-      setUploadError(err.message || 'Failed to upload resume. Please try again.');
-    } finally {
-      setUploading(false);
-    }
+    setUploadError('CORS issue: File upload is temporarily disabled. Please use the URL input below to link to your resume on Google Drive or Dropbox.');
+    setUploading(false);
   };
 
   return (
