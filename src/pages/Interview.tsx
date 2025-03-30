@@ -116,6 +116,16 @@ const Interview = () => {
     [humeApiKey]
   );
 
+  // Create a ref for scrolling to the last message
+  const lastMessageRef = useRef<HTMLDivElement>(null);
+
+  // Effect to scroll to the last message when messages change
+  useEffect(() => {
+    if (lastMessageRef.current) {
+      lastMessageRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+
   useEffect(() => {
     if (!currentUser) {
       navigate('/login');
@@ -160,37 +170,37 @@ const Interview = () => {
   const startRecording = async () => {
     try {
       setIsRecording(true);
+      setInterviewState('user-speaking');
       setTranscriptionError(null);
       
+      // Clear any previous transcription display
+      setTranscription('');
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const recorder = new MediaRecorder(stream);
       const audioChunks: BlobPart[] = [];
       
-      mediaRecorder.ondataavailable = (event) => {
-        audioChunks.push(event.data);
+      recorder.ondataavailable = (e) => {
+        audioChunks.push(e.data);
       };
       
-      mediaRecorder.onstop = async () => {
-        setIsRecording(false);
-        setIsTranscribing(true);
-        
+      recorder.onstop = async () => {
         try {
-          const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-          console.log("Audio recording complete, size:", audioBlob.size, "bytes");
+          setIsTranscribing(true);
+          setIsRecording(false);
+          
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          const formData = new FormData();
+          formData.append('file', audioBlob, 'recording.webm');
           
           // Get the Azure API key from environment variables
           const azureApiKey = import.meta.env.VITE_APP_AZURE_API_KEY;
           const endpoint = "https://kusha-m8fgqe1k-eastus2.cognitiveservices.azure.com";
           const deploymentName = "whisper";
           
-          // Create FormData to send the audio file
-          const formData = new FormData();
-          formData.append('file', audioBlob, 'recording.wav');
-          
           console.log("Sending transcription request to Azure Whisper API...");
           
-          // Call Azure Whisper endpoint with the correct path and API version
-          // Using the format from the documentation
+          // Send to Azure for transcription
           const response = await fetch(
             `${endpoint}/openai/deployments/${deploymentName}/audio/transcriptions?api-version=2023-09-01-preview`,
             {
@@ -198,7 +208,7 @@ const Interview = () => {
               headers: {
                 'api-key': azureApiKey,
               },
-              body: formData,
+              body: formData
             }
           );
           
@@ -216,9 +226,6 @@ const Interview = () => {
             const transcribedText = result.text;
             setTranscription(transcribedText);
             
-            // Clear the input field immediately
-            setUserInput('');
-            
             // Add user message to chat
             const userMessage: Message = {
               id: Date.now().toString(),
@@ -228,8 +235,7 @@ const Interview = () => {
             };
             
             // Update messages state with the new user message
-            const updatedMessages = [...messages, userMessage];
-            setMessages(updatedMessages);
+            setMessages(prev => [...prev, userMessage]);
             
             setIsThinking(true);
             setInterviewState('ai-thinking');
@@ -265,13 +271,14 @@ const Interview = () => {
                   }
                 ]);
                 
-                // Simulate AI finishing speaking after a delay proportional to message length
-                const speakingTime = (feedback.length + nextQuestion.length) * 30;
-                setTimeout(() => {
+                // Speak the messages sequentially
+                speakResponse(feedback).then(() => {
+                  return speakResponse(nextQuestion);
+                }).then(() => {
                   setIsSpeaking(false);
                   setInterviewState('idle');
                   setIsUserTurn(true);
-                }, Math.min(speakingTime, 5000)); // Cap at 5 seconds max
+                });
                 
               } else {
                 // Interview complete
@@ -298,8 +305,10 @@ const Interview = () => {
                   }
                 ]);
                 
-                // Simulate AI finishing speaking
-                setTimeout(() => {
+                // Speak the messages sequentially
+                speakResponse(feedback).then(() => {
+                  return speakResponse(completionMessage);
+                }).then(() => {
                   setIsSpeaking(false);
                   setInterviewState('idle');
                   
@@ -307,7 +316,7 @@ const Interview = () => {
                   setTimeout(() => {
                     navigate('/results');
                   }, 2000);
-                }, 4000);
+                });
               }
             }, 2000);
           } else {
@@ -321,8 +330,8 @@ const Interview = () => {
         }
       };
       
-      mediaRecorder.start();
-      setMediaRecorder(mediaRecorder);
+      recorder.start();
+      setMediaRecorder(recorder);
       
     } catch (error) {
       console.error('Error starting recording:', error);
@@ -334,8 +343,7 @@ const Interview = () => {
   const stopRecording = () => {
     if (mediaRecorder && isRecording) {
       mediaRecorder.stop();
-      setIsRecording(false);
-      setInterviewState('idle');
+      // Note: We don't set isRecording to false here because that's handled in the onstop handler
     }
   };
 
@@ -607,118 +615,100 @@ const Interview = () => {
     };
   }, [videoStream, captureInterval]);
 
-  const handleSendMessage = async (text = userInput) => {
-    if (!text.trim()) return;
+  const handleSendMessage = async () => {
+    if (!userInput.trim() || isThinking || isSpeaking) return;
     
     // Add user message
-    const newUserMessage: Message = {
-      id: Date.now().toString(),
-      text: text.trim(),
+    const userMessage: Message = {
+      id: Date.now().toString() + '-user',
+      text: userInput,
       sender: 'user',
       timestamp: new Date()
     };
     
-    setMessages(prev => [...prev, newUserMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setUserInput('');
-    setTranscription('');
-    setIsUserTurn(false);
-    
-    // AI starts thinking
     setIsThinking(true);
     setInterviewState('ai-thinking');
+    setIsUserTurn(false);
     
     try {
-      // Simulate AI processing
-      setTimeout(async () => {
-        // Move to next question if available
-        if (currentQuestion < questions.length - 1) {
-          setCurrentQuestion(prev => prev + 1);
-          
-          // AI stops thinking and starts speaking
-          setIsThinking(false);
-          setIsSpeaking(true);
-          setInterviewState('ai-speaking');
-          
-          // Add AI response and next question
-          const feedback = generateFeedback();
-          const nextQuestion = questions[currentQuestion + 1].text;
-          
-          // Add messages one at a time and speak them
-          const feedbackMessage: Message = {
-            id: Date.now().toString() + '-feedback',
-            text: feedback,
-            sender: 'ai',
-            timestamp: new Date()
-          };
-          
-          setMessages(prev => [...prev, feedbackMessage]);
-          
-          // Speak the feedback first
-          await speakResponse(feedback);
-          
-          // Short pause between feedback and next question
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          // Add and speak the next question
-          const questionMessage: Message = {
-            id: Date.now().toString() + '-question',
-            text: nextQuestion,
-            sender: 'ai',
-            timestamp: new Date()
-          };
-          
-          setMessages(prev => [...prev, questionMessage]);
-          await speakResponse(nextQuestion);
-          
-          // After both messages are spoken, set the interview state back to idle
-          setIsSpeaking(false);
-          setInterviewState('idle');
-          setIsUserTurn(true);
-          
-        } else {
-          // Interview complete
-          setIsThinking(false);
-          setIsSpeaking(true);
-          setInterviewState('ai-speaking');
-          
-          const feedback = generateFeedback();
-          const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
-          
-          // Add and speak the final feedback
-          const feedbackMessage: Message = {
-            id: Date.now().toString() + '-feedback',
-            text: feedback,
-            sender: 'ai',
-            timestamp: new Date()
-          };
-          
-          setMessages(prev => [...prev, feedbackMessage]);
-          await speakResponse(feedback);
-          
-          // Short pause
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          // Add and speak the completion message
-          const completionMsg: Message = {
-            id: Date.now().toString() + '-complete',
-            text: completionMessage,
-            sender: 'ai',
-            timestamp: new Date()
-          };
-          
-          setMessages(prev => [...prev, completionMsg]);
-          await speakResponse(completionMessage);
-          
-          // After speaking, navigate to results
-          setIsSpeaking(false);
-          setInterviewState('idle');
-          
-          // Navigate to results after a delay
-          setTimeout(() => {
-            navigate('/results');
-          }, 1000);
-        }
-      }, 1500);
+      // Process the user's answer
+      await processUserAnswer(userInput);
+      
+      // Short delay before AI response
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setIsThinking(false);
+      setIsSpeaking(true);
+      setInterviewState('ai-speaking');
+      
+      // Generate feedback for the current question
+      const feedback = generateFeedback();
+      
+      // Add feedback message
+      const feedbackMessage: Message = {
+        id: Date.now().toString() + '-feedback',
+        text: feedback,
+        sender: 'ai',
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, feedbackMessage]);
+      
+      // Speak the feedback first
+      await speakResponse(feedback);
+      
+      // Check if there are more questions
+      if (currentQuestion < questions.length - 1) {
+        // Move to the next question
+        setCurrentQuestion(prev => prev + 1);
+        
+        // Get the next question
+        const nextQuestion = questions[currentQuestion + 1];
+        
+        // Add question message
+        const questionMessage: Message = {
+          id: Date.now().toString() + '-question',
+          text: nextQuestion,
+          sender: 'ai',
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, questionMessage]);
+        
+        // Speak the next question
+        await speakResponse(nextQuestion);
+        
+        // After both messages are spoken, set the interview state back to idle
+        setInterviewState('idle');
+        setIsUserTurn(true);
+        
+      } else {
+        // Interview complete
+        const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
+        
+        // Add completion message
+        const completionMsg: Message = {
+          id: Date.now().toString() + '-complete',
+          text: completionMessage,
+          sender: 'ai',
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, completionMsg]);
+        
+        // Speak the completion message
+        await speakResponse(completionMessage);
+        
+        // After speaking, navigate to results
+        setInterviewState('idle');
+        
+        // Navigate to results after a delay
+        setTimeout(() => {
+          navigate('/results');
+        }, 1000);
+      }
     } catch (error) {
       console.error('Error processing message:', error);
       setIsThinking(false);
@@ -739,9 +729,6 @@ const Interview = () => {
     
     const randomFeedback = feedbacks[Math.floor(Math.random() * feedbacks.length)];
     
-    // Speak the feedback when it's generated
-    speakResponse(randomFeedback);
-    
     return randomFeedback;
   };
 
@@ -753,7 +740,7 @@ const Interview = () => {
   // Determine if send button should be disabled
   const isSendDisabled = !userInput.trim() || isThinking || isSpeaking;
 
-  // Update the speakResponse function with a valid voice parameter
+  // Update the speakResponse function to handle sequential TTS
   const speakResponse = async (text: string) => {
     try {
       setIsSpeaking(true);
@@ -764,7 +751,6 @@ const Interview = () => {
       const deploymentName = "tts";
       
       console.log("Converting text to speech...");
-      console.log("Text to convert:", text);
       
       // Ensure we have text to convert
       if (!text || text.trim() === '') {
@@ -773,14 +759,12 @@ const Interview = () => {
         return;
       }
       
-      // Prepare the request payload with a valid voice from the allowed list
+      // Prepare the request payload
       const payload = {
         model: "tts-1",
         input: text,
-        voice: "nova" // Using one of the allowed voices: nova, shimmer, echo, onyx, fable, alloy
+        voice: "nova"
       };
-      
-      console.log("TTS payload:", payload);
       
       // Make the API request
       const response = await fetch(
@@ -795,8 +779,6 @@ const Interview = () => {
         }
       );
       
-      console.log("TTS API response status:", response.status);
-      
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Text-to-speech error response:", errorText);
@@ -805,7 +787,6 @@ const Interview = () => {
       
       // Get the audio blob
       const audioBlob = await response.blob();
-      console.log("Audio blob received, size:", audioBlob.size, "bytes");
       
       // Create a URL for the audio blob
       const audioUrl = URL.createObjectURL(audioBlob);
@@ -813,46 +794,48 @@ const Interview = () => {
       // Play the audio
       if (audioRef.current) {
         audioRef.current.src = audioUrl;
-        audioRef.current.onloadedmetadata = () => {
-          try {
-            const playPromise = audioRef.current?.play();
-            if (playPromise) {
-              playPromise.catch(error => {
-                console.error("Error playing audio:", error);
-                setIsSpeaking(false);
-              });
-            } else {
-              console.log("Audio playback started successfully");
+        
+        // Return a promise that resolves when the audio finishes playing
+        return new Promise((resolve) => {
+          audioRef.current.onloadedmetadata = () => {
+            try {
+              const playPromise = audioRef.current?.play();
+              if (playPromise) {
+                playPromise.catch(error => {
+                  console.error("Error playing audio:", error);
+                  setIsSpeaking(false);
+                  resolve(false);
+                });
+              }
+            } catch (playError) {
+              console.error("Error playing audio:", playError);
+              setIsSpeaking(false);
+              resolve(false);
             }
-          } catch (playError) {
-            console.error("Error playing audio:", playError);
-          }
-        };
-        audioRef.current.onended = () => {
-          console.log("Audio playback ended");
-          setIsSpeaking(false);
-          URL.revokeObjectURL(audioUrl);
-        };
-        audioRef.current.onerror = (e) => {
-          console.error("Audio element error:", e);
-          setIsSpeaking(false);
-          URL.revokeObjectURL(audioUrl);
-        };
+          };
+          
+          audioRef.current.onended = () => {
+            setIsSpeaking(false);
+            URL.revokeObjectURL(audioUrl);
+            resolve(true);
+          };
+          
+          audioRef.current.onerror = () => {
+            setIsSpeaking(false);
+            URL.revokeObjectURL(audioUrl);
+            resolve(false);
+          };
+        });
       } else {
-        console.error("Audio element reference is null");
         setIsSpeaking(false);
+        return Promise.resolve(false);
       }
       
     } catch (error) {
       console.error('Text-to-speech error:', error);
       setIsSpeaking(false);
+      return Promise.resolve(false);
     }
-  };
-
-  // Add a test function to directly test TTS
-  const testTextToSpeech = () => {
-    const testText = "This is a test of the text to speech functionality. If you can hear this, it's working correctly.";
-    speakResponse(testText);
   };
 
   const toggleMenu = () => {
@@ -1167,35 +1150,34 @@ const Interview = () => {
                 {/* This div is scrollable */}
                 <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                   <div className="space-y-6">
-                    {messages.map((message) => (
+                    {messages.map((message, index) => (
                       <div
                         key={message.id}
-                        className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                        className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} mb-4`}
+                        ref={index === messages.length - 1 ? lastMessageRef : null}
                       >
                         <div
-                          className={`max-w-[80%] rounded-2xl p-4 ${
+                          className={`max-w-[80%] rounded-lg p-3 ${
                             message.sender === 'user'
-                              ? 'bg-white/10 text-white rounded-tr-none'
-                              : 'bg-white/5 text-white rounded-tl-none'
+                              ? 'bg-blue-600 text-white rounded-br-none'
+                              : 'bg-white/10 text-white rounded-bl-none'
                           }`}
                         >
-                          <div className="flex items-center mb-2">
-                            <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 ${
-                              message.sender === 'user' ? 'bg-white/10' : 'bg-white/5'
-                            }`}>
-                              {message.sender === 'user' ? 
-                                <User className="h-3 w-3" /> : 
-                                <Bot className="h-3 w-3" />
-                              }
+                          <div className="flex items-start">
+                            <div className="flex-shrink-0 mr-2">
+                              {message.sender === 'user' ? (
+                                <User className="h-5 w-5 text-white/70" />
+                              ) : (
+                                <Bot className="h-5 w-5 text-white/70" />
+                              )}
                             </div>
-                            <span className="text-sm font-medium">
-                              {message.sender === 'user' ? 'You' : 'AI Interviewer'}
-                            </span>
-                            <span className="text-xs opacity-70 ml-2">
-                              {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
+                            <div>
+                              <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+                              <p className="text-xs text-white/50 mt-1">
+                                {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
                           </div>
-                          <p className="whitespace-pre-wrap text-sm">{message.text}</p>
                         </div>
                       </div>
                     ))}
@@ -1422,19 +1404,7 @@ const Interview = () => {
       )}
       
       {/* Add audio element for text-to-speech with controls for debugging */}
-      <audio 
-        ref={audioRef} 
-        className="fixed bottom-4 left-4 z-50" 
-        controls 
-      />
-      
-      {/* Add test button */}
-      <button
-        onClick={testTextToSpeech}
-        className="fixed bottom-4 right-4 bg-blue-500 text-white px-4 py-2 rounded-md"
-      >
-        Test TTS
-      </button>
+      <audio ref={audioRef} className="hidden" />
       
       {/* Add speaking indicator */}
       {isSpeaking && (
