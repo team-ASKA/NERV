@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, CheckCircle, AlertCircle, ArrowRight, Briefcase, Menu, User, Edit, LogOut, Linkedin, Globe, X, Upload } from 'lucide-react';
+import { FileText, CheckCircle, AlertCircle, ArrowRight, Briefcase, Menu, User, Edit, LogOut, Linkedin, Globe, X, Upload, Clock, Calendar, BarChart, ChevronLeft, ChevronRight, ExternalLink, Trash2, History } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -42,6 +42,12 @@ const Dashboard = () => {
   // Add this new state for the alert
   const [showResumeAlert, setShowResumeAlert] = useState(false);
 
+  // Add new state variables for interview history
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' or 'history'
+  const [interviewHistory, setInterviewHistory] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(5);
+
   // Fetch user details from Firestore
   useEffect(() => {
     const fetchUserDetails = async () => {
@@ -79,6 +85,27 @@ const Dashboard = () => {
     
     fetchUserDetails();
   }, [currentUser]);
+
+  // Add new useEffect to load interview history
+  useEffect(() => {
+    const loadInterviewHistory = () => {
+      try {
+        const storedHistory = localStorage.getItem('interviewHistory');
+        if (storedHistory) {
+          const parsedHistory = JSON.parse(storedHistory);
+          // Sort by timestamp, newest first
+          parsedHistory.sort((a: any, b: any) => 
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          );
+          setInterviewHistory(parsedHistory);
+        }
+      } catch (error) {
+        console.error("Error loading interview history:", error);
+      }
+    };
+    
+    loadInterviewHistory();
+  }, []);
 
   // Handle logout
   const handleLogout = async () => {
@@ -255,6 +282,31 @@ const Dashboard = () => {
     setUploadError('CORS issue: File upload is temporarily disabled. Please use the URL input below to link to your resume on Google Drive or Dropbox.');
     setUploading(false);
   };
+
+  // Add function to view interview results
+  const viewInterviewResults = (interviewId: string) => {
+    // Store the selected interview in localStorage
+    const selectedInterview = interviewHistory.find(interview => interview.id === interviewId);
+    if (selectedInterview) {
+      localStorage.setItem('interviewResults', JSON.stringify(selectedInterview));
+      navigate('/results');
+    }
+  };
+  
+  // Add function to delete interview from history
+  const deleteInterview = (interviewId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent triggering the parent click
+    
+    const updatedHistory = interviewHistory.filter(interview => interview.id !== interviewId);
+    setInterviewHistory(updatedHistory);
+    localStorage.setItem('interviewHistory', JSON.stringify(updatedHistory));
+  };
+  
+  // Calculate pagination
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentInterviews = interviewHistory.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(interviewHistory.length / itemsPerPage);
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
@@ -715,11 +767,39 @@ const Dashboard = () => {
         )}
       </AnimatePresence>
 
-      {/* Main Content - Adjusted to fit on one screen */}
-      <div className="flex-1 flex items-center justify-center">
-        <div className="max-w-7xl w-full mx-auto px-4 py-6">
-          {/* Dashboard content */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Tab Navigation */}
+      <div className="max-w-7xl mx-auto px-4 py-4 w-full">
+        <div className="flex border-b border-white/10 mb-6">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`px-4 py-2 font-medium text-sm transition-colors ${
+              activeTab === 'dashboard' 
+                ? 'text-white border-b-2 border-white' 
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Dashboard
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-2 font-medium text-sm transition-colors flex items-center ${
+              activeTab === 'history' 
+                ? 'text-white border-b-2 border-white' 
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Interview History
+            {interviewHistory.length > 0 && (
+              <span className="ml-2 bg-white/10 text-white text-xs px-2 py-0.5 rounded-full">
+                {interviewHistory.length}
+              </span>
+            )}
+          </button>
+        </div>
+        
+        {/* Dashboard Tab Content */}
+        {activeTab === 'dashboard' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Welcome Card */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -906,7 +986,109 @@ const Dashboard = () => {
               </button>
             </motion.div>
           </div>
-        </div>
+        )}
+        
+        {/* Interview History Tab Content */}
+        {activeTab === 'history' && (
+          <div className="space-y-6">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="bg-black border border-white/10 rounded-xl p-6 shadow-lg"
+            >
+              <div className="flex items-center mb-4">
+                <History className="h-5 w-5 text-white mr-2" />
+                <h2 className="text-xl font-semibold">Your Interview History</h2>
+              </div>
+              
+              {interviewHistory.length > 0 ? (
+                <>
+                  <div className="space-y-4 mb-6">
+                    {currentInterviews.map((interview, index) => (
+                      <motion.div
+                        key={interview.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3, delay: index * 0.1 }}
+                        onClick={() => viewInterviewResults(interview.id)}
+                        className="border border-white/10 rounded-lg p-4 hover:border-white/30 hover:bg-white/5 transition-all cursor-pointer"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="flex items-center mb-2">
+                              <Calendar className="h-4 w-4 text-gray-400 mr-2" />
+                              <span className="text-sm text-gray-300">
+                                {new Date(interview.timestamp).toLocaleDateString()} at {new Date(interview.timestamp).toLocaleTimeString()}
+                              </span>
+                            </div>
+                            
+                            <h3 className="font-medium mb-2 text-white">
+                              Interview #{interviewHistory.length - interviewHistory.indexOf(interview)}
+                            </h3>
+                            
+                            <p className="text-gray-400 text-sm line-clamp-2">
+                              {interview.summary.split('\n')[0] || "Interview completed"}
+                            </p>
+                            
+                            <div className="mt-3 flex items-center text-blue-400 text-xs">
+                              <ExternalLink className="h-3 w-3 mr-1" />
+                              View detailed results
+                            </div>
+                          </div>
+                          
+                          <button
+                            onClick={(e) => deleteInterview(interview.id, e)}
+                            className="p-1 text-gray-500 hover:text-red-500 transition-colors"
+                            title="Delete interview"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                  
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex justify-center items-center space-x-2">
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        className="p-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </button>
+                      
+                      <span className="text-sm">
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                        className="p-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronRight className="h-5 w-5" />
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-10">
+                  <p className="text-gray-400 mb-4">You haven't completed any interviews yet.</p>
+                  <button
+                    onClick={() => navigate('/interview')}
+                    className="px-4 py-2 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all"
+                  >
+                    Start Your First Interview
+                    <ArrowRight className="ml-2 h-4 w-4 inline" />
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
       </div>
     </div>
   );

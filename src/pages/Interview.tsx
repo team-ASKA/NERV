@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { FaVideo } from 'react-icons/fa';
 import { HumeClient } from "hume";
 import { auth, db, storage } from '../lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { extractTextFromPDF } from '../services/pdfService';
 
@@ -1726,7 +1726,7 @@ const Interview = () => {
     }
   };
 
-  // Modify your handleEndInterview function to use the stored data
+  // Modify your handleEndInterview function to increment the interview count
   const handleEndInterview = async () => {
     setIsThinking(true);
     
@@ -1753,16 +1753,47 @@ const Interview = () => {
       
       const summary = await generateInterviewSummary(conversationText, interviewData);
       
-      // Store complete results
+      // Create interview result object with unique ID
+      const interviewId = Date.now().toString();
       const interviewResults = {
+        id: interviewId,
         summary,
         emotionsData: interviewData,
         transcriptions,
         timestamp: new Date().toISOString()
       };
       
+      // Store current interview results
       localStorage.setItem('interviewResults', JSON.stringify(interviewResults));
-      console.log("Stored interview results:", interviewResults);
+      
+      // Store in interview history
+      const interviewHistory = JSON.parse(localStorage.getItem('interviewHistory') || '[]');
+      interviewHistory.push(interviewResults);
+      localStorage.setItem('interviewHistory', JSON.stringify(interviewHistory));
+      
+      // Update interview count in Firebase if user is logged in
+      if (currentUser) {
+        try {
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          
+          // Get current user data
+          const userDoc = await getDoc(userDocRef);
+          const userData = userDoc.exists() ? userDoc.data() : {};
+          
+          // Increment interviews completed count
+          const currentCount = userData.interviewsCompleted || 0;
+          
+          await updateDoc(userDocRef, {
+            interviewsCompleted: currentCount + 1,
+            lastInterviewDate: new Date().toISOString()
+          });
+          
+          console.log("Updated interview count in database");
+        } catch (dbError) {
+          console.error("Error updating interview count:", dbError);
+          // Continue even if database update fails
+        }
+      }
       
       // Navigate to results
       navigate('/results');
