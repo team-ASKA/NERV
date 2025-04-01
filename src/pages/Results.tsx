@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowLeft, Download } from 'lucide-react';
+import { ArrowLeft, Download, Brain, MessageSquare, Bot, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { FaVideo } from 'react-icons/fa';
 
 interface EmotionData {
   name: string;
@@ -115,7 +116,7 @@ ${emotionsText}
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-8 max-w-5xl">
         <div className="flex items-center mb-8">
           <button 
             onClick={() => navigate('/dashboard')} 
@@ -123,7 +124,7 @@ ${emotionsText}
           >
             <ArrowLeft className="h-6 w-6" />
           </button>
-          <h1 className="text-2xl font-bold">Interview Results</h1>
+          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">Interview Results</h1>
         </div>
         
         {isLoading ? (
@@ -131,7 +132,7 @@ ${emotionsText}
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
           </div>
         ) : error ? (
-          <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-4 mb-6">
+          <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-6 mb-6">
             <p className="text-red-300">{error}</p>
             <button 
               onClick={() => navigate('/interview')} 
@@ -143,21 +144,46 @@ ${emotionsText}
         ) : results ? (
           <div className="space-y-8">
             {/* Summary Section */}
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4 text-blue-400">Interview Summary</h2>
-              <div className="prose prose-invert max-w-none">
+            <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-8 shadow-xl border border-gray-700/50">
+              <div className="flex items-center mb-4">
+                <Brain className="h-6 w-6 text-blue-400 mr-3" />
+                <h2 className="text-2xl font-semibold text-blue-400">Interview Summary</h2>
+              </div>
+              <div className="prose prose-invert max-w-none prose-headings:text-blue-300 prose-a:text-blue-400">
                 <ReactMarkdown>{results.summary || "No summary available"}</ReactMarkdown>
               </div>
             </div>
             
             {/* Transcriptions Section */}
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4 text-blue-400">Your Responses</h2>
-              {results.transcriptions && results.transcriptions.length > 0 ? (
-                <div className="space-y-4">
-                  {results.transcriptions.map((text, index) => (
-                    <div key={index} className="bg-gray-700/50 p-4 rounded-lg">
-                      <p className="text-gray-300">{text}</p>
+            <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-8 shadow-xl border border-gray-700/50">
+              <div className="flex items-center mb-6">
+                <MessageSquare className="h-6 w-6 text-green-400 mr-3" />
+                <h2 className="text-2xl font-semibold text-green-400">Your Responses</h2>
+              </div>
+              {results.emotionsData && results.emotionsData.length > 0 ? (
+                <div className="space-y-6">
+                  {results.emotionsData.map((item, index) => (
+                    <div key={index} className="bg-gray-800/50 p-6 rounded-lg border border-gray-700/30 hover:border-gray-600/50 transition-colors">
+                      <div className="flex items-start mb-3">
+                        <div className="bg-gray-700 rounded-full p-2 mr-3">
+                          <Bot className="h-5 w-5 text-blue-400" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="font-medium text-blue-300 mb-2">{item.question}</h3>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(item.timestamp).toLocaleTimeString()}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-start ml-12">
+                        <div className="bg-gray-700 rounded-full p-2 mr-3">
+                          <User className="h-5 w-5 text-green-400" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-gray-300">{item.answer}</p>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -167,28 +193,63 @@ ${emotionsText}
             </div>
             
             {/* Emotional Analysis Section */}
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4 text-blue-400">Emotional Analysis</h2>
+            <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-8 shadow-xl border border-gray-700/50">
+              <div className="flex items-center mb-6">
+                <FaVideo className="h-6 w-6 text-purple-400 mr-3" />
+                <h2 className="text-2xl font-semibold text-purple-400">Emotional Analysis</h2>
+              </div>
               {results.emotionsData && results.emotionsData.length > 0 ? (
-                <div className="space-y-6">
+                <div className="space-y-8">
                   {results.emotionsData.map((item, index) => (
-                    <div key={index} className="border-b border-gray-700 pb-4 last:border-0">
-                      <h3 className="font-medium text-gray-300 mb-2">Question: {item.question}</h3>
-                      <p className="text-gray-400 mb-3">Your answer: {item.answer}</p>
-                      
-                      <div className="mt-2">
-                        <h4 className="text-sm text-gray-400 mb-2">Top Emotions:</h4>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                          {item.emotions && Array.isArray(item.emotions) && item.emotions.length > 0 ? 
-                            item.emotions.slice(0, 6).map((emotion, idx) => (
-                              <div key={idx} className="bg-gray-700/30 rounded p-2 flex justify-between">
-                                <span className="capitalize">{emotion.name || 'Unknown'}</span>
-                                <span className="text-blue-400">{((emotion.score || 0) * 100).toFixed(0)}%</span>
-                              </div>
-                            )) : (
-                              <div className="col-span-3 text-gray-400">No emotion data available</div>
-                            )
-                          }
+                    <div key={index} className="border-b border-gray-700 pb-6 last:border-0">
+                      <div className="flex flex-col md:flex-row md:items-start gap-6">
+                        <div className="flex-1">
+                          <h3 className="font-medium text-gray-300 mb-2 text-lg">Question {index + 1}</h3>
+                          <p className="text-gray-400 mb-3 italic">"{item.question}"</p>
+                          <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700/30 mb-4">
+                            <p className="text-gray-300">{item.answer}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="md:w-1/3">
+                          <h4 className="text-sm text-purple-300 mb-3 uppercase tracking-wider font-semibold">Detected Emotions</h4>
+                          <div className="space-y-2">
+                            {item.emotions && Array.isArray(item.emotions) && item.emotions.length > 0 ? 
+                              item.emotions.slice(0, 6).map((emotion, idx) => {
+                                const score = (emotion.score || 0) * 100;
+                                const getEmotionColor = (name: string) => {
+                                  const emotionColors: {[key: string]: string} = {
+                                    happy: 'bg-green-500',
+                                    sad: 'bg-blue-500',
+                                    angry: 'bg-red-500',
+                                    surprised: 'bg-yellow-500',
+                                    fearful: 'bg-purple-500',
+                                    disgusted: 'bg-orange-500',
+                                    neutral: 'bg-gray-500',
+                                    default: 'bg-indigo-500'
+                                  };
+                                  return emotionColors[name.toLowerCase()] || emotionColors.default;
+                                };
+                                
+                                return (
+                                  <div key={idx} className="bg-gray-800/70 rounded-lg p-3">
+                                    <div className="flex justify-between items-center mb-1">
+                                      <span className="capitalize font-medium text-gray-200">{emotion.name || 'Unknown'}</span>
+                                      <span className="text-gray-300 font-semibold">{score.toFixed(0)}%</span>
+                                    </div>
+                                    <div className="w-full bg-gray-700 rounded-full h-2">
+                                      <div 
+                                        className={`${getEmotionColor(emotion.name || '')} h-2 rounded-full`} 
+                                        style={{ width: `${score}%` }}
+                                      ></div>
+                                    </div>
+                                  </div>
+                                );
+                              }) : (
+                                <div className="bg-gray-800/50 p-4 rounded-lg text-gray-400">No emotion data available</div>
+                              )
+                            }
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -200,10 +261,10 @@ ${emotionsText}
             </div>
             
             {/* Actions */}
-            <div className="flex justify-between">
+            <div className="flex flex-col sm:flex-row justify-between gap-4 mt-10">
               <button 
                 onClick={() => navigate('/interview')} 
-                className="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-lg transition-colors flex items-center"
+                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 px-6 py-3 rounded-lg transition-colors flex items-center justify-center"
               >
                 <ArrowLeft className="h-5 w-5 mr-2" />
                 New Interview
@@ -211,7 +272,7 @@ ${emotionsText}
               
               <button 
                 onClick={handleDownloadResults} 
-                className="bg-green-600 hover:bg-green-700 px-6 py-3 rounded-lg transition-colors flex items-center"
+                className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 px-6 py-3 rounded-lg transition-colors flex items-center justify-center"
               >
                 <Download className="h-5 w-5 mr-2" />
                 Download Results
