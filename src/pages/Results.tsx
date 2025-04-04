@@ -20,7 +20,7 @@ interface EmotionItem {
 
 interface InterviewResults {
   id: string;
-  summary: string;
+  summary?: string;
   emotionsData: EmotionItem[];
   transcriptions: string[];
   timestamp: string;
@@ -39,31 +39,131 @@ const Results = () => {
     // Get results from localStorage
     const loadResults = () => {
       try {
+        setIsLoading(true);
+        
+        // Clear any old interview data to prevent appending
+        localStorage.removeItem('interviewData');
+        
+        // Get the most recent interview results
         const storedResults = localStorage.getItem('interviewResults');
+        
         if (storedResults) {
-          setResults(JSON.parse(storedResults));
-        } else {
-          // Try to build results from interviewData if interviewResults doesn't exist
-          const interviewData = localStorage.getItem('interviewData');
-          if (interviewData) {
-            const parsedData = JSON.parse(interviewData);
-            if (Array.isArray(parsedData) && parsedData.length > 0) {
-              // Create a basic results object from the interview data
-              const basicResults: InterviewResults = {
-                id: Date.now().toString(),
-                summary: "Interview completed. Here are your responses and emotional analysis.",
-                emotionsData: parsedData,
-                transcriptions: parsedData.map(item => item.answer),
-                timestamp: new Date().toISOString()
-              };
-              setResults(basicResults);
+          const parsedResults = JSON.parse(storedResults);
+          console.log("Loaded interview results:", parsedResults);
+          
+          // Ensure the emotionsData array contains the correct emotion values
+          if (parsedResults.emotionsData && Array.isArray(parsedResults.emotionsData)) {
+            // Make sure each emotion item has the correct structure
+            parsedResults.emotionsData = parsedResults.emotionsData.map((item: any) => {
+              // Ensure emotions array exists and has valid data
+              if (!item.emotions || !Array.isArray(item.emotions) || item.emotions.length === 0) {
+                // If no emotions data, create a placeholder
+                console.log("No emotions data found for item, using placeholder");
+                item.emotions = [
+                  { name: "No emotion data", score: 0 }
+                ];
+              } else {
+                // Filter out any invalid emotion entries
+                item.emotions = item.emotions.filter((emotion: any) => 
+                  emotion && typeof emotion === 'object' && 
+                  emotion.name && typeof emotion.name === 'string' &&
+                  emotion.score !== undefined && typeof emotion.score === 'number'
+                );
+                
+                // Sort emotions by score (highest first)
+                item.emotions.sort((a: EmotionData, b: EmotionData) => b.score - a.score);
+              }
               
-              // Store this in interview history as well
-              const interviewHistory = JSON.parse(localStorage.getItem('interviewHistory') || '[]');
-              interviewHistory.push(basicResults);
-              localStorage.setItem('interviewHistory', JSON.stringify(interviewHistory));
-            } else {
-              setError("No interview results found. Please complete an interview first.");
+              return {
+                question: item.question || "Question not recorded",
+                answer: item.answer || "Answer not recorded",
+                emotions: item.emotions,
+                timestamp: item.timestamp || new Date().toISOString()
+              };
+            });
+          } else {
+            console.log("No emotions data array found, creating empty array");
+            parsedResults.emotionsData = [];
+          }
+          
+          setResults(parsedResults);
+        } else {
+          console.log("No stored interview results found");
+          
+          // Try to build results from messages in localStorage
+          const messagesString = localStorage.getItem('interviewMessages');
+          if (messagesString) {
+            try {
+              const messages = JSON.parse(messagesString);
+              
+              if (Array.isArray(messages) && messages.length > 0) {
+                console.log("Building results from messages:", messages.length, "messages found");
+                
+                // Extract questions and answers
+                const questionAnswerPairs: EmotionItem[] = [];
+                let currentQuestion = "";
+                
+                messages.forEach((msg, index) => {
+                  if (msg.sender === 'ai' && messages[index + 1] && messages[index + 1].sender === 'user') {
+                    currentQuestion = msg.text;
+                    const answer = messages[index + 1].text;
+                    
+                    questionAnswerPairs.push({
+                      question: currentQuestion,
+                      answer: answer,
+                      emotions: [], // Will be populated from emotionsData if available
+                      timestamp: new Date(msg.timestamp).toISOString()
+                    });
+                  }
+                });
+                
+                // Try to get emotions data
+                const emotionsDataString = localStorage.getItem('currentEmotions');
+                let emotionsData: EmotionData[] = [];
+                
+                if (emotionsDataString) {
+                  try {
+                    const parsedEmotions = JSON.parse(emotionsDataString);
+                    if (Array.isArray(parsedEmotions)) {
+                      emotionsData = parsedEmotions;
+                      console.log("Found emotions data:", emotionsData.length, "emotions");
+                    }
+                  } catch (e) {
+                    console.error("Error parsing emotions data:", e);
+                  }
+                }
+                
+                // Apply emotions to each question-answer pair
+                if (emotionsData.length > 0) {
+                  questionAnswerPairs.forEach(pair => {
+                    pair.emotions = emotionsData;
+                  });
+                }
+                
+                // Create a basic results object
+                const basicResults: InterviewResults = {
+                  id: Date.now().toString(),
+                  emotionsData: questionAnswerPairs,
+                  transcriptions: questionAnswerPairs.map(item => item.answer),
+                  timestamp: new Date().toISOString()
+                };
+                
+                console.log("Created basic results:", basicResults);
+                setResults(basicResults);
+                
+                // Store this as the current interview results
+                localStorage.setItem('interviewResults', JSON.stringify(basicResults));
+                
+                // Also store in interview history
+                const interviewHistory = JSON.parse(localStorage.getItem('interviewHistory') || '[]');
+                interviewHistory.push(basicResults);
+                localStorage.setItem('interviewHistory', JSON.stringify(interviewHistory));
+              } else {
+                setError("No valid interview messages found. Please complete an interview first.");
+              }
+            } catch (e) {
+              console.error("Error parsing messages:", e);
+              setError("Failed to parse interview messages.");
             }
           } else {
             setError("No interview results found. Please complete an interview first.");
@@ -88,7 +188,7 @@ const Results = () => {
       ? results.emotionsData.map(item => 
           `Question: ${item.question}\nAnswer: ${item.answer}\nEmotions: ${
             item.emotions && Array.isArray(item.emotions) && item.emotions.length > 0
-              ? item.emotions.slice(0, 3).map(e => `${e.name || 'Unknown'} (${((e.score || 0) * 100).toFixed(0)}%)`).join(', ')
+              ? item.emotions.slice(0, 5).map(e => `${e.name || 'Unknown'} (${((e.score || 0) * 100).toFixed(0)}%)`).join(', ')
               : 'No emotions detected'
           }`
         ).join('\n\n')
@@ -130,6 +230,34 @@ ${emotionsText}
 
   const prevTab = () => {
     setActiveTab((prev) => (prev === 0 ? tabs.length - 1 : prev - 1));
+  };
+
+  // Helper function to get emotion color
+  const getEmotionColor = (name: string) => {
+    const emotionColors: {[key: string]: string} = {
+      happy: 'bg-green-500',
+      happiness: 'bg-green-500',
+      joy: 'bg-green-500',
+      sad: 'bg-blue-500',
+      sadness: 'bg-blue-500',
+      angry: 'bg-red-500',
+      anger: 'bg-red-500',
+      surprised: 'bg-yellow-500',
+      surprise: 'bg-yellow-500',
+      fearful: 'bg-purple-500',
+      fear: 'bg-purple-500',
+      disgusted: 'bg-orange-500',
+      disgust: 'bg-orange-500',
+      neutral: 'bg-gray-500',
+      contempt: 'bg-pink-500',
+      confusion: 'bg-indigo-500',
+      interest: 'bg-cyan-500',
+      concentration: 'bg-teal-500',
+      default: 'bg-white/50'
+    };
+    
+    const lowerName = name.toLowerCase();
+    return emotionColors[lowerName] || emotionColors.default;
   };
 
   return (
@@ -248,7 +376,16 @@ ${emotionsText}
                     <h2 className="font-montserrat font-semibold text-2xl">Interview Summary</h2>
                   </div>
                   <div className="prose prose-invert max-w-none prose-headings:text-white/90 prose-a:text-white">
-                    <ReactMarkdown>{results.summary || "No summary available"}</ReactMarkdown>
+                    {results.summary ? (
+                      <ReactMarkdown>{results.summary}</ReactMarkdown>
+                    ) : (
+                      <div>
+                        <h3>Interview Completed</h3>
+                        <p>You've successfully completed your interview with NERV AI.</p>
+                        <p>Check the Transcription tab to review your conversation, and the Emotional Analysis tab to see insights about your emotional expressions during the interview.</p>
+                        <p>To start a new interview, click the "Start New Interview" button below.</p>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -336,21 +473,8 @@ ${emotionsText}
                               <h4 className="text-sm text-white/90 mb-3 uppercase tracking-wider font-semibold">Detected Emotions</h4>
                               <div className="space-y-2">
                                 {item.emotions && Array.isArray(item.emotions) && item.emotions.length > 0 ? 
-                                  item.emotions.slice(0, 6).map((emotion, idx) => {
+                                  item.emotions.slice(0, 5).map((emotion, idx) => {
                                     const score = (emotion.score || 0) * 100;
-                                    const getEmotionColor = (name: string) => {
-                                      const emotionColors: {[key: string]: string} = {
-                                        happy: 'bg-green-500',
-                                        sad: 'bg-blue-500',
-                                        angry: 'bg-red-500',
-                                        surprised: 'bg-yellow-500',
-                                        fearful: 'bg-purple-500',
-                                        disgusted: 'bg-orange-500',
-                                        neutral: 'bg-gray-500',
-                                        default: 'bg-white'
-                                      };
-                                      return emotionColors[name.toLowerCase()] || emotionColors.default;
-                                    };
                                     
                                     return (
                                       <motion.div

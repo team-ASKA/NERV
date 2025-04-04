@@ -283,6 +283,17 @@ const Interview = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Add this function to check if text contains keywords indicating moving to next question
+  const shouldMoveToNextQuestion = (text: string): boolean => {
+    const nextQuestionKeywords = [
+      'next question', 'next topic', 'move on', 'let\'s continue', 
+      'proceed to', 'go to the next', 'following question'
+    ];
+    
+    const lowerText = text.toLowerCase();
+    return nextQuestionKeywords.some(keyword => lowerText.includes(keyword));
+  };
+
   const startRecording = async () => {
     try {
       setIsRecording(true);
@@ -374,10 +385,68 @@ const Interview = () => {
               { role: "user", content: transcribedText }
             ]);
             
+            // Check if user wants to move to next question
+            const userWantsNextQuestion = shouldMoveToNextQuestion(transcribedText);
+            
             setIsThinking(true);
             setInterviewState('ai-thinking');
             
             try {
+              // If user wants to move to next question and we're not at the last question
+              if (userWantsNextQuestion && currentQuestion < questions.length - 1) {
+                const nextQuestionIndex = currentQuestion + 1;
+                setCurrentQuestion(nextQuestionIndex);
+                setFollowUpCount(0);
+                
+                // Mark the next question as asked
+                setQuestions(prevQuestions => 
+                  prevQuestions.map((q, idx) => 
+                    idx === nextQuestionIndex ? { ...q, isAsked: true } : q
+                  )
+                );
+                
+                setIsThinking(false);
+                setIsSpeaking(true);
+                setInterviewState('ai-speaking');
+                
+                const transitionMessage = "Let's move on to the next question.";
+                const nextQuestionText = questions[nextQuestionIndex].text;
+                
+                // Add transition and question messages
+                const transitionMsg: Message = {
+                  id: Date.now().toString() + '-transition',
+                  text: transitionMessage,
+                  sender: 'ai',
+                  timestamp: new Date()
+                };
+                
+                const questionMsg: Message = {
+                  id: Date.now().toString() + '-question',
+                  text: nextQuestionText,
+                  sender: 'ai',
+                  timestamp: new Date(Date.now() + 100)
+                };
+                
+                setMessages(prev => [...prev, transitionMsg, questionMsg]);
+                
+                // Update conversation history
+                setConversationHistory(prev => [
+                  ...prev,
+                  { role: "assistant", content: transitionMessage },
+                  { role: "assistant", content: nextQuestionText }
+                ]);
+                
+                // Speak the transition and question
+                await speakResponse(transitionMessage);
+                await speakResponse(nextQuestionText);
+                
+                setIsSpeaking(false);
+                setInterviewState('idle');
+                setIsUserTurn(true);
+                
+                return;
+              }
+              
               // Process the user's answer with GPT to get a contextual response
               const feedback = await processUserAnswer(transcribedText);
               
@@ -402,18 +471,14 @@ const Interview = () => {
                 { role: "assistant", content: feedback }
               ]);
               
+              // Check if AI wants to move to next question
+              const aiWantsNextQuestion = shouldMoveToNextQuestion(feedback);
+              
               // Speak the feedback
               await speakResponse(feedback);
               
-              // After speaking feedback, set the interview state back to idle to allow user to respond
-              setIsSpeaking(false);
-              setInterviewState('idle');
-              setIsUserTurn(true);
-              
-              // Force progress after a certain number of exchanges
-              // This ensures the interview keeps moving forward
-              if (messages.length > 10 && currentQuestion < questions.length - 1 && Math.random() < 0.4) {
-                // 40% chance to move to next question after 10 exchanges
+              // If AI wants to move to next question and we're not at the last question
+              if (aiWantsNextQuestion && currentQuestion < questions.length - 1) {
                 const nextQuestionIndex = currentQuestion + 1;
                 setCurrentQuestion(nextQuestionIndex);
                 setFollowUpCount(0);
@@ -425,49 +490,48 @@ const Interview = () => {
                   )
                 );
                 
-                // AI takes the lead by asking the next question
-                setIsSpeaking(true);
-                setInterviewState('ai-speaking');
+                const nextQuestionText = questions[nextQuestionIndex].text;
                 
-                const nextQuestionMessage: Message = {
-                  id: Date.now().toString() + '-next',
-                  text: `Let's move on to the next topic. ${questions[nextQuestionIndex].text}`,
+                // Add next question message
+                const questionMsg: Message = {
+                  id: Date.now().toString() + '-question',
+                  text: nextQuestionText,
                   sender: 'ai',
                   timestamp: new Date()
                 };
                 
-                setMessages(prev => [...prev, nextQuestionMessage]);
+                setMessages(prev => [...prev, questionMsg]);
                 
                 // Update conversation history
                 setConversationHistory(prev => [
                   ...prev,
-                  { role: "assistant", content: nextQuestionMessage.text }
+                  { role: "assistant", content: nextQuestionText }
                 ]);
                 
                 // Speak the next question
-                await speakResponse(nextQuestionMessage.text);
+                await speakResponse(nextQuestionText);
                 
                 setIsSpeaking(false);
                 setInterviewState('idle');
                 setIsUserTurn(true);
+                
+                return;
               }
               
+              // After speaking feedback, set the interview state back to idle to allow user to respond
+              setIsSpeaking(false);
+              setInterviewState('idle');
+              setIsUserTurn(true);
+              
               // Only generate the next question if this was the last question in the current topic
-              // This check prevents asking a new question after every user response
-              if (currentQuestion >= questions.length - 1) {
+              // Changed from checking for questions.length - 1 to checking for 1 (2 questions total)
+              if (currentQuestion >= 1) {
                 // Interview complete
-                const summary = await generateInterviewSummary();
                 const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
                 
-                // Add completion messages
+                // Add completion message
                 setMessages(prev => [
                   ...prev,
-                  {
-                    id: Date.now().toString() + '-summary',
-                    text: summary,
-                    sender: 'ai',
-                    timestamp: new Date()
-                  },
                   {
                     id: Date.now().toString() + '-complete',
                     text: completionMessage,
@@ -479,14 +543,12 @@ const Interview = () => {
                 // Update conversation history
                 setConversationHistory(prev => [
                   ...prev,
-                  { role: "assistant", content: summary },
                   { role: "assistant", content: completionMessage }
                 ]);
                 
-                // Speak the completion messages
+                // Speak the completion message
                 setIsSpeaking(true);
                 setInterviewState('ai-speaking');
-                await speakResponse(summary);
                 await speakResponse(completionMessage);
                 
                 // Navigate to results after a delay
@@ -531,6 +593,13 @@ const Interview = () => {
                 
                 if (currentQuestion < questions.length - 1) {
                   setCurrentQuestion(prev => prev + 1);
+                  
+                  // Mark the next question as asked
+                  setQuestions(prevQuestions => 
+                    prevQuestions.map((q, idx) => 
+                      idx === currentQuestion + 1 ? { ...q, isAsked: true } : q
+                    )
+                  );
                 }
               });
             }
@@ -855,12 +924,70 @@ const Interview = () => {
       { role: "user", content: userInput }
     ]);
     
+    // Check if user wants to move to next question
+    const userWantsNextQuestion = shouldMoveToNextQuestion(userInput);
+    
     setUserInput('');
     setIsThinking(true);
     setInterviewState('ai-thinking');
     setIsUserTurn(false);
     
     try {
+      // If user wants to move to next question and we're not at the last question
+      if (userWantsNextQuestion && currentQuestion < questions.length - 1) {
+        const nextQuestionIndex = currentQuestion + 1;
+        setCurrentQuestion(nextQuestionIndex);
+        setFollowUpCount(0);
+        
+        // Mark the next question as asked
+        setQuestions(prevQuestions => 
+          prevQuestions.map((q, idx) => 
+            idx === nextQuestionIndex ? { ...q, isAsked: true } : q
+          )
+        );
+        
+        setIsThinking(false);
+        setIsSpeaking(true);
+        setInterviewState('ai-speaking');
+        
+        const transitionMessage = "Let's move on to the next question.";
+        const nextQuestionText = questions[nextQuestionIndex].text;
+        
+        // Add transition and question messages
+        const transitionMsg: Message = {
+          id: Date.now().toString() + '-transition',
+          text: transitionMessage,
+          sender: 'ai',
+          timestamp: new Date()
+        };
+        
+        const questionMsg: Message = {
+          id: Date.now().toString() + '-question',
+          text: nextQuestionText,
+          sender: 'ai',
+          timestamp: new Date(Date.now() + 100)
+        };
+        
+        setMessages(prev => [...prev, transitionMsg, questionMsg]);
+        
+        // Update conversation history
+        setConversationHistory(prev => [
+          ...prev,
+          { role: "assistant", content: transitionMessage },
+          { role: "assistant", content: nextQuestionText }
+        ]);
+        
+        // Speak the transition and question
+        await speakResponse(transitionMessage);
+        await speakResponse(nextQuestionText);
+        
+        setIsSpeaking(false);
+        setInterviewState('idle');
+        setIsUserTurn(true);
+        
+        return;
+      }
+      
       // Process the user's answer with GPT to get a contextual response
       const feedback = await processUserAnswer(userInput);
       
@@ -887,11 +1014,54 @@ const Interview = () => {
         { role: "assistant", content: feedback }
       ]);
       
+      // Check if AI wants to move to next question
+      const aiWantsNextQuestion = shouldMoveToNextQuestion(feedback);
+      
       // Speak the feedback first
       await speakResponse(feedback);
       
-      // Determine if we should ask a follow-up or move to the next question
-      // This decision will be made by the GPT model in the generateNextQuestion function
+      // If AI wants to move to next question and we're not at the last question
+      if (aiWantsNextQuestion && currentQuestion < questions.length - 1) {
+        const nextQuestionIndex = currentQuestion + 1;
+        setCurrentQuestion(nextQuestionIndex);
+        setFollowUpCount(0);
+        
+        // Mark the next question as asked
+        setQuestions(prevQuestions => 
+          prevQuestions.map((q, idx) => 
+            idx === nextQuestionIndex ? { ...q, isAsked: true } : q
+          )
+        );
+        
+        const nextQuestionText = questions[nextQuestionIndex].text;
+        
+        // Add next question message
+        const questionMsg: Message = {
+          id: Date.now().toString() + '-question',
+          text: nextQuestionText,
+          sender: 'ai',
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, questionMsg]);
+        
+        // Update conversation history
+        setConversationHistory(prev => [
+          ...prev,
+          { role: "assistant", content: nextQuestionText }
+        ]);
+        
+        // Speak the next question
+        await speakResponse(nextQuestionText);
+        
+        setIsSpeaking(false);
+        setInterviewState('idle');
+        setIsUserTurn(true);
+        
+        return;
+      }
+      
+      // If not moving to next question, generate a follow-up or next question
       const nextQuestion = await generateNextQuestion();
       
       // Add question message
@@ -910,6 +1080,21 @@ const Interview = () => {
         { role: "assistant", content: nextQuestion }
       ]);
       
+      // Check if this new question indicates moving to next topic
+      if (shouldMoveToNextQuestion(nextQuestion) && currentQuestion < questions.length - 1) {
+        // Update to next question in the list
+        const nextQuestionIndex = currentQuestion + 1;
+        setCurrentQuestion(nextQuestionIndex);
+        setFollowUpCount(0);
+        
+        // Mark the next question as asked
+        setQuestions(prevQuestions => 
+          prevQuestions.map((q, idx) => 
+            idx === nextQuestionIndex ? { ...q, isAsked: true } : q
+          )
+        );
+      }
+      
       // Speak the next question
       await speakResponse(nextQuestion);
       
@@ -917,20 +1102,12 @@ const Interview = () => {
       setInterviewState('idle');
       setIsUserTurn(true);
       
-      // Check if we've asked enough questions (e.g., 10)
-      if (questions.length >= 10 && currentQuestion >= questions.length - 1) {
+      // Check if we've asked enough questions (changed from 10 to 2 for testing)
+      if (questions.length >= 2 && currentQuestion >= questions.length - 1) {
         // Interview complete
-        const summary = await generateInterviewSummary();
         const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
         
-        // Add completion messages
-        const summaryMessage: Message = {
-          id: Date.now().toString() + '-summary',
-          text: summary,
-          sender: 'ai',
-          timestamp: new Date()
-        };
-        
+        // Add completion message
         const completionMsg: Message = {
           id: Date.now().toString() + '-complete',
           text: completionMessage,
@@ -938,17 +1115,15 @@ const Interview = () => {
           timestamp: new Date()
         };
         
-        setMessages(prev => [...prev, summaryMessage, completionMsg]);
+        setMessages(prev => [...prev, completionMsg]);
         
         // Update conversation history
         setConversationHistory(prev => [
           ...prev,
-          { role: "assistant", content: summary },
           { role: "assistant", content: completionMessage }
         ]);
         
-        // Speak the completion messages
-        await speakResponse(summary);
+        // Speak the completion message
         await speakResponse(completionMessage);
         
         // After speaking, navigate to results
@@ -1322,25 +1497,24 @@ const Interview = () => {
     }
   };
 
-  // Update the initializeInterview function with a more serious, industry-focused prompt
+  // Update the initializeInterview function to generate fewer questions
   const initializeInterview = async (resumeText: string): Promise<string[]> => {
     try {
       // Get the Azure OpenAI API key from environment variables
       const azureOpenAIKey = import.meta.env.VITE_APP_AZURE_OPENAI_API_KEY;
       
       // Create a system prompt that focuses on serious technical questions
+      // Modified to request only 2 questions for testing
       const systemPrompt = `
         You are an AI technical interviewer conducting a professional job interview.
         
         IMPORTANT: The interview will start with you asking the candidate to introduce themselves.
         Wait for their introduction before asking technical questions.
         
-        Based on the candidate's resume below, generate 7-10 challenging technical interview questions.
+        Based on the candidate's resume below, generate 2 challenging technical interview questions.
         Include a mix of:
         - Technical knowledge questions specific to their skills/experience
         - Algorithmic problems with time/space complexity considerations
-        - System design challenges appropriate for their level
-        - Behavioral questions using the STAR format (Situation, Task, Action, Result)
         
         Make questions industry-level, challenging, and specific - not generic.
         Focus on fundamentals (Big-O, data structures) and applied problems.
@@ -1397,13 +1571,13 @@ const Interview = () => {
       }
     } catch (error) {
       console.error("Error generating interview questions:", error);
-      return getMockQuestions();
+      return getMockQuestions().slice(0, 2); // Return only 2 mock questions
     }
   };
 
   // Helper function to get default questions if API fails
   const getMockQuestions = (): string[] => {
-    return mockQuestions.map(q => q.text);
+    return mockQuestions.map(q => q.text).slice(0, 2); // Return only 2 mock questions
   };
 
   // Modify the processAnswer function to generate shorter responses
@@ -1509,73 +1683,57 @@ const Interview = () => {
     console.log("Stored answer with emotions:", { question, answer, emotions: emotions.length });
   };
 
-  // Update the generateNextQuestion function to be more serious and technical
+  // Update the generateNextQuestion function to potentially include transition phrases
   const generateNextQuestion = async (): Promise<string> => {
     try {
       // Get the Azure OpenAI API key from environment variables
       const azureOpenAIKey = import.meta.env.VITE_APP_AZURE_OPENAI_API_KEY;
       
       // Increment follow-up counter
-      const currentFollowUps = followUpCount + 1;
-      setFollowUpCount(currentFollowUps);
+      const newFollowUpCount = followUpCount + 1;
+      setFollowUpCount(newFollowUpCount);
       
-      // Force moving to next question if we've had too many follow-ups
-      if (currentFollowUps >= 2) {
-        // Reset follow-up counter
-        setFollowUpCount(0);
-        
-        // Move to next question in the list
-        if (currentQuestion < questions.length - 1) {
-          const nextQuestionIndex = currentQuestion + 1;
-          setCurrentQuestion(nextQuestionIndex);
+      // If we've asked enough follow-ups, move to the next main question
+      const shouldMoveToNextMainQuestion = newFollowUpCount >= 2 || Math.random() < 0.4;
+      
+      let prompt;
+      
+      if (shouldMoveToNextMainQuestion && currentQuestion < questions.length - 1) {
+        // We want to move to the next main question
+        prompt = `
+          You are an AI technical interviewer.
           
-          // Mark the next question as asked
-          setQuestions(prevQuestions => 
-            prevQuestions.map((q, idx) => 
-              idx === nextQuestionIndex ? { ...q, isAsked: true } : q
-            )
-          );
+          Based on the conversation so far, we need to move to the next main question.
           
-          // Return the next predefined question
-          return questions[nextQuestionIndex].text;
-        }
+          Create a brief transition phrase (1 sentence) that includes words like "next question" or "move on", 
+          followed by the next question: "${questions[currentQuestion + 1].text}"
+          
+          Example: "Let's move on to the next question. [Insert question here]"
+        `;
+      } else {
+        // Generate a follow-up to the current question
+        prompt = `
+          You are an AI technical interviewer.
+          
+          Based on the conversation so far, generate a follow-up question related to the current topic.
+          
+          Make your question specific, technical, and challenging. Keep it concise (1-2 sentences).
+          
+          If the candidate seems to have fully addressed the topic, include a phrase like "let's move on to the next question".
+        `;
       }
       
-      // Use the full conversation history for context
-      const prompt = `
-        Act as an AI interviewer conducting a serious technical interview.
-        
-        Based on the conversation history and the candidate's answers:
-        
-        1. We've already had ${currentFollowUps} follow-up questions on this topic.
-        
-        2. If we've had 2 or more follow-ups OR the candidate has fully addressed the topic, 
-           MOVE TO A NEW QUESTION on a different technical topic.
-        
-        3. If the candidate's answer was technically incorrect or incomplete, ask ONE specific 
-           follow-up to test their understanding.
-        
-        4. If moving to a new topic, choose from:
-           - A technical knowledge question about their mentioned skills
-           - An algorithmic problem with Big-O considerations
-           - A system design challenge
-           - A behavioral question using STAR format
-        
-        5. Make your questions industry-level, challenging, and specific - not generic.
-        
-        Return ONLY the next question without any explanation or context.
-      `;
-
-      // Create messages array from conversation history
+      // Create messages array that includes recent conversation history for context
+      const recentMessages = conversationHistory.slice(-6); // Last 6 messages for context
       const messagesForAPI = [
         { 
           role: "system", 
-          content: "You are an AI technical interviewer conducting a serious job interview. Generate challenging, industry-level questions." 
+          content: "You are an AI technical interviewer. Keep responses concise and focused." 
         },
-        ...conversationHistory.slice(-6), // Use recent conversation history for context
+        ...recentMessages,
         { role: "user", content: prompt }
       ];
-
+      
       const response = await fetch(
         `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
         {
@@ -1591,57 +1749,26 @@ const Interview = () => {
           }),
         }
       );
-
+      
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Azure OpenAI API error:", errorText);
         throw new Error(`Failed to generate next question: ${response.status}`);
       }
-
+      
       const result = await response.json();
       const nextQuestion = result.choices[0].message.content.trim();
-      
-      // Check if this appears to be a new topic (heuristic)
-      const isNewTopic = !nextQuestion.includes("follow-up") && 
-                         !nextQuestion.includes("earlier") &&
-                         !nextQuestion.includes("mentioned") &&
-                         !nextQuestion.includes("you said");
-      
-      // If it seems like a new topic, move to the next question in our list
-      if (isNewTopic && currentQuestion < questions.length - 1) {
-        const nextQuestionIndex = currentQuestion + 1;
-        setCurrentQuestion(nextQuestionIndex);
-        setFollowUpCount(0); // Reset follow-up counter for new topic
-        
-        // Mark the next question as asked
-        setQuestions(prevQuestions => 
-          prevQuestions.map((q, idx) => 
-            idx === nextQuestionIndex ? { ...q, isAsked: true } : q
-          )
-        );
-      }
       
       return nextQuestion;
     } catch (error) {
       console.error("Error generating next question:", error);
       
-      // On error, force moving to the next question
-      if (currentQuestion < questions.length - 1) {
-        const nextQuestionIndex = currentQuestion + 1;
-        setCurrentQuestion(nextQuestionIndex);
-        setFollowUpCount(0);
-        
-        // Mark the next question as asked
-        setQuestions(prevQuestions => 
-          prevQuestions.map((q, idx) => 
-            idx === nextQuestionIndex ? { ...q, isAsked: true } : q
-          )
-        );
-        
-        return questions[nextQuestionIndex].text;
+      // Fallback to a simple follow-up or next question
+      if (currentQuestion < questions.length - 1 && Math.random() < 0.5) {
+        return `Let's move on to the next question. ${questions[currentQuestion + 1].text}`;
+      } else {
+        return "Could you elaborate more on that point?";
       }
-      
-      return "Let's move on to a different topic. Can you tell me about a challenging project you've worked on?";
     }
   };
 
@@ -1746,18 +1873,10 @@ const Interview = () => {
         .filter(msg => msg.sender === 'user')
         .map(msg => msg.text);
       
-      // Generate summary using the full conversation
-      const conversationText = messages
-        .map(msg => `${msg.sender === 'ai' ? 'Interviewer' : 'Candidate'}: ${msg.text}`)
-        .join('\n\n');
-      
-      const summary = await generateInterviewSummary(conversationText, interviewData);
-      
       // Create interview result object with unique ID
       const interviewId = Date.now().toString();
       const interviewResults = {
         id: interviewId,
-        summary,
         emotionsData: interviewData,
         transcriptions,
         timestamp: new Date().toISOString()
