@@ -1821,24 +1821,51 @@ const Interview = () => {
       }
       
       // Get all user messages for transcriptions
-      const transcriptions = messages
-        .filter(msg => msg.sender === 'user')
-        .map(msg => msg.text);
+      const userMessages = messages
+        .filter(msg => msg.sender === 'user');
+      
+      // Create a map of question-answer pairs from messages
+      const questionAnswerMap = new Map<string, string>();
+      let currentQuestion = "";
+      
+      messages.forEach((msg) => {
+        if (msg.sender === 'ai') {
+          // Check if this is a question (not AI feedback)
+          if (msg.text.trim().endsWith('?')) {
+            currentQuestion = msg.text;
+          }
+        } else if (msg.sender === 'user' && currentQuestion) {
+          // If we have a question and this is a user answer, store it
+          questionAnswerMap.set(currentQuestion, msg.text);
+        }
+      });
+      
+      // Remove duplicate entries from interviewData
+      const uniqueQuestions = new Set<string>();
+      interviewData = interviewData.filter(item => {
+        if (uniqueQuestions.has(item.question)) {
+          return false; // Skip duplicate questions
+        }
+        uniqueQuestions.add(item.question);
+        return true;
+      });
       
       // Make sure we have at least one item with emotions
-      if (interviewData.length === 0 && transcriptions.length > 0) {
-        // Create basic emotion items if none exist
-        questions.forEach((q, index) => {
-          if (index < transcriptions.length) {
-            interviewData.push({
-              question: q.text,
-              answer: transcriptions[index],
-              emotions: currentEmotions.length > 0 ? currentEmotions : [],
-              timestamp: new Date().toISOString()
-            });
-          }
+      if (interviewData.length === 0 && questionAnswerMap.size > 0) {
+        // Create emotion items from the map
+        Array.from(questionAnswerMap.entries()).forEach(([question, answer]) => {
+          interviewData.push({
+            question,
+            answer,
+            emotions: currentEmotions.length > 0 ? currentEmotions : [],
+            timestamp: new Date().toISOString()
+          });
         });
       }
+      
+      // Get unique transcriptions from the interview data
+      const transcriptionsSet = new Set(interviewData.map(item => item.answer));
+      const transcriptions = Array.from(transcriptionsSet);
       
       // Create interview result object with unique ID
       const interviewId = Date.now().toString();

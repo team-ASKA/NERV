@@ -50,6 +50,18 @@ const Results = () => {
           
           // Ensure the emotionsData array contains the correct emotion values
           if (parsedResults.emotionsData && Array.isArray(parsedResults.emotionsData)) {
+            // Remove duplicate question-answer pairs
+            const uniqueQuestions = new Set<string>();
+            parsedResults.emotionsData = parsedResults.emotionsData.filter((item: any) => {
+              // If we've seen this question before, skip it
+              if (uniqueQuestions.has(item.question)) {
+                return false;
+              }
+              // Otherwise, add it to our set and keep it
+              uniqueQuestions.add(item.question);
+              return true;
+            });
+            
             // Make sure each emotion item has the correct structure
             parsedResults.emotionsData = parsedResults.emotionsData.map((item: any) => {
               // Ensure emotions array exists and has valid data
@@ -98,6 +110,19 @@ const Results = () => {
           } else {
             console.log("No emotions data array found, creating empty array");
             parsedResults.emotionsData = [];
+          }
+          
+          // Ensure we have unique transcriptions
+          if (parsedResults.transcriptions && Array.isArray(parsedResults.transcriptions)) {
+            // Remove duplicate transcriptions 
+            const uniqueTranscriptions = new Set<string>();
+            parsedResults.transcriptions = parsedResults.transcriptions.filter((text: string) => {
+              if (uniqueTranscriptions.has(text)) {
+                return false;
+              }
+              uniqueTranscriptions.add(text);
+              return true;
+            });
           }
           
           setResults(parsedResults);
