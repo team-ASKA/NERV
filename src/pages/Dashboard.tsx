@@ -19,6 +19,10 @@ const Dashboard = () => {
   const [resumeLinkError, setResumeLinkError] = useState('');
   const [updatingResumeLink, setUpdatingResumeLink] = useState(false);
   
+  // Interview configuration options
+  const [questionCount, setQuestionCount] = useState<number>(7);
+  const [difficultyLevel, setDifficultyLevel] = useState<string>('medium');
+  
   // Form state for profile editing
   const [editForm, setEditForm] = useState({
     displayName: '',
@@ -243,8 +247,14 @@ const Dashboard = () => {
     }));
   };
 
-  // Start interview
+  // Start interview with configuration options
   const startInterview = () => {
+    // Store interview configuration in localStorage
+    localStorage.setItem('interviewConfig', JSON.stringify({
+      questionCount,
+      difficultyLevel
+    }));
+    
     // During development, we'll allow starting interviews without a resume
     navigate('/interview');
     
@@ -973,6 +983,41 @@ const Dashboard = () => {
                     <span className="text-white text-xs font-medium">3</span>
                   </div>
                   <span className="text-gray-300 text-xs">Review detailed performance analysis</span>
+                </div>
+              </div>
+              
+              {/* Interview Configuration */}
+              <div className="border-t border-white/10 pt-3 mb-3">
+                <h3 className="text-sm font-medium mb-2">Interview Configuration</h3>
+                
+                {/* Number of Questions */}
+                <div className="mb-2">
+                  <label className="block text-xs text-gray-400 mb-1">Number of Questions</label>
+                  <select
+                    value={questionCount}
+                    onChange={(e) => setQuestionCount(Number(e.target.value))}
+                    className="w-full px-2 py-1 text-sm bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
+                  >
+                    <option value="3">3 Questions (Short)</option>
+                    <option value="5">5 Questions (Medium)</option>
+                    <option value="7">7 Questions (Standard)</option>
+                    <option value="10">10 Questions (Extended)</option>
+                  </select>
+                </div>
+                
+                {/* Difficulty Level */}
+                <div className="mb-2">
+                  <label className="block text-xs text-gray-400 mb-1">Difficulty Level</label>
+                  <select
+                    value={difficultyLevel}
+                    onChange={(e) => setDifficultyLevel(e.target.value)}
+                    className="w-full px-2 py-1 text-sm bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
+                  >
+                    <option value="easy">Easy (Entry Level)</option>
+                    <option value="medium">Medium (Intermediate)</option>
+                    <option value="hard">Hard (Advanced)</option>
+                    <option value="expert">Expert (Senior Level)</option>
+                  </select>
                 </div>
               </div>
 

@@ -544,18 +544,118 @@ ${skillGapText}
                     <Brain className="h-6 w-6 text-white mr-3" />
                     <h2 className="font-montserrat font-semibold text-2xl">Interview Summary</h2>
                   </div>
-                  <div className="prose prose-invert max-w-none prose-headings:text-white/90 prose-a:text-white">
-                    {results.summary ? (
-                      <ReactMarkdown>{results.summary}</ReactMarkdown>
-                    ) : (
-                      <div>
-                        <h3>Interview Completed</h3>
-                        <p>You've successfully completed your interview with NERV AI.</p>
-                        <p>Check the Transcription tab to review your conversation, and the Emotional Analysis tab to see insights about your emotional expressions during the interview.</p>
-                        <p>To start a new interview, click the "Start New Interview" button below.</p>
-                      </div>
-                    )}
-                  </div>
+                  
+                  {results.summary ? (
+                    <div className="space-y-6">
+                      {/* Animated card with overall assessment */}
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4 }}
+                        className="bg-gradient-to-r from-blue-900/40 to-indigo-900/40 p-6 rounded-xl border border-blue-500/30 shadow-lg"
+                      >
+                        <div className="flex items-center mb-3">
+                          <BarChart2 className="h-5 w-5 text-blue-400 mr-2" />
+                          <h3 className="text-xl font-semibold text-blue-300">Overall Assessment</h3>
+                        </div>
+                        <div className="prose prose-invert max-w-none prose-p:text-white/90 prose-headings:text-white/90 prose-a:text-blue-300">
+                          {/* Extract and display the first paragraph as the overall assessment */}
+                          <ReactMarkdown>
+                            {results.summary.split('\n\n')[0]}
+                          </ReactMarkdown>
+                        </div>
+                      </motion.div>
+
+                      {/* Strengths section */}
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4, delay: 0.1 }}
+                        className="bg-gradient-to-r from-green-900/40 to-emerald-900/40 p-6 rounded-xl border border-green-500/30 shadow-lg"
+                      >
+                        <div className="flex items-center mb-3">
+                          <CheckCircle2 className="h-5 w-5 text-green-400 mr-2" />
+                          <h3 className="text-xl font-semibold text-green-300">Strengths</h3>
+                        </div>
+                        <div className="prose prose-invert max-w-none prose-p:text-white/90 prose-headings:text-white/90 prose-a:text-green-300">
+                          {/* Extract strengths section if it exists */}
+                          <ReactMarkdown>
+                            {results.summary.includes('Strengths') ? 
+                              results.summary.split('Strengths')[1].split('Areas for Improvement')[0] : 
+                              results.summary.split('\n\n')[1] || ''}
+                          </ReactMarkdown>
+                        </div>
+                      </motion.div>
+
+                      {/* Areas for improvement section */}
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4, delay: 0.2 }}
+                        className="bg-gradient-to-r from-amber-900/40 to-orange-900/40 p-6 rounded-xl border border-amber-500/30 shadow-lg"
+                      >
+                        <div className="flex items-center mb-3">
+                          <AlertTriangle className="h-5 w-5 text-amber-400 mr-2" />
+                          <h3 className="text-xl font-semibold text-amber-300">Areas for Improvement</h3>
+                        </div>
+                        <div className="prose prose-invert max-w-none prose-p:text-white/90 prose-headings:text-white/90 prose-a:text-amber-300">
+                          {/* Extract areas for improvement section if it exists */}
+                          <ReactMarkdown>
+                            {results.summary.includes('Areas for Improvement') ? 
+                              results.summary.split('Areas for Improvement')[1].split('Recommendations')[0] : 
+                              results.summary.split('\n\n')[2] || ''}
+                          </ReactMarkdown>
+                        </div>
+                      </motion.div>
+
+                      {/* Recommendations section */}
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4, delay: 0.3 }}
+                        className="bg-gradient-to-r from-purple-900/40 to-violet-900/40 p-6 rounded-xl border border-purple-500/30 shadow-lg"
+                      >
+                        <div className="flex items-center mb-3">
+                          <ArrowUpRight className="h-5 w-5 text-purple-400 mr-2" />
+                          <h3 className="text-xl font-semibold text-purple-300">Recommendations</h3>
+                        </div>
+                        <div className="prose prose-invert max-w-none prose-p:text-white/90 prose-headings:text-white/90 prose-a:text-purple-300">
+                          {/* Extract recommendations section if it exists */}
+                          <ReactMarkdown>
+                            {results.summary.includes('Recommendations') ? 
+                              results.summary.split('Recommendations')[1] : 
+                              results.summary.split('\n\n')[3] || ''}
+                          </ReactMarkdown>
+                        </div>
+                      </motion.div>
+
+                      {/* Key points section */}
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4, delay: 0.4 }}
+                        className="bg-gradient-to-r from-gray-800/40 to-gray-700/40 p-6 rounded-xl border border-gray-500/30 shadow-lg"
+                      >
+                        <div className="flex items-center mb-3">
+                          <List className="h-5 w-5 text-gray-400 mr-2" />
+                          <h3 className="text-xl font-semibold text-gray-300">Key Points</h3>
+                        </div>
+                        <div className="prose prose-invert max-w-none prose-p:text-white/90 prose-headings:text-white/90 prose-a:text-gray-300">
+                          {/* Display full summary as fallback */}
+                          <ReactMarkdown>
+                            {results.summary.split('\n\n').slice(4).join('\n\n') || ''}
+                          </ReactMarkdown>
+                        </div>
+                      </motion.div>
+                    </div>
+                  ) : (
+                    <div className="bg-gradient-to-r from-gray-900/40 to-gray-800/40 p-6 rounded-xl border border-gray-500/30 shadow-lg">
+                      <h3 className="text-xl font-semibold text-white mb-3">Interview Completed</h3>
+                      <p className="text-white/80 mb-2">You've successfully completed your interview with NERV AI.</p>
+                      <p className="text-white/80 mb-2">Check the Transcription tab to review your conversation, and the Emotional Analysis tab to see insights about your emotional expressions during the interview.</p>
+                      <p className="text-white/80">To start a new interview, click the "Start New Interview" button below.</p>
+                    </div>
+                  )}
                 </motion.div>
               )}
               

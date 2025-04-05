@@ -93,12 +93,46 @@ const mockQuestions: Question[] = [
     id: 5,
     text: "Tell me about a challenging project you worked on.",
     isAsked: false
+  },
+  {
+    id: 6,
+    text: "Explain a complex technical concept you understand well.",
+    isAsked: false
+  },
+  {
+    id: 7,
+    text: "How do you approach debugging a complex issue?",
+    isAsked: false
   }
 ];
 
-// Update the speakResponse function to handle sequential TTS
+// Declare global window property for audio playing state
+declare global {
+  interface Window {
+    audioPlaying: boolean;
+  }
+}
+
+// Initialize the global audio playing state
+if (typeof window !== 'undefined') {
+  window.audioPlaying = false;
+}
+
+// Update the speakResponse function to handle sequential TTS and prevent duplicate speech
 const speakResponse = async (text: string) => {
+  // Add debug logging to track speech requests
+  console.log("Speech requested for text:", text.substring(0, 30) + "...");
+  
+  // Global variable to track if audio is currently playing
+  if (window.audioPlaying) {
+    console.log("Another audio is already playing, skipping this request");
+    return;
+  }
+  
   try {
+    // Set global flag to prevent concurrent speech
+    window.audioPlaying = true;
+    
     // Get the Azure TTS API key from environment variables
     const ttsApiKey = import.meta.env.VITE_APP_AZURE_TTS_API_KEY || '';
     const endpoint = "https://kusha-m8t3pks8-swedencentral.cognitiveservices.azure.com";
@@ -109,6 +143,7 @@ const speakResponse = async (text: string) => {
     // Ensure we have text to convert
     if (!text || text.trim() === '') {
       console.error("Empty text provided for TTS");
+      window.audioPlaying = false;
       return;
     }
     
@@ -135,6 +170,7 @@ const speakResponse = async (text: string) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Azure TTS API error:", errorText);
+      window.audioPlaying = false;
       throw new Error(`Failed to convert text to speech: ${response.status}`);
     }
     
@@ -149,15 +185,19 @@ const speakResponse = async (text: string) => {
     return new Promise<void>((resolve) => {
       audio.onended = () => {
         URL.revokeObjectURL(audioUrl);
+        window.audioPlaying = false;
+        console.log("Audio playback completed");
         resolve();
       };
       audio.play().catch(error => {
         console.error("Error playing audio:", error);
+        window.audioPlaying = false;
         resolve();
       });
     });
   } catch (error) {
     console.error("Error in speakResponse:", error);
+    window.audioPlaying = false;
     return Promise.resolve();
   }
 };
@@ -231,6 +271,9 @@ const Interview = () => {
     { role: "system", content: "You are NERV, an AI technical interviewer conducting a job interview." }
   ]);
   const [followUpCount, setFollowUpCount] = useState<number>(0);
+  const [userHasAnswered, setUserHasAnswered] = useState<boolean>(false);
+  const [introductionSpoken, setIntroductionSpoken] = useState<boolean>(false);
+  // We're using window.audioPlaying instead of this state to prevent race conditions
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Create a Hume client instance
@@ -359,8 +402,11 @@ const Interview = () => {
         // Turn off loading state before speaking
         setIsLoading(false);
         
-        // Speak the introduction
-        await speakResponse(personalizedIntro);
+        // Speak the introduction only if it hasn't been spoken already
+        if (!introductionSpoken) {
+          setIntroductionSpoken(true);
+          await speakResponse(personalizedIntro);
+        }
         
         // After introduction, set the interview state to idle to let user respond
         setIsSpeaking(false);
@@ -391,15 +437,24 @@ const Interview = () => {
           { role: "assistant", content: defaultIntro }
         ]);
         
-        // Speak the introduction
+        // Set the speaking state
         setIsSpeaking(true);
         setInterviewState('ai-speaking');
         
-        speakResponse(defaultIntro).then(() => {
+        // Speak the introduction only if it hasn't been spoken already
+        if (!introductionSpoken) {
+          setIntroductionSpoken(true);
+          speakResponse(defaultIntro).then(() => {
+            setIsSpeaking(false);
+            setInterviewState('idle');
+            setIsUserTurn(true);
+          });
+        } else {
+          // If introduction was already spoken, just update the state
           setIsSpeaking(false);
           setInterviewState('idle');
           setIsUserTurn(true);
-        });
+        }
       }
     };
 
@@ -513,6 +568,9 @@ const Interview = () => {
               { role: "user", content: transcribedText }
             ]);
             
+            // Mark that the user has answered the current question
+            setUserHasAnswered(true);
+            
             // Get current question text and store answer with emotions
             const currentQuestionText = questions[currentQuestion]?.text || "Unknown question";
             storeAnswerWithEmotions(currentQuestionText, transcribedText, currentEmotions);
@@ -529,6 +587,7 @@ const Interview = () => {
                 const nextQuestionIndex = currentQuestion + 1;
                 setCurrentQuestion(nextQuestionIndex);
                 setFollowUpCount(0);
+                setUserHasAnswered(false); // Reset user answer flag for new question
                 
                 // Mark the next question as asked
                 setQuestions(prevQuestions => 
@@ -614,6 +673,7 @@ const Interview = () => {
                 const nextQuestionIndex = currentQuestion + 1;
                 setCurrentQuestion(nextQuestionIndex);
                 setFollowUpCount(0);
+                setUserHasAnswered(false); // Reset user answer flag for new question
                 
                 // Mark the next question as asked
                 setQuestions(prevQuestions => 
@@ -655,11 +715,14 @@ const Interview = () => {
               setInterviewState('idle');
               setIsUserTurn(true);
               
-              // Only generate the next question if this was the last question in the current topic
-              // Changed from checking for questions.length - 1 to checking for 1 (2 questions total)
-              if (currentQuestion >= 1) {
+              // Get interview configuration from localStorage or use defaults
+              const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
+              const configuredQuestionCount = interviewConfig.questionCount || 7;
+              
+              // Check if we've reached the last question based on configured question count
+              if (currentQuestion >= configuredQuestionCount - 1) {
                 // Interview complete
-                const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
+                const completionMessage = "That concludes our interview. Thank you for your responses! I've gathered comprehensive insights from our discussion and will now generate your detailed feedback report.";
                 
                 // Add completion message
                 setMessages(prev => [
@@ -1064,6 +1127,9 @@ const Interview = () => {
       { role: "user", content: userInput }
     ]);
     
+    // Mark that the user has answered the current question
+    setUserHasAnswered(true);
+    
     // Check if user wants to move to next question
     const userWantsNextQuestion = shouldMoveToNextQuestion(userInput);
     
@@ -1262,10 +1328,14 @@ const Interview = () => {
       setInterviewState('idle');
       setIsUserTurn(true);
       
-      // Check if we've asked enough questions (changed from 10 to 2 for testing)
-      if (questions.length >= 2 && currentQuestion >= questions.length - 1) {
+      // Get interview configuration from localStorage or use defaults
+      const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
+      const configuredQuestionCount = interviewConfig.questionCount || 7;
+      
+      // Check if we've asked enough questions based on configured question count
+      if (questions.length >= configuredQuestionCount && currentQuestion >= questions.length - 1) {
         // Interview complete
-        const completionMessage = "That concludes our interview. Thank you for your responses! I'll now generate your detailed feedback report.";
+        const completionMessage = "That concludes our interview. Thank you for your responses! I've gathered comprehensive insights from our discussion and will now generate your detailed feedback report.";
         
         // Add completion message
         const completionMsg: Message = {
@@ -1420,20 +1490,30 @@ const Interview = () => {
       // Get the Azure OpenAI API key from environment variables
       const azureOpenAIKey = import.meta.env.VITE_APP_AZURE_OPENAI_API_KEY;
       
-      // Create a system prompt that focuses on serious technical questions
-      // Modified to request only 2 questions for testing
+      // Get interview configuration from localStorage or use defaults
+      const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
+      const questionCount = interviewConfig.questionCount || 7;
+      const difficultyLevel = interviewConfig.difficultyLevel || 'medium';
+      
+      // Create a system prompt that focuses on serious technical questions with configured options
       const systemPrompt = `
         You are an AI technical interviewer conducting a professional job interview.
         
         IMPORTANT: The interview will start with you asking the candidate to introduce themselves.
         Wait for their introduction before asking technical questions.
         
-        Based on the candidate's resume below, generate 2 challenging technical interview questions.
+        Based on the candidate's resume below, generate ${questionCount} ${difficultyLevel} level technical interview questions.
+        
+        Difficulty level: ${difficultyLevel.toUpperCase()}
+        
         Include a mix of:
         - Technical knowledge questions specific to their skills/experience
-        - Algorithmic problems with time/space complexity considerations
+        - ${difficultyLevel === 'easy' ? 'Basic' : difficultyLevel === 'medium' ? 'Intermediate' : 'Advanced'} algorithmic problems ${difficultyLevel !== 'easy' ? 'with time/space complexity considerations' : ''}
+        - ${difficultyLevel === 'easy' ? 'Simple' : difficultyLevel === 'medium' ? 'Moderate' : 'Complex'} system design questions
+        - Problem-solving scenarios
+        - Questions about past projects and experiences
         
-        Make questions industry-level, challenging, and specific - not generic.
+        Make questions industry-level, ${difficultyLevel} difficulty, and specific - not generic.
         Focus on fundamentals (Big-O, data structures) and applied problems.
         
         Resume:
@@ -1488,13 +1568,19 @@ const Interview = () => {
       }
     } catch (error) {
       console.error("Error generating interview questions:", error);
-      return getMockQuestions().slice(0, 2); // Return only 2 mock questions
+      // Get interview configuration from localStorage or use defaults
+      const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
+      const configQuestionCount = interviewConfig.questionCount || 7;
+      return getMockQuestions().slice(0, configQuestionCount); // Return configured number of mock questions
     }
   };
 
   // Helper function to get default questions if API fails
   const getMockQuestions = (): string[] => {
-    return mockQuestions.map(q => q.text).slice(0, 2); // Return only 2 mock questions
+    // Get interview configuration from localStorage or use defaults
+    const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
+    const configuredQuestionCount = interviewConfig.questionCount || 7;
+    return mockQuestions.map(q => q.text).slice(0, configuredQuestionCount); // Return configured number of mock questions
   };
 
   // Modify the processAnswer function to generate shorter responses
@@ -1603,7 +1689,7 @@ const Interview = () => {
     console.log("Stored answer with emotions:", { question, answer, emotions: emotionsToStore.length });
   };
 
-  // Update the generateNextQuestion function to potentially include transition phrases
+  // Update the generateNextQuestion function to prevent randomly moving to next question without user input
   const generateNextQuestion = async (): Promise<string> => {
     try {
       // Get the Azure OpenAI API key from environment variables
@@ -1613,8 +1699,9 @@ const Interview = () => {
       const newFollowUpCount = followUpCount + 1;
       setFollowUpCount(newFollowUpCount);
       
-      // If we've asked enough follow-ups, move to the next main question
-      const shouldMoveToNextMainQuestion = newFollowUpCount >= 2 || Math.random() < 0.4;
+      // Only consider moving to the next main question if the user has answered at least once
+      // and we've asked enough follow-ups (removed random factor)
+      const shouldMoveToNextMainQuestion = userHasAnswered && newFollowUpCount >= 2;
       
       let prompt;
       
@@ -1632,7 +1719,7 @@ const Interview = () => {
           
           Make your question specific, technical, and challenging. Keep it concise (1-2 sentences).
           
-          If the candidate seems to have fully addressed the topic, include a phrase like "let's move on to the next question".
+          IMPORTANT: Do NOT include phrases like "let's move on to the next question" unless the candidate has fully addressed the topic.
         `;
       }
       
@@ -1676,12 +1763,8 @@ const Interview = () => {
     } catch (error) {
       console.error("Error generating next question:", error);
       
-      // Fallback to a simple follow-up or next question
-      if (currentQuestion < questions.length - 1 && Math.random() < 0.5) {
-        return "Let's move on to the next question.";
-      } else {
-        return "Could you elaborate more on that point?";
-      }
+      // Fallback to a simple follow-up question - never randomly move to next question
+      return "Could you elaborate more on that point?";
     }
   };
 
