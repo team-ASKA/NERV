@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowLeft, Download, Brain, MessageSquare, Bot, User, ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
+import { ArrowLeft, Download, Brain, MessageSquare, Bot, User, ChevronLeft, ChevronRight, ArrowRight, BarChart2, AlertTriangle, CheckCircle2, ArrowUpRight, List } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { FaVideo } from 'react-icons/fa';
 import { motion } from 'framer-motion';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface EmotionData {
   name: string;
@@ -26,6 +28,11 @@ interface InterviewResults {
   timestamp: string;
 }
 
+interface UserSkills {
+  skills: string[];
+  expertise: string[];
+}
+
 const Results = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
@@ -33,7 +40,19 @@ const Results = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0);
-  const tabs = ["Summary", "Transcription", "Emotional Analysis"];
+  const [userSkills, setUserSkills] = useState<UserSkills>({ skills: [], expertise: [] });
+  const [skillAnalysis, setSkillAnalysis] = useState<{
+    matchedSkills: string[];
+    missingSkills: string[];
+    recommendedSkills: string[];
+    overallScore: number;
+  }>({
+    matchedSkills: [],
+    missingSkills: [],
+    recommendedSkills: [],
+    overallScore: 0
+  });
+  const tabs = ["Summary", "Transcription", "Emotional Analysis", "Skill Gap Analysis"];
 
   useEffect(() => {
     // Get results from localStorage
@@ -219,6 +238,93 @@ const Results = () => {
     loadResults();
   }, []);
 
+  // New useEffect to fetch user skills from Firebase
+  useEffect(() => {
+    const fetchUserSkills = async () => {
+      if (!currentUser) return;
+      
+      try {
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        const userDoc = await getDoc(userDocRef);
+        
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setUserSkills({
+            skills: userData.skills || [],
+            expertise: userData.expertise || []
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching user skills:', error);
+      }
+    };
+    
+    fetchUserSkills();
+  }, [currentUser]);
+  
+  // New useEffect to analyze skill gaps when results and user skills are loaded
+  useEffect(() => {
+    if (!results || !results.emotionsData || !userSkills.skills.length) return;
+    
+    analyzeSkillGaps();
+  }, [results, userSkills]);
+  
+  // Function to analyze skill gaps
+  const analyzeSkillGaps = () => {
+    if (!results || !results.emotionsData) return;
+    
+    // Extract all text from answers for analysis
+    const allAnswersText = results.emotionsData
+      .map(item => item.answer)
+      .join(' ')
+      .toLowerCase();
+    
+    // Check which skills from the user's profile were demonstrated in the interview
+    const matchedSkills = userSkills.skills.filter(skill => 
+      allAnswersText.includes(skill.toLowerCase())
+    );
+    
+    // Skills that were not demonstrated
+    const missingSkills = userSkills.skills.filter(skill => 
+      !allAnswersText.includes(skill.toLowerCase())
+    );
+    
+    // Get common technical skills to recommend
+    const commonTechSkills = [
+      'javascript', 'react', 'typescript', 'node.js', 'python', 
+      'java', 'sql', 'aws', 'git', 'css', 'html', 'docker',
+      'kubernetes', 'c#', 'c++', 'ruby', 'php', 'golang', 'swift',
+      'vue.js', 'angular', 'devops', 'graphql', 'rest api'
+    ];
+    
+    // Check which common skills were mentioned in the interview but not in user profile
+    const mentionedCommonSkills = commonTechSkills.filter(skill => 
+      allAnswersText.includes(skill) && 
+      !userSkills.skills.some(userSkill => userSkill.toLowerCase() === skill)
+    );
+    
+    // Recommend skills based on what was mentioned but not in profile
+    // and some important skills that weren't mentioned
+    const recommendedSkills = [
+      ...mentionedCommonSkills,
+      ...commonTechSkills
+        .filter(skill => !allAnswersText.includes(skill))
+        .slice(0, 3)
+    ].slice(0, 5); // Limit to 5 recommendations
+    
+    // Calculate an overall score (percentage of skills demonstrated)
+    const overallScore = userSkills.skills.length > 0 
+      ? Math.round((matchedSkills.length / userSkills.skills.length) * 100) 
+      : 0;
+    
+    setSkillAnalysis({
+      matchedSkills,
+      missingSkills,
+      recommendedSkills,
+      overallScore
+    });
+  };
+
   const handleDownloadResults = () => {
     if (!results) return;
     
@@ -236,6 +342,25 @@ const Results = () => {
     const transcriptionsText = results.transcriptions && results.transcriptions.length > 0
       ? results.transcriptions.join('\n\n')
       : "No transcriptions available";
+      
+    // Add skill gap analysis text
+    const skillGapText = userSkills.skills.length > 0 
+      ? `
+## Skill Gap Analysis
+Overall Skills Utilization: ${skillAnalysis.overallScore}%
+
+Demonstrated Skills: ${skillAnalysis.matchedSkills.length > 0 ? skillAnalysis.matchedSkills.join(', ') : 'None'}
+
+Missing Skills: ${skillAnalysis.missingSkills.length > 0 ? skillAnalysis.missingSkills.join(', ') : 'None'}
+
+Recommended Skills to Add: ${skillAnalysis.recommendedSkills.length > 0 ? skillAnalysis.recommendedSkills.join(', ') : 'None'}
+
+Recommendations:
+- Focus on highlighting your ${skillAnalysis.missingSkills.slice(0, 3).join(', ')} skills in future interviews
+- Prepare STAR stories for each of your key skills
+- Practice integrating technical terms naturally into your responses
+`
+      : "\n\n## Skill Gap Analysis\nNo skills data available for analysis.";
     
     const resultsText = `
 # NERV AI Interview Results
@@ -249,6 +374,7 @@ ${transcriptionsText}
 
 ## Emotional Analysis
 ${emotionsText}
+${skillGapText}
     `;
     
     // Create and download the file
@@ -553,6 +679,233 @@ ${emotionsText}
                     </div>
                   ) : (
                     <p className="text-white/60">No emotional data recorded</p>
+                  )}
+                </motion.div>
+              )}
+              
+              {/* Skill Gap Analysis Tab - NEW */}
+              {activeTab === 3 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.5 }}
+                  className="p-8 rounded-xl bg-black/80 backdrop-blur-sm border border-white/10 hover:border-white/30 transition-all"
+                >
+                  <div className="flex items-center mb-6">
+                    <BarChart2 className="h-6 w-6 text-white mr-3" />
+                    <h2 className="font-montserrat font-semibold text-2xl">Skill Gap Analysis</h2>
+                  </div>
+                  
+                  {currentUser ? (
+                    userSkills.skills.length > 0 ? (
+                      <div className="space-y-8">
+                        {/* Overall Score */}
+                        <div className="bg-black/40 rounded-lg p-6 border border-white/10">
+                          <h3 className="text-lg font-medium mb-4">Skills Utilization</h3>
+                          <div className="flex flex-col sm:flex-row items-center justify-between">
+                            <div className="relative w-32 h-32 mb-4 sm:mb-0">
+                              <svg className="w-full h-full" viewBox="0 0 36 36">
+                                <path
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke="#2a2a2a"
+                                  strokeWidth="3"
+                                />
+                                <path
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke="url(#gradient)"
+                                  strokeWidth="3"
+                                  strokeDasharray={`${skillAnalysis.overallScore}, 100`}
+                                />
+                                <defs>
+                                  <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" stopColor="#4F46E5" />
+                                    <stop offset="100%" stopColor="#8B5CF6" />
+                                  </linearGradient>
+                                </defs>
+                              </svg>
+                              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+                                <div className="text-2xl font-bold">{skillAnalysis.overallScore}%</div>
+                                <div className="text-xs text-gray-400">Skills Utilized</div>
+                              </div>
+                            </div>
+                            
+                            <div className="flex-1 ml-4">
+                              <p className="text-white/70 mb-4">
+                                {skillAnalysis.overallScore > 70 
+                                  ? "You effectively demonstrated a high percentage of your listed skills during the interview. Great job!"
+                                  : skillAnalysis.overallScore > 40
+                                  ? "You demonstrated some of your skills during the interview, but could improve on highlighting more of your expertise."
+                                  : "You demonstrated few of your listed skills during the interview. Focus on weaving your key skills into your answers."}
+                              </p>
+                              <p className="text-white/60 text-sm">
+                                Based on {userSkills.skills.length} skills in your profile and {skillAnalysis.matchedSkills.length} mentioned during your interview.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Skills Analysis */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Demonstrated Skills */}
+                          <div className="bg-black/40 rounded-lg p-6 border border-white/10">
+                            <div className="flex items-center mb-4">
+                              <CheckCircle2 className="h-5 w-5 text-green-500 mr-2" />
+                              <h3 className="text-lg font-medium">Demonstrated Skills</h3>
+                            </div>
+                            
+                            {skillAnalysis.matchedSkills.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {skillAnalysis.matchedSkills.map((skill, index) => (
+                                  <motion.span
+                                    key={index}
+                                    initial={{ opacity: 0, scale: 0.8 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ duration: 0.3, delay: index * 0.05 }}
+                                    className="px-3 py-1 rounded-full bg-green-500/20 text-green-400 text-sm border border-green-500/30"
+                                  >
+                                    {skill}
+                                  </motion.span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-white/60">No skills from your profile were mentioned during the interview.</p>
+                            )}
+                          </div>
+                          
+                          {/* Missing Skills */}
+                          <div className="bg-black/40 rounded-lg p-6 border border-white/10">
+                            <div className="flex items-center mb-4">
+                              <AlertTriangle className="h-5 w-5 text-amber-500 mr-2" />
+                              <h3 className="text-lg font-medium">Missing Skills</h3>
+                            </div>
+                            
+                            {skillAnalysis.missingSkills.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {skillAnalysis.missingSkills.map((skill, index) => (
+                                  <motion.span
+                                    key={index}
+                                    initial={{ opacity: 0, scale: 0.8 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ duration: 0.3, delay: index * 0.05 }}
+                                    className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-sm border border-amber-500/30"
+                                  >
+                                    {skill}
+                                  </motion.span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-white/60">You mentioned all skills from your profile. Great job!</p>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Recommendations */}
+                        <div className="bg-black/40 rounded-lg p-6 border border-white/10">
+                          <div className="flex items-center mb-4">
+                            <ArrowUpRight className="h-5 w-5 text-blue-500 mr-2" />
+                            <h3 className="text-lg font-medium">Improvement Recommendations</h3>
+                          </div>
+                          
+                          <div className="space-y-4">
+                            <p className="text-white/70">
+                              Based on your interview performance, here are some recommendations to improve your skill presentation:
+                            </p>
+                            
+                            <ul className="space-y-3">
+                              {skillAnalysis.missingSkills.length > 0 && (
+                                <li className="flex items-start">
+                                  <List className="h-5 w-5 text-white/70 mr-2 flex-shrink-0 mt-0.5" />
+                                  <span className="text-white/70">
+                                    Highlight your <strong className="text-white/90">{skillAnalysis.missingSkills.slice(0, 3).join(', ')}</strong> skills in future interviews, as they were not mentioned.
+                                  </span>
+                                </li>
+                              )}
+                              
+                              <li className="flex items-start">
+                                <List className="h-5 w-5 text-white/70 mr-2 flex-shrink-0 mt-0.5" />
+                                <span className="text-white/70">
+                                  Provide specific examples that demonstrate your skills rather than just listing them.
+                                </span>
+                              </li>
+                              
+                              <li className="flex items-start">
+                                <List className="h-5 w-5 text-white/70 mr-2 flex-shrink-0 mt-0.5" />
+                                <span className="text-white/70">
+                                  Consider adding these relevant skills to your profile:
+                                </span>
+                              </li>
+                            </ul>
+                            
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {skillAnalysis.recommendedSkills.map((skill, index) => (
+                                <motion.span
+                                  key={index}
+                                  initial={{ opacity: 0, scale: 0.8 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  transition={{ duration: 0.3, delay: index * 0.05 }}
+                                  className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 text-sm border border-blue-500/30"
+                                >
+                                  {skill}
+                                </motion.span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Practice Tips */}
+                        <div className="bg-black/40 rounded-lg p-6 border border-white/10">
+                          <h3 className="text-lg font-medium mb-4">Practice Tips</h3>
+                          <ul className="space-y-2">
+                            <li className="flex items-start">
+                              <div className="bg-white/10 rounded-full p-1 mr-3 flex-shrink-0 mt-0.5">
+                                <span className="text-xs font-bold">1</span>
+                              </div>
+                              <p className="text-white/70">
+                                Prepare STAR (Situation, Task, Action, Result) stories for each of your key skills.
+                              </p>
+                            </li>
+                            <li className="flex items-start">
+                              <div className="bg-white/10 rounded-full p-1 mr-3 flex-shrink-0 mt-0.5">
+                                <span className="text-xs font-bold">2</span>
+                              </div>
+                              <p className="text-white/70">
+                                Practice integrating technical terms naturally into your responses.
+                              </p>
+                            </li>
+                            <li className="flex items-start">
+                              <div className="bg-white/10 rounded-full p-1 mr-3 flex-shrink-0 mt-0.5">
+                                <span className="text-xs font-bold">3</span>
+                              </div>
+                              <p className="text-white/70">
+                                Focus on demonstrating {skillAnalysis.missingSkills.slice(0, 2).join(' and ')} in your next practice interview.
+                              </p>
+                            </li>
+                          </ul>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-10">
+                        <p className="text-gray-400 mb-4">Please add skills to your profile to enable skill gap analysis.</p>
+                        <button
+                          onClick={() => navigate('/dashboard')}
+                          className="px-4 py-2 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all"
+                        >
+                          Go to Profile
+                        </button>
+                      </div>
+                    )
+                  ) : (
+                    <div className="text-center py-10">
+                      <p className="text-gray-400 mb-4">Please log in to enable skill gap analysis.</p>
+                      <button
+                        onClick={() => navigate('/login')}
+                        className="px-4 py-2 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all"
+                      >
+                        Go to Login
+                      </button>
+                    </div>
                   )}
                 </motion.div>
               )}
