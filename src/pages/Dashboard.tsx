@@ -47,10 +47,13 @@ const Dashboard = () => {
   const [showResumeAlert, setShowResumeAlert] = useState(false);
 
   // Add new state variables for interview history
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' or 'history'
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history'>('dashboard');
   const [interviewHistory, setInterviewHistory] = useState<any[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(5);
+
+  // Add this new state for the improvement plan summary
+  const [latestImprovementPlan, setLatestImprovementPlan] = useState<any>(null);
 
   // Fetch user details from Firestore
   useEffect(() => {
@@ -119,6 +122,24 @@ const Dashboard = () => {
     };
     
     loadInterviewHistory();
+  }, []);
+
+  // Add a new useEffect to load the improvement plan
+  useEffect(() => {
+    // Load latest improvement plan if available
+    const loadLatestImprovementPlan = () => {
+      try {
+        const storedPlan = localStorage.getItem('latestImprovementPlan');
+        if (storedPlan) {
+          const parsedPlan = JSON.parse(storedPlan);
+          setLatestImprovementPlan(parsedPlan);
+        }
+      } catch (error) {
+        console.error("Error loading improvement plan:", error);
+      }
+    };
+    
+    loadLatestImprovementPlan();
   }, []);
 
   // Handle logout
@@ -1040,6 +1061,70 @@ const Dashboard = () => {
                 <ArrowRight className="ml-1 h-3 w-3" />
               </button>
             </motion.div>
+
+            {/* After the "Quick Actions" section, add the "Improvement Plan" section if available */}
+            {latestImprovementPlan && activeTab === 'dashboard' && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+                className="bg-black/30 rounded-xl p-6 border border-white/10 mb-6"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">Your Improvement Plan</h3>
+                  <span className="text-sm text-white/50">
+                    {new Date(latestImprovementPlan.generatedAt).toLocaleDateString()}
+                  </span>
+                </div>
+                
+                <p className="text-white/70 mb-4">{latestImprovementPlan.summary}</p>
+                
+                {latestImprovementPlan.skillGaps && latestImprovementPlan.skillGaps.length > 0 && (
+                  <div className="mb-4">
+                    <h4 className="text-sm font-medium mb-2">Key Skill Gaps:</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {latestImprovementPlan.skillGaps.slice(0, 5).map((skill: string, index: number) => (
+                        <span
+                          key={index}
+                          className="px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 text-xs border border-amber-500/30"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {latestImprovementPlan.timeline && latestImprovementPlan.timeline.length > 0 && (
+                  <div className="mb-4">
+                    <h4 className="text-sm font-medium mb-2">Next Steps:</h4>
+                    <div className="space-y-2">
+                      {latestImprovementPlan.timeline.slice(0, 2).map((item: any, index: number) => (
+                        <div key={index} className="flex items-start">
+                          <div className={`
+                            w-3 h-3 rounded-full mt-1 mr-2 flex-shrink-0
+                            ${item.priority === 'high' ? 'bg-red-500' : 
+                              item.priority === 'medium' ? 'bg-yellow-500' : 'bg-blue-500'}
+                          `}></div>
+                          <div>
+                            <div className="text-white/40 text-xs">{item.duration}</div>
+                            <div className="text-white/80 text-sm">{item.task}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <button
+                  onClick={() => navigate('/results')}
+                  className="mt-2 inline-flex items-center text-indigo-400 hover:text-indigo-300 text-sm font-medium"
+                >
+                  View full improvement plan
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </button>
+              </motion.div>
+            )}
           </div>
         )}
         

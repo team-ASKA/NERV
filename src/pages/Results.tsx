@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowLeft, Download, Brain, MessageSquare, Bot, User, ChevronLeft, ChevronRight, ArrowRight, BarChart2, AlertTriangle, CheckCircle2, ArrowUpRight, List } from 'lucide-react';
+import { ArrowLeft, Download, Brain, MessageSquare, Bot, User, ChevronLeft, ChevronRight, ArrowRight, BarChart2, AlertTriangle, CheckCircle2, ArrowUpRight, List, FileText, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { FaVideo } from 'react-icons/fa';
 import { motion } from 'framer-motion';
@@ -33,6 +33,37 @@ interface UserSkills {
   expertise: string[];
 }
 
+// New interfaces for the improvement plan agent
+interface Resource {
+  title: string;
+  type: 'course' | 'book' | 'project' | 'article' | 'video';
+  url?: string;
+  description: string;
+}
+
+interface TimelineItem {
+  duration: string;
+  task: string;
+  priority: 'high' | 'medium' | 'low';
+}
+
+interface CareerPath {
+  role: string;
+  level: 'entry' | 'mid' | 'senior';
+  matchPercentage: number;
+  requiredSkills: string[];
+  description: string;
+}
+
+interface ImprovementPlan {
+  skillGaps: string[];
+  resources: Resource[];
+  timeline: TimelineItem[];
+  careerPaths: CareerPath[];
+  summary: string;
+  generatedAt: string;
+}
+
 const Results = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
@@ -52,7 +83,10 @@ const Results = () => {
     recommendedSkills: [],
     overallScore: 0
   });
-  const tabs = ["Summary", "Transcription", "Emotional Analysis", "Skill Gap Analysis"];
+  // New state for the improvement plan
+  const [improvementPlan, setImprovementPlan] = useState<ImprovementPlan | null>(null);
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const tabs = ["Summary", "Transcription", "Emotional Analysis", "Skill Gap Analysis", "Improvement Plan"];
 
   useEffect(() => {
     // Get results from localStorage
@@ -269,6 +303,13 @@ const Results = () => {
     analyzeSkillGaps();
   }, [results, userSkills]);
   
+  // New useEffect to generate improvement plan when skill analysis is completed
+  useEffect(() => {
+    if (skillAnalysis.missingSkills.length > 0 || skillAnalysis.recommendedSkills.length > 0) {
+      generateImprovementPlan();
+    }
+  }, [skillAnalysis]);
+  
   // Function to analyze skill gaps
   const analyzeSkillGaps = () => {
     if (!results || !results.emotionsData) return;
@@ -323,6 +364,396 @@ const Results = () => {
       recommendedSkills,
       overallScore
     });
+  };
+
+  // Function to generate improvement plan
+  const generateImprovementPlan = () => {
+    if (!results || !skillAnalysis) return;
+    
+    setIsGeneratingPlan(true);
+    
+    try {
+      // Analyze interview transcripts to identify communication patterns and topics
+      const analyzeTranscripts = (): string[] => {
+        const patterns: string[] = [];
+        
+        if (results.transcriptions && results.transcriptions.length > 0) {
+          // Check for short answers (potential sign of lack of depth)
+          const shortAnswers = results.emotionsData.filter(item => 
+            item.answer.split(' ').length < 15
+          ).length;
+          
+          if (shortAnswers > 2) {
+            patterns.push('communication-brevity');
+          }
+          
+          // Check for filler words
+          const fillerWords = ['um', 'uh', 'like', 'you know', 'actually', 'basically'];
+          const fillerCount = results.transcriptions.reduce((count, trans) => {
+            fillerWords.forEach(word => {
+              const regex = new RegExp(`\\b${word}\\b`, 'gi');
+              const matches = trans.match(regex);
+              if (matches) count += matches.length;
+            });
+            return count;
+          }, 0);
+          
+          if (fillerCount > 5) {
+            patterns.push('communication-fillers');
+          }
+          
+          // Check for technical language
+          const techTerms = ['algorithm', 'framework', 'architecture', 'database', 'api', 'implementation', 'deployment'];
+          const techTermCount = results.transcriptions.reduce((count, trans) => {
+            techTerms.forEach(term => {
+              const regex = new RegExp(`\\b${term}\\b`, 'gi');
+              const matches = trans.match(regex);
+              if (matches) count += matches.length;
+            });
+            return count;
+          }, 0);
+          
+          if (techTermCount < 3) {
+            patterns.push('communication-technical');
+          }
+        }
+        
+        return patterns;
+      };
+      
+      // Analyze emotional data to identify behavioral patterns
+      const analyzeEmotions = (): string[] => {
+        const patterns: string[] = [];
+        
+        if (results.emotionsData && results.emotionsData.length > 0) {
+          // Check for predominant nervousness
+          const nervousCount = results.emotionsData.filter(item => 
+            item.emotions && 
+            item.emotions.length > 0 && 
+            ['fear', 'nervousness', 'anxiety'].includes(item.emotions[0].name?.toLowerCase() || '')
+          ).length;
+          
+          if (nervousCount >= Math.floor(results.emotionsData.length / 3)) {
+            patterns.push('emotion-nervousness');
+          }
+          
+          // Check for confidence
+          const confidenceCount = results.emotionsData.filter(item => 
+            item.emotions && 
+            item.emotions.length > 0 && 
+            ['confidence', 'joy', 'pride'].includes(item.emotions[0].name?.toLowerCase() || '')
+          ).length;
+          
+          if (confidenceCount < Math.floor(results.emotionsData.length / 3)) {
+            patterns.push('emotion-confidence');
+          }
+        }
+        
+        return patterns;
+      };
+      
+      // Define resources based on skill gaps and behavioral patterns
+      const generateResources = (skills: string[], patterns: string[]): Resource[] => {
+        const resources: Resource[] = [];
+        
+        // Add resources based on communication patterns
+        if (patterns.includes('communication-brevity')) {
+          resources.push({
+            title: 'STAR Method for Interview Responses',
+            type: 'article',
+            url: 'https://www.indeed.com/career-advice/interviewing/how-to-use-the-star-interview-response-technique',
+            description: 'Learn how to structure detailed answers using the Situation, Task, Action, Result framework.'
+          });
+        }
+        
+        if (patterns.includes('communication-fillers')) {
+          resources.push({
+            title: 'Eliminating Filler Words in Speech',
+            type: 'video',
+            url: 'https://www.youtube.com/results?search_query=eliminate+filler+words',
+            description: 'Techniques to reduce filler words and speak more confidently during interviews.'
+          });
+        }
+        
+        if (patterns.includes('communication-technical')) {
+          resources.push({
+            title: 'Technical Communication for Interviews',
+            type: 'course',
+            url: 'https://www.coursera.org/search?query=technical%20communication',
+            description: 'Improve your ability to communicate technical concepts clearly and effectively.'
+          });
+        }
+        
+        // Add resources based on emotional patterns
+        if (patterns.includes('emotion-nervousness')) {
+          resources.push({
+            title: 'Managing Interview Anxiety',
+            type: 'article',
+            url: 'https://www.themuse.com/advice/interview-anxiety-tips',
+            description: 'Practical techniques to reduce nervousness and anxiety during interviews.'
+          });
+        }
+        
+        if (patterns.includes('emotion-confidence')) {
+          resources.push({
+            title: 'Building Confidence for Interviews',
+            type: 'course',
+            url: 'https://www.linkedin.com/learning/search?keywords=confidence',
+            description: 'Learn strategies to boost your confidence and project assurance during interviews.'
+          });
+        }
+        
+        // Generate resources for each skill gap
+        skills.forEach((skill, index) => {
+          // Course resource
+          if (index % 5 === 0 || index === 0) {
+            resources.push({
+              title: `Complete ${skill} Fundamentals`,
+              type: 'course',
+              url: `https://www.coursera.org/search?query=${encodeURIComponent(skill)}`,
+              description: `A comprehensive course covering ${skill} fundamentals and best practices.`
+            });
+          }
+          
+          // Book resource
+          if (index % 5 === 1 || skills.length < 3) {
+            resources.push({
+              title: `${skill} in Practice`,
+              type: 'book',
+              description: `A practical guide to mastering ${skill} with real-world examples and case studies.`
+            });
+          }
+          
+          // Project resource
+          if (index % 5 === 2 || skills.length < 4) {
+            resources.push({
+              title: `Build a ${skill} Portfolio Project`,
+              type: 'project',
+              description: `Create a portfolio-worthy project that demonstrates your ${skill} abilities.`
+            });
+          }
+          
+          // Video tutorial
+          if (index % 5 === 3 || skills.length < 2) {
+            resources.push({
+              title: `${skill} Video Tutorial Series`,
+              type: 'video',
+              url: `https://www.youtube.com/results?search_query=${encodeURIComponent(skill)}+tutorial`,
+              description: `Watch comprehensive video tutorials on ${skill} to improve your understanding.`
+            });
+          }
+          
+          // Article
+          if (index % 5 === 4 || skills.length < 5) {
+            resources.push({
+              title: `Latest ${skill} Trends and Best Practices`,
+              type: 'article',
+              url: `https://medium.com/search?q=${encodeURIComponent(skill)}`,
+              description: `Stay updated with the latest trends and best practices in ${skill}.`
+            });
+          }
+        });
+        
+        // Limit to 12 resources, prioritizing communication and emotional resources
+        return resources.slice(0, 12);
+      };
+      
+      // Generate timeline for skill development, incorporating behavioral improvements
+      const generateTimeline = (skills: string[], patterns: string[]): TimelineItem[] => {
+        const timeline: TimelineItem[] = [];
+        
+        // Add timeline items based on communication patterns
+        if (patterns.includes('communication-brevity') || patterns.includes('communication-fillers') || patterns.includes('communication-technical')) {
+          timeline.push({
+            duration: '1-2 weeks',
+            task: 'Practice structured interview responses using the STAR method, recording yourself to identify areas for improvement.',
+            priority: 'high'
+          });
+        }
+        
+        // Add timeline items based on emotional patterns
+        if (patterns.includes('emotion-nervousness') || patterns.includes('emotion-confidence')) {
+          timeline.push({
+            duration: '2-3 weeks',
+            task: 'Practice mock interviews with friends or mentors to build confidence and reduce anxiety.',
+            priority: 'high'
+          });
+        }
+        
+        // Add standard timeline items
+        timeline.push(
+          {
+            duration: '1-2 weeks',
+            task: 'Assessment and planning: Identify specific areas within your skill gaps to focus on',
+            priority: 'high'
+          },
+          {
+            duration: '2-4 weeks',
+            task: `Complete introductory courses on ${skills.slice(0, 2).join(' and ')}`,
+            priority: skills.length > 0 ? 'high' : 'medium'
+          },
+          {
+            duration: '1 month',
+            task: `Build a small project using ${skills[0] || 'your target skill'}`,
+            priority: 'medium'
+          },
+          {
+            duration: '2-3 months',
+            task: 'Join communities and forums related to your target skills for networking',
+            priority: 'medium'
+          },
+          {
+            duration: '3-6 months',
+            task: `Complete advanced courses and certifications in ${skills.slice(0, 3).join(', ')}`,
+            priority: skills.length > 0 ? 'high' : 'medium'
+          },
+          {
+            duration: '6 months',
+            task: 'Build a comprehensive portfolio project showcasing all your improved skills',
+            priority: 'high'
+          }
+        );
+        
+        return timeline;
+      };
+      
+      // Generate career paths based on skills and emotional profile
+      const generateCareerPaths = (matchedSkills: string[], missingSkills: string[], patterns: string[]): CareerPath[] => {
+        const allSkills = [...new Set([...matchedSkills, ...missingSkills])];
+        
+        // Define some common career paths and their required skills
+        const commonPaths: {[key: string]: {level: 'entry' | 'mid' | 'senior', skills: string[], description: string}} = {
+          'Frontend Developer': {
+            level: matchedSkills.filter(s => ['javascript', 'react', 'vue.js', 'angular', 'html', 'css'].includes(s.toLowerCase())).length > 3 ? 'mid' : 'entry',
+            skills: ['JavaScript', 'HTML', 'CSS', 'React', 'TypeScript'],
+            description: 'Build user interfaces and client-side applications using modern web technologies.'
+          },
+          'Backend Developer': {
+            level: matchedSkills.filter(s => ['node.js', 'python', 'java', 'c#', 'php', 'golang', 'sql'].includes(s.toLowerCase())).length > 3 ? 'mid' : 'entry',
+            skills: ['Node.js', 'Python', 'SQL', 'REST API', 'Java'],
+            description: 'Develop server-side logic, databases, and APIs that power web applications.'
+          },
+          'Full Stack Developer': {
+            level: matchedSkills.filter(s => ['javascript', 'react', 'node.js', 'python', 'sql'].includes(s.toLowerCase())).length > 4 ? 'mid' : 'entry',
+            skills: ['JavaScript', 'React', 'Node.js', 'SQL', 'HTML/CSS'],
+            description: 'Work on both client and server sides, handling everything from user interfaces to databases.'
+          },
+          'DevOps Engineer': {
+            level: matchedSkills.filter(s => ['docker', 'kubernetes', 'aws', 'git', 'devops'].includes(s.toLowerCase())).length > 3 ? 'mid' : 'entry',
+            skills: ['Docker', 'Kubernetes', 'AWS', 'CI/CD', 'Linux'],
+            description: 'Implement and manage continuous delivery systems and methodologies.'
+          },
+          'Data Scientist': {
+            level: matchedSkills.filter(s => ['python', 'sql', 'r', 'machine learning', 'statistics'].includes(s.toLowerCase())).length > 3 ? 'mid' : 'entry',
+            skills: ['Python', 'SQL', 'Machine Learning', 'Statistics', 'Data Visualization'],
+            description: 'Analyze and interpret complex data to help organizations make better decisions.'
+          },
+          'Mobile Developer': {
+            level: matchedSkills.filter(s => ['swift', 'kotlin', 'react native', 'flutter', 'java'].includes(s.toLowerCase())).length > 2 ? 'mid' : 'entry',
+            skills: ['Swift', 'Kotlin', 'React Native', 'Flutter', 'Mobile UI Design'],
+            description: 'Create applications for mobile devices across various platforms.'
+          },
+          'UX/UI Designer': {
+            level: matchedSkills.filter(s => ['ui design', 'ux design', 'figma', 'sketch', 'adobe xd'].includes(s.toLowerCase())).length > 2 ? 'mid' : 'entry',
+            skills: ['UX Research', 'UI Design', 'Figma', 'User Testing', 'Wireframing'],
+            description: 'Design user interfaces and experiences that are intuitive, accessible, and visually appealing.'
+          },
+          'Product Manager': {
+            level: matchedSkills.filter(s => ['product management', 'agile', 'scrum', 'user stories', 'roadmap'].includes(s.toLowerCase())).length > 2 ? 'mid' : 'entry',
+            skills: ['Product Strategy', 'Agile', 'User Research', 'Roadmapping', 'Stakeholder Management'],
+            description: 'Lead the development of products from conception to launch, balancing business needs with user requirements.'
+          }
+        };
+        
+        // Consider communication comfort when suggesting client-facing roles
+        if (patterns.includes('emotion-nervousness') || patterns.includes('communication-fillers')) {
+          // Lower ranking for roles that require more client interaction
+          delete commonPaths['Product Manager'];
+        }
+        
+        // Calculate match percentage for each career path
+        const careerPaths: CareerPath[] = Object.entries(commonPaths).map(([role, details]) => {
+          const requiredSkills = details.skills;
+          const matchCount = requiredSkills.filter(skill => 
+            allSkills.some(userSkill => userSkill.toLowerCase() === skill.toLowerCase())
+          ).length;
+          
+          const matchPercentage = Math.round((matchCount / requiredSkills.length) * 100);
+          
+          // Adjust match percentage based on communication patterns
+          let adjustedPercentage = matchPercentage;
+          
+          // For client-facing roles, consider communication skills
+          if (['UX/UI Designer', 'Product Manager'].includes(role)) {
+            if (patterns.includes('communication-brevity') || patterns.includes('communication-fillers')) {
+              adjustedPercentage = Math.max(0, adjustedPercentage - 10);
+            }
+          }
+          
+          // For technical roles, consider technical communication
+          if (['Backend Developer', 'Data Scientist', 'DevOps Engineer'].includes(role)) {
+            if (patterns.includes('communication-technical')) {
+              adjustedPercentage = Math.max(0, adjustedPercentage - 5);
+            }
+          }
+          
+          return {
+            role,
+            level: details.level,
+            matchPercentage: adjustedPercentage,
+            requiredSkills,
+            description: details.description
+          };
+        });
+        
+        // Sort by match percentage and return top 3
+        return careerPaths.sort((a, b) => b.matchPercentage - a.matchPercentage).slice(0, 3);
+      };
+      
+      // Identify communication and emotional patterns
+      const communicationPatterns = analyzeTranscripts();
+      const emotionalPatterns = analyzeEmotions();
+      const allPatterns = [...communicationPatterns, ...emotionalPatterns];
+      
+      // Generate summary based on patterns
+      let summary = `Based on your interview performance, we've identified ${skillAnalysis.missingSkills.length} skill gaps that could be improved.`;
+      
+      if (communicationPatterns.length > 0) {
+        summary += ` There are opportunities to improve your communication style, particularly in ${
+          communicationPatterns.includes('communication-brevity') ? 'providing more detailed responses' : 
+          communicationPatterns.includes('communication-fillers') ? 'reducing filler words' : 
+          'incorporating more technical terminology'
+        }.`;
+      }
+      
+      if (emotionalPatterns.length > 0) {
+        summary += ` Your interview confidence ${
+          emotionalPatterns.includes('emotion-nervousness') ? 'could be enhanced by managing nervousness' : 
+          'can be strengthened with more practice and preparation'
+        }.`;
+      }
+      
+      summary += ` This plan provides resources, a timeline, and potential career paths that align with your current skills and future goals.`;
+      
+      // Generate the improvement plan
+      const plan: ImprovementPlan = {
+        skillGaps: skillAnalysis.missingSkills,
+        resources: generateResources(skillAnalysis.missingSkills.length > 0 ? skillAnalysis.missingSkills : skillAnalysis.recommendedSkills, allPatterns),
+        timeline: generateTimeline(skillAnalysis.missingSkills.length > 0 ? skillAnalysis.missingSkills : skillAnalysis.recommendedSkills, allPatterns),
+        careerPaths: generateCareerPaths(skillAnalysis.matchedSkills, skillAnalysis.missingSkills, allPatterns),
+        summary,
+        generatedAt: new Date().toISOString()
+      };
+      
+      setImprovementPlan(plan);
+      
+      // Save the plan to localStorage for access on the dashboard
+      localStorage.setItem('latestImprovementPlan', JSON.stringify(plan));
+    } catch (error) {
+      console.error('Error generating improvement plan:', error);
+    } finally {
+      setIsGeneratingPlan(false);
+    }
   };
 
   const handleDownloadResults = () => {
@@ -1005,6 +1436,251 @@ ${skillGapText}
                       >
                         Go to Login
                       </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+              
+              {/* Improvement Plan Tab - NEW */}
+              {activeTab === 4 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.5 }}
+                  className="p-8 rounded-xl bg-black/80 backdrop-blur-sm border border-white/10 hover:border-white/30 transition-all"
+                >
+                  <div className="flex items-center mb-6">
+                    <Brain className="h-6 w-6 text-white mr-3" />
+                    <h2 className="font-montserrat font-semibold text-2xl">Improvement Plan</h2>
+                  </div>
+                  
+                  {!improvementPlan && !isGeneratingPlan && (
+                    <div className="text-center py-8">
+                      <p className="text-white/70 mb-6">Generate a personalized improvement plan based on your interview performance.</p>
+                      <button
+                        onClick={generateImprovementPlan}
+                        className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all flex items-center justify-center mx-auto"
+                      >
+                        <Brain className="h-5 w-5 mr-2" />
+                        Generate Improvement Plan
+                      </button>
+                    </div>
+                  )}
+                  
+                  {isGeneratingPlan && (
+                    <div className="text-center py-10">
+                      <div className="animate-spin h-10 w-10 border-2 border-white border-t-transparent rounded-full mx-auto mb-4"></div>
+                      <p className="text-white/70">Analyzing your interview performance and generating recommendations...</p>
+                    </div>
+                  )}
+                  
+                  {improvementPlan && !isGeneratingPlan && (
+                    <div className="space-y-8">
+                      {/* Plan Summary */}
+                      <div className="bg-gradient-to-r from-indigo-900/30 to-purple-900/30 p-6 rounded-lg border border-white/10">
+                        <h3 className="text-lg font-medium mb-3">Plan Overview</h3>
+                        <p className="text-white/80">{improvementPlan.summary}</p>
+                      </div>
+                      
+                      {/* Skill Gaps */}
+                      <div className="bg-black/40 rounded-lg p-6 border border-white/10">
+                        <h3 className="text-lg font-medium mb-4">Identified Skill Gaps</h3>
+                        
+                        {improvementPlan.skillGaps.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {improvementPlan.skillGaps.map((skill, index) => (
+                              <motion.span
+                                key={index}
+                                initial={{ opacity: 0, scale: 0.8 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                transition={{ duration: 0.3, delay: index * 0.05 }}
+                                className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-sm border border-amber-500/30"
+                              >
+                                {skill}
+                              </motion.span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-white/60">No significant skill gaps identified. Focus on improving your existing skills.</p>
+                        )}
+                      </div>
+                      
+                      {/* Timeline */}
+                      <div className="bg-black/40 rounded-lg p-6 border border-white/10">
+                        <h3 className="text-lg font-medium mb-4">Development Timeline</h3>
+                        
+                        <div className="space-y-4">
+                          {improvementPlan.timeline.map((item, index) => (
+                            <motion.div 
+                              key={index}
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ duration: 0.3, delay: index * 0.1 }}
+                              className="flex items-start"
+                            >
+                              <div className="relative">
+                                <div className={`
+                                  w-4 h-4 rounded-full mt-1
+                                  ${item.priority === 'high' ? 'bg-red-500' : 
+                                    item.priority === 'medium' ? 'bg-yellow-500' : 'bg-blue-500'}
+                                `}></div>
+                                {index < improvementPlan.timeline.length - 1 && (
+                                  <div className="absolute top-5 bottom-0 left-2 w-0.5 -ml-px h-full bg-white/10"></div>
+                                )}
+                              </div>
+                              <div className="ml-4 pb-8">
+                                <div className="flex items-center">
+                                  <span className="text-white/40 text-sm font-medium bg-white/5 px-2 py-1 rounded">
+                                    {item.duration}
+                                  </span>
+                                  <span className={`
+                                    ml-2 text-xs px-2 py-0.5 rounded-full
+                                    ${item.priority === 'high' ? 'bg-red-500/20 text-red-400' : 
+                                      item.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-blue-500/20 text-blue-400'}
+                                  `}>
+                                    {item.priority.toUpperCase()} PRIORITY
+                                  </span>
+                                </div>
+                                <p className="text-white/80 mt-2">{item.task}</p>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* Recommended Resources */}
+                      <div className="bg-black/40 rounded-lg p-6 border border-white/10">
+                        <h3 className="text-lg font-medium mb-4">Recommended Resources</h3>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {improvementPlan.resources.map((resource, index) => (
+                            <motion.div
+                              key={index}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.3, delay: index * 0.05 }}
+                              className="bg-black/30 p-4 rounded-lg border border-white/10 hover:border-white/30 transition-all"
+                            >
+                              <div className="flex items-start">
+                                <div className={`
+                                  p-2 rounded-lg mr-3 flex-shrink-0
+                                  ${resource.type === 'course' ? 'bg-blue-500/20' :
+                                    resource.type === 'book' ? 'bg-purple-500/20' :
+                                    resource.type === 'project' ? 'bg-green-500/20' :
+                                    resource.type === 'video' ? 'bg-red-500/20' : 'bg-amber-500/20'}
+                                `}>
+                                  {resource.type === 'course' && <ArrowRight className="h-5 w-5 text-blue-400" />}
+                                  {resource.type === 'book' && <FileText className="h-5 w-5 text-purple-400" />}
+                                  {resource.type === 'project' && <CheckCircle2 className="h-5 w-5 text-green-400" />}
+                                  {resource.type === 'video' && <FaVideo className="h-5 w-5 text-red-400" />}
+                                  {resource.type === 'article' && <FileText className="h-5 w-5 text-amber-400" />}
+                                </div>
+                                <div>
+                                  <h4 className="font-medium text-white/90 mb-1">{resource.title}</h4>
+                                  <div className="text-xs text-white/50 mb-2 uppercase tracking-wider">
+                                    {resource.type}
+                                  </div>
+                                  <p className="text-white/70 text-sm mb-2">{resource.description}</p>
+                                  {resource.url && (
+                                    <a 
+                                      href={resource.url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center text-indigo-400 hover:text-indigo-300 text-sm"
+                                    >
+                                      View Resource <ExternalLink className="h-3 w-3 ml-1" />
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* Career Paths */}
+                      <div className="bg-black/40 rounded-lg p-6 border border-white/10">
+                        <h3 className="text-lg font-medium mb-4">Recommended Career Paths</h3>
+                        
+                        <div className="space-y-6">
+                          {improvementPlan.careerPaths.map((path, index) => (
+                            <motion.div
+                              key={index}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.4, delay: index * 0.1 }}
+                              className="bg-gradient-to-r from-black/50 to-black/20 rounded-lg p-5 border border-white/10"
+                            >
+                              <div className="flex flex-col md:flex-row md:items-center justify-between mb-4">
+                                <div>
+                                  <h4 className="font-medium text-lg text-white/90">{path.role}</h4>
+                                  <div className="flex items-center mt-1">
+                                    <span className={`
+                                      text-xs px-2 py-0.5 rounded-full
+                                      ${path.level === 'entry' ? 'bg-green-500/20 text-green-400' : 
+                                        path.level === 'mid' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}
+                                    `}>
+                                      {path.level.toUpperCase()} LEVEL
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                <div className="mt-4 md:mt-0">
+                                  <div className="flex items-center">
+                                    <div className="relative w-24 h-24">
+                                      <svg className="w-full h-full" viewBox="0 0 36 36">
+                                        <path
+                                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                          fill="none"
+                                          stroke="#2a2a2a"
+                                          strokeWidth="3"
+                                        />
+                                        <path
+                                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                          fill="none"
+                                          stroke="url(#gradient-career)"
+                                          strokeWidth="3"
+                                          strokeDasharray={`${path.matchPercentage}, 100`}
+                                        />
+                                        <defs>
+                                          <linearGradient id="gradient-career" x1="0%" y1="0%" x2="100%" y2="0%">
+                                            <stop offset="0%" stopColor="#4F46E5" />
+                                            <stop offset="100%" stopColor="#8B5CF6" />
+                                          </linearGradient>
+                                        </defs>
+                                      </svg>
+                                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+                                        <div className="text-xl font-bold">{path.matchPercentage}%</div>
+                                        <div className="text-xs text-gray-400">Match</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <p className="text-white/70 mb-3">{path.description}</p>
+                              
+                              <div>
+                                <h5 className="text-sm font-medium text-white/90 mb-2">Required Skills:</h5>
+                                <div className="flex flex-wrap gap-2">
+                                  {path.requiredSkills.map((skill, idx) => (
+                                    <span 
+                                      key={idx}
+                                      className={`px-2 py-1 rounded-full text-xs 
+                                        ${skillAnalysis.matchedSkills.includes(skill) ? 
+                                          'bg-green-500/20 text-green-400 border border-green-500/30' : 
+                                          'bg-gray-500/20 text-gray-400 border border-gray-500/30'}`
+                                      }
+                                    >
+                                      {skill}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   )}
                 </motion.div>
