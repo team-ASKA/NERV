@@ -41,9 +41,6 @@ const Results = () => {
       try {
         setIsLoading(true);
         
-        // Clear any old interview data to prevent appending
-        localStorage.removeItem('interviewData');
-        
         // Get the most recent interview results
         const storedResults = localStorage.getItem('interviewResults');
         
@@ -57,11 +54,28 @@ const Results = () => {
             parsedResults.emotionsData = parsedResults.emotionsData.map((item: any) => {
               // Ensure emotions array exists and has valid data
               if (!item.emotions || !Array.isArray(item.emotions) || item.emotions.length === 0) {
-                // If no emotions data, create a placeholder
-                console.log("No emotions data found for item, using placeholder");
-                item.emotions = [
-                  { name: "No emotion data", score: 0 }
-                ];
+                // If no emotions data, try to get from currentEmotions
+                const currentEmotionsStr = localStorage.getItem('currentEmotions');
+                let currentEmotions: EmotionData[] = [];
+                
+                try {
+                  if (currentEmotionsStr) {
+                    currentEmotions = JSON.parse(currentEmotionsStr);
+                  }
+                } catch (e) {
+                  console.error("Error parsing currentEmotions:", e);
+                }
+                
+                if (currentEmotions.length > 0) {
+                  item.emotions = currentEmotions;
+                  console.log("Using emotions from currentEmotions");
+                } else {
+                  // If no emotions data, create a placeholder
+                  console.log("No emotions data found for item, using placeholder");
+                  item.emotions = [
+                    { name: "No emotion data", score: 0 }
+                  ];
+                }
               } else {
                 // Filter out any invalid emotion entries
                 item.emotions = item.emotions.filter((emotion: any) => 
@@ -284,8 +298,12 @@ ${emotionsText}
         </motion.div>
         
         {isLoading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white"></div>
+          <div className="flex flex-col justify-center items-center h-64 text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white mb-4"></div>
+            <h3 className="text-xl font-semibold mb-2">Generating Interview Analysis</h3>
+            <p className="text-gray-400 max-w-md">
+              We're analyzing your responses and emotional cues to create a comprehensive interview summary with critical feedback.
+            </p>
           </div>
         ) : error ? (
           <motion.div

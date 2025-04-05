@@ -41,6 +41,15 @@ interface EmotionItem {
   timestamp: string;
 }
 
+// Add interview results interface to match the structure in Results.tsx
+interface InterviewResults {
+  id: string;
+  summary?: string;
+  emotionsData: EmotionItem[];
+  transcriptions: string[];
+  timestamp: string;
+}
+
 const pulseStyle = `
   @keyframes pulsate {
     0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
@@ -252,6 +261,10 @@ const Interview = () => {
       // Set loading state to true at the beginning
       setIsLoading(true);
       
+      // Clear previous interview data from localStorage
+      localStorage.removeItem('interviewData');
+      localStorage.removeItem('currentEmotions');
+      
       try {
         // Get user document from Firestore
         const userDocRef = doc(db, 'users', currentUser.uid);
@@ -279,7 +292,12 @@ const Interview = () => {
             // Check if blob is valid before processing
             if (blob && blob.size > 0) {
               try {
-                resumeText = await extractTextFromPDF(blob);
+                // Convert Blob to File before extracting text
+                const fileName = "resume.pdf"; // Default name
+                const fileType = "application/pdf";
+                const resumeFile = new File([blob], fileName, { type: fileType });
+                
+                resumeText = await extractTextFromPDF(resumeFile);
                 console.log("Successfully extracted resume text");
               } catch (pdfError) {
                 console.error('Error extracting text from PDF:', pdfError);
@@ -495,6 +513,10 @@ const Interview = () => {
               { role: "user", content: transcribedText }
             ]);
             
+            // Get current question text and store answer with emotions
+            const currentQuestionText = questions[currentQuestion]?.text || "Unknown question";
+            storeAnswerWithEmotions(currentQuestionText, transcribedText, currentEmotions);
+            
             // Check if user wants to move to next question
             const userWantsNextQuestion = shouldMoveToNextQuestion(transcribedText);
             
@@ -663,7 +685,7 @@ const Interview = () => {
                 
                 // Navigate to results after a delay
                 setTimeout(() => {
-                  navigate('/results');
+                  handleEndInterview();
                 }, 1000);
               }
             } catch (error) {
@@ -742,6 +764,10 @@ const Interview = () => {
     if (mediaRecorder && isRecording) {
       // Capture emotions before stopping recording
       captureAndAnalyzeFrame();
+      
+      // Store current question for reference
+      const currentQuestionText = questions[currentQuestion]?.text || "Unknown question";
+      localStorage.setItem('currentQuestion', currentQuestionText);
       
       mediaRecorder.stop();
       // Note: We don't set isRecording to false here because that's handled in the onstop handler
@@ -912,7 +938,11 @@ const Interview = () => {
                   if (emotions && emotions.length > 0) {
                     console.log("Emotions found:", emotions.length, "emotions");
                     setFacialExpressions({ emotions });
-                    setCurrentEmotions(emotions); // Store the current emotions
+                    // Store the current emotions in state and localStorage
+                    setCurrentEmotions(emotions);
+                    localStorage.setItem('currentEmotions', JSON.stringify(emotions));
+                    console.log("Stored emotions in localStorage:", emotions.length, "emotions");
+                    
                     predictionsFound = true;
                   } else {
                     console.log("No emotions array in the prediction");
@@ -1261,7 +1291,7 @@ const Interview = () => {
         
         // Navigate to results after a delay
         setTimeout(() => {
-          navigate('/results');
+          handleEndInterview();
         }, 1000);
       }
     } catch (error) {
@@ -1303,6 +1333,12 @@ const Interview = () => {
       
       // Check if this is the first response (introduction)
       const isIntroduction = messages.length <= 1;
+      
+      // Get current question text
+      const currentQuestionText = questions[currentQuestion]?.text || "No question available";
+      
+      // Store answer with emotions for results page
+      storeAnswerWithEmotions(currentQuestionText, answer, currentEmotions);
       
       // If this is the introduction, use a special prompt
       const prompt = isIntroduction 
@@ -1550,18 +1586,21 @@ const Interview = () => {
       interviewData = [];
     }
     
+    // Use currentEmotions from state if available, otherwise use provided emotions
+    const emotionsToStore = currentEmotions.length > 0 ? currentEmotions : emotions;
+    
     // Add new entry
     interviewData.push({
       question,
       answer,
-      emotions,
+      emotions: emotionsToStore,
       timestamp: new Date().toISOString()
     });
     
     // Store updated data
     localStorage.setItem('interviewData', JSON.stringify(interviewData));
     
-    console.log("Stored answer with emotions:", { question, answer, emotions: emotions.length });
+    console.log("Stored answer with emotions:", { question, answer, emotions: emotionsToStore.length });
   };
 
   // Update the generateNextQuestion function to potentially include transition phrases
@@ -1655,35 +1694,74 @@ const Interview = () => {
       // Get stored interview data with emotions
       const interviewData = JSON.parse(localStorage.getItem('interviewData') || '[]');
       
+      // Create a detailed prompt including emotional data
+      let emotionSummary = "";
+      if (interviewData && interviewData.length > 0) {
+        emotionSummary = interviewData.map((item: any) => {
+          let emotionsText = "No emotions detected";
+          if (item.emotions && item.emotions.length > 0) {
+            emotionsText = item.emotions
+              .slice(0, 3)
+              .map((e: any) => `${e.name} (${(e.score * 100).toFixed(0)}%)`)
+              .join(", ");
+          }
+          return `Question: "${item.question}"\nAnswer: "${item.answer}"\nEmotions: ${emotionsText}`;
+        }).join("\n\n");
+      }
+      
       // Store the full interview results for the results page
-      const interviewResults = {
+      const interviewResults: InterviewResults = {
+        id: Date.now().toString(),
         summary: "", // Will be filled in below
         emotionsData: interviewData,
         transcriptions: interviewData.map((item: any) => item.answer),
         timestamp: new Date().toISOString()
       };
       
-      // Create a prompt for generating the summary
+      // Create a prompt for generating the summary with more details
       const prompt = `
         You are an AI technical interviewer who has just completed an interview with a candidate.
         
-        Based on the conversation history, generate a comprehensive interview summary that includes:
+        I need you to generate a comprehensive interview summary with critical analysis based on the following conversation data and emotional cues:
         
-        1. An overall assessment of the candidate's technical skills and knowledge
-        2. Strengths demonstrated during the interview
-        3. Areas for improvement
-        4. Specific technical competencies evaluated
-        5. Recommendations for next steps
+        CONVERSATION AND EMOTIONAL DATA:
+        ${emotionSummary}
         
-        Format the summary in markdown with clear sections and bullet points where appropriate.
-        Be honest but constructive in your feedback.
+        Your summary should include:
+        
+        1. OVERVIEW: A brief overall assessment of the candidate's interview performance
+        
+        2. TECHNICAL ASSESSMENT:
+          - Depth of technical knowledge demonstrated
+          - Problem-solving approach and methodology
+          - Technical strengths clearly demonstrated
+          - Technical weaknesses or knowledge gaps identified
+        
+        3. COMMUNICATION ASSESSMENT:
+          - Clarity of explanations and thought process
+          - Ability to discuss complex technical concepts
+          - Professional communication style
+        
+        4. EMOTIONAL INTELLIGENCE INSIGHTS:
+          - Analysis of emotional patterns during responses
+          - Confidence levels when addressing different topics
+          - Areas where emotional responses may have impacted technical delivery
+        
+        5. RECOMMENDATIONS:
+          - Specific areas for improvement
+          - Suggestions for skill development
+          - Next steps for the candidate
+        
+        Format the summary in markdown with clear sections and bullet points.
+        Be honest, specific, and constructive in your feedback.
+        Provide a critical analysis that would be valuable for both the interviewer and the candidate.
       `;
       
       // Create messages array from conversation history
       const messagesForAPI = [
         { 
           role: "system", 
-          content: "You are an AI technical interviewer generating a comprehensive interview summary." 
+          content: "You are an AI technical interviewer generating a comprehensive interview summary with critical analysis." 
         },
         ...conversationHistory, // Use the full conversation history
         { role: "user", content: prompt }
@@ -1700,7 +1778,7 @@ const Interview = () => {
           body: JSON.stringify({
             messages: messagesForAPI,
             temperature: 0.7,
-            max_tokens: 1000
+            max_tokens: 1500
           }),
         }
       );
@@ -1747,17 +1825,44 @@ const Interview = () => {
         .filter(msg => msg.sender === 'user')
         .map(msg => msg.text);
       
+      // Make sure we have at least one item with emotions
+      if (interviewData.length === 0 && transcriptions.length > 0) {
+        // Create basic emotion items if none exist
+        questions.forEach((q, index) => {
+          if (index < transcriptions.length) {
+            interviewData.push({
+              question: q.text,
+              answer: transcriptions[index],
+              emotions: currentEmotions.length > 0 ? currentEmotions : [],
+              timestamp: new Date().toISOString()
+            });
+          }
+        });
+      }
+      
       // Create interview result object with unique ID
       const interviewId = Date.now().toString();
-      const interviewResults = {
+      const interviewResults: InterviewResults = {
         id: interviewId,
         emotionsData: interviewData,
         transcriptions,
         timestamp: new Date().toISOString()
       };
       
+      // Try to generate a summary if possible
+      try {
+        const summary = await generateInterviewSummary();
+        interviewResults.summary = summary;
+      } catch (summaryError) {
+        console.error("Error generating summary:", summaryError);
+        interviewResults.summary = "A summary could not be generated due to an error.";
+      }
+      
       // Store current interview results
       localStorage.setItem('interviewResults', JSON.stringify(interviewResults));
+      
+      // Also store current messages for backup
+      localStorage.setItem('interviewMessages', JSON.stringify(messages));
       
       // Store in interview history
       const interviewHistory = JSON.parse(localStorage.getItem('interviewHistory') || '[]');
@@ -1964,6 +2069,14 @@ const Interview = () => {
                     </button>
                     
                     <button
+                      onClick={handleEndInterview}
+                      className="w-full flex items-center gap-2 p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-left"
+                    >
+                      <ArrowRight className="h-4 w-4" />
+                      <span>End Interview & Get Feedback</span>
+                    </button>
+                    
+                    <button
                       onClick={() => navigate('/profile')}
                       className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors text-left"
                     >
@@ -2161,6 +2274,16 @@ const Interview = () => {
                   
                   {/* Input area - fixed at bottom */}
                   <div className="p-4 border-t border-white/20 flex-shrink-0 bg-white/5">
+                    <div className="mb-3">
+                      <button
+                        onClick={handleEndInterview}
+                        className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors flex items-center justify-center"
+                      >
+                        <ArrowRight className="h-4 w-4 mr-2" />
+                        End Interview & Get Detailed Feedback
+                      </button>
+                    </div>
+                    
                     <div className="flex items-center gap-2">
                       <button
                         onClick={toggleRecording}
