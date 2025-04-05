@@ -5,6 +5,22 @@ import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { collection, getDocs, query, where, setDoc, Timestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { extractTextFromPDF } from '../services/pdfService';
+
+// Add proper type for user details
+type UserDetails = {
+  name: string;
+  email: string;
+  resumeURL: string | null;
+  resumeName: string | null;
+  linkedinURL: string | null;
+  portfolioURL: string | null;
+  expertise?: string[];
+  skills?: string[];
+  [key: string]: any; // Allow for additional properties
+};
 
 const Dashboard = () => {
   const { currentUser, logout } = useAuth();
@@ -12,7 +28,7 @@ const Dashboard = () => {
   const [error, setError] = useState('');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [userDetails, setUserDetails] = useState<any>(null);
+  const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [resumeLink, setResumeLink] = useState('');
   const [resumeLinkSuccess, setResumeLinkSuccess] = useState(false);
@@ -66,7 +82,8 @@ const Dashboard = () => {
         
         if (userDoc.exists()) {
           const userData = userDoc.data();
-          setUserDetails(userData);
+          // Cast the Firestore data to our UserDetails type
+          setUserDetails(userData as UserDetails);
           setResumeLink(userData.resumeURL || '');
           
           // Initialize edit form with current values
@@ -81,66 +98,54 @@ const Dashboard = () => {
             skills: userData.skills ? userData.skills.join(', ') : ''
           });
         } else {
-          console.log('No user details found');
+          // Create a default user document
+          const defaultUserData: UserDetails = {
+            name: currentUser.displayName || '',
+            email: currentUser.email || '',
+            resumeURL: null,
+            resumeName: null,
+            linkedinURL: null,
+            portfolioURL: null,
+            displayName: currentUser.displayName || '',
+            photoURL: currentUser.photoURL || '',
+            createdAt: Timestamp.now(),
+            skills: [],
+            expertise: []
+          };
+          
+          await setDoc(doc(db, 'users', currentUser.uid), defaultUserData);
+          setUserDetails(defaultUserData);
         }
       } catch (error) {
         console.error('Error fetching user details:', error);
+        setError('Failed to load user profile');
       } finally {
         setLoading(false);
       }
     };
     
     fetchUserDetails();
+    
+    // Load interview history from localStorage
+    const storedHistory = localStorage.getItem('interviewHistory');
+    if (storedHistory) {
+      try {
+        setInterviewHistory(JSON.parse(storedHistory));
+      } catch (e) {
+        console.error('Error parsing interview history:', e);
+      }
+    }
+    
+    // Load latest improvement plan from localStorage
+    const storedPlan = localStorage.getItem('latestImprovementPlan');
+    if (storedPlan) {
+      try {
+        setLatestImprovementPlan(JSON.parse(storedPlan));
+      } catch (e) {
+        console.error('Error parsing improvement plan:', e);
+      }
+    }
   }, [currentUser]);
-
-  // Add new useEffect to load interview history
-  useEffect(() => {
-    const loadInterviewHistory = () => {
-      try {
-        const storedHistory = localStorage.getItem('interviewHistory');
-        if (storedHistory) {
-          let parsedHistory = JSON.parse(storedHistory);
-          
-          // Ensure all interviews have the expected structure
-          parsedHistory = parsedHistory.map((interview: any) => ({
-            id: interview.id || Date.now().toString(),
-            summary: interview.summary || "",
-            emotionsData: Array.isArray(interview.emotionsData) ? interview.emotionsData : [],
-            transcriptions: Array.isArray(interview.transcriptions) ? interview.transcriptions : [],
-            timestamp: interview.timestamp || new Date().toISOString()
-          }));
-          
-          // Sort by timestamp, newest first
-          parsedHistory.sort((a: any, b: any) => 
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-          );
-          setInterviewHistory(parsedHistory);
-        }
-      } catch (error) {
-        console.error("Error loading interview history:", error);
-      }
-    };
-    
-    loadInterviewHistory();
-  }, []);
-
-  // Add a new useEffect to load the improvement plan
-  useEffect(() => {
-    // Load latest improvement plan if available
-    const loadLatestImprovementPlan = () => {
-      try {
-        const storedPlan = localStorage.getItem('latestImprovementPlan');
-        if (storedPlan) {
-          const parsedPlan = JSON.parse(storedPlan);
-          setLatestImprovementPlan(parsedPlan);
-        }
-      } catch (error) {
-        console.error("Error loading improvement plan:", error);
-      }
-    };
-    
-    loadLatestImprovementPlan();
-  }, []);
 
   // Handle logout
   const handleLogout = async () => {
@@ -229,8 +234,8 @@ const Dashboard = () => {
       });
       
       // Update local state with proper typing
-      setUserDetails((prev: any) => {
-        if (!prev) return { ...editForm, skills: skillsArray };
+      setUserDetails((prev: UserDetails | null) => {
+        if (!prev) return null;
         return { 
           ...prev, 
           displayName: editForm.displayName,
@@ -320,8 +325,60 @@ const Dashboard = () => {
 
   // Add this function to handle resume upload
   const handleResumeFileUpload = async () => {
-    setUploadError('CORS issue: File upload is temporarily disabled. Please use the URL input below to link to your resume on Google Drive or Dropbox.');
-    setUploading(false);
+    if (!file) {
+      setUploadError('Please select a file first');
+      return;
+    }
+    
+    setUploading(true);
+    setUploadError('');
+    
+    try {
+      console.log("Starting PDF processing of file:", file.name, file.size/1024, "KB");
+      
+      // Extract text from the PDF using our service
+      const extractedText = await extractTextFromPDF(file);
+      
+      console.log("Successfully extracted text from PDF, length:", extractedText.length);
+      
+      // Verify the text content has reasonable length
+      if (extractedText.length < 100) {
+        setUploadError('The PDF text extraction resulted in very little content. Please try a different PDF.');
+        setUploading(false);
+        return;
+      }
+      
+      // Store the extracted text in localStorage for use in the interview
+      localStorage.setItem('resumeText', extractedText);
+      console.log("Stored resume text in localStorage");
+      
+      // Update user metadata with file name (but not URL, since we're processing locally)
+      if (currentUser) {
+        const userRef = doc(db, 'users', currentUser.uid);
+        await updateDoc(userRef, {
+          resumeName: file.name,
+          // We're not storing the resume in Firebase Storage anymore
+          resumeURL: null
+        });
+        
+        // Update local state
+        setUserDetails(prev => ({
+          ...prev!,
+          resumeName: file.name,
+          resumeURL: null
+        }));
+      }
+      
+      setFile(null);
+      setUploadSuccess(true);
+      setTimeout(() => setUploadSuccess(false), 3000);
+      
+    } catch (error) {
+      console.error('Error processing PDF:', error);
+      setUploadError('Failed to process PDF. Please try again with a different file.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   // Add function to view interview results
@@ -631,6 +688,48 @@ const Dashboard = () => {
                           </div>
                         </div>
 
+                        {/* Resume Card (Mobile view) */}
+                        <div className="lg:hidden p-4 bg-white/5 rounded-lg mb-4">
+                          <h3 className="text-lg font-semibold mb-2 flex items-center">
+                            <FileText className="h-5 w-5 mr-2" />
+                            Your Resume
+                          </h3>
+                          
+                          {(userDetails?.resumeURL || localStorage.getItem('resumeText')) ? (
+                            <div>
+                              <p className="text-sm text-gray-400 mb-2">Your resume is ready for interviews</p>
+                              {userDetails?.resumeURL ? (
+                                <a 
+                                  href={userDetails.resumeURL}
+                                  target="_blank"
+                                  rel="noopener noreferrer" 
+                                  className="text-sm flex items-center text-blue-400 hover:text-blue-300"
+                                >
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  View Resume {userDetails.resumeName && `(${userDetails.resumeName})`}
+                                </a>
+                              ) : (
+                                <div className="text-sm flex items-center text-green-400">
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  Locally Processed Resume {userDetails?.resumeName && `(${userDetails.resumeName})`}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center">
+                              <AlertCircle className="h-4 w-4 mr-2 text-yellow-500" />
+                              <p className="text-sm text-yellow-400">No resume added yet</p>
+                            </div>
+                          )}
+                          
+                          <button
+                            onClick={() => document.getElementById('mobileResumeSection')?.scrollIntoView({ behavior: 'smooth' })}
+                            className="mt-3 w-full py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-sm"
+                          >
+                            {userDetails?.resumeURL || localStorage.getItem('resumeText') ? 'Update Resume' : 'Add Resume'}
+                          </button>
+                        </div>
+
                         {/* Resume Upload Box */}
                         <div className="bg-black border border-white/10 rounded-xl p-6 shadow-lg hover:border-white/30 transition-all mb-6">
                           <h2 className="text-xl font-semibold mb-4 flex items-center">
@@ -638,18 +737,25 @@ const Dashboard = () => {
                             Your Resume
                           </h2>
                           
-                          {userDetails?.resumeURL ? (
+                          {(userDetails?.resumeURL || localStorage.getItem('resumeText')) ? (
                             <div className="mb-4">
                               <p className="text-gray-400 mb-2">Your resume is ready for interviews</p>
-                              <a 
-                                href={userDetails.resumeURL}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center text-blue-400 hover:text-blue-300"
-                              >
-                                <FileText className="h-4 w-4 mr-2" />
-                                View Resume {userDetails.resumeName && `(${userDetails.resumeName})`}
-                              </a>
+                              {userDetails?.resumeURL ? (
+                                <a 
+                                  href={userDetails.resumeURL}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center text-blue-400 hover:text-blue-300"
+                                >
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  View Resume {userDetails.resumeName && `(${userDetails.resumeName})`}
+                                </a>
+                              ) : (
+                                <div className="inline-flex items-center text-green-400">
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  Locally Processed Resume {userDetails?.resumeName && `(${userDetails.resumeName})`}
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <p className="text-gray-400 mb-4">Add your resume to enhance your interview experience</p>

@@ -33,6 +33,9 @@ export const initializeInterview = async (resumeText: string): Promise<string[]>
     conversationHistory = [];
     emotionData = [];
     resumeContext = resumeText;
+    
+    // Log the resume text length to verify it's being passed correctly
+    console.log("Gemini service - Resume text length:", resumeText?.length);
 
     // Generate initial prompt with resume context
     const prompt = `
@@ -41,8 +44,21 @@ export const initializeInterview = async (resumeText: string): Promise<string[]>
       Here is the candidate's resume:
       ${resumeText}
       
-      Based on this resume, generate 5 relevant technical interview questions that would be appropriate
-      for this candidate's background and experience level. Focus on their technical skills and past projects.
+      Based on this resume, generate 5 specific interview questions with the following mix:
+      
+      1. 70% of questions should directly reference the candidate's experience, skills, and past projects mentioned in their resume:
+         - Reference specific projects, technologies, companies, or accomplishments mentioned in the resume
+         - Ask about specific challenges they faced, how they solved problems, or implementation details
+         - Ask about specific technologies they've listed (e.g., "I see you used React for Project X. How did you handle state management in that application?")
+         - For each question, include a direct reference to something specific from their resume
+      
+      2. 30% of questions should be algorithm/data structure questions in a LeetCode style:
+         - Present a clear problem statement in algorithm format 
+         - Make the problems relevant to their background when possible
+         - Include time/space complexity considerations
+         - Ask them to explain their approach to solving algorithm problems
+      
+      DO NOT ask generic questions like "Can you explain a complex data structure you've used?" without relating it to their specific experience.
       
       Format your response as a JSON array of strings, with each string being a question.
       Do not include any other text in your response.
@@ -53,7 +69,7 @@ export const initializeInterview = async (resumeText: string): Promise<string[]>
 
     const model = getModel();
     if (!model) {
-      console.log('Using mock questions due to missing API key');
+      console.log('Using fallback questions due to missing API key');
       return getDefaultQuestions();
     }
 
@@ -75,18 +91,19 @@ export const initializeInterview = async (resumeText: string): Promise<string[]>
       const questions = JSON.parse(jsonString);
       
       if (Array.isArray(questions) && questions.length > 0) {
+        console.log("Gemini successfully generated questions:", questions.length);
         return questions;
       } else {
-        console.error("Invalid questions format:", questions);
-        return getDefaultQuestions();
+        console.error("Invalid questions format from Gemini:", questions);
+        return getFallbackQuestions();
       }
     } catch (parseError) {
-      console.error("Error parsing questions:", parseError);
-      return getDefaultQuestions();
+      console.error("Error parsing questions from Gemini:", parseError);
+      return getFallbackQuestions();
     }
   } catch (error) {
     console.error("Error initializing interview with Gemini:", error);
-    return getDefaultQuestions();
+    return getFallbackQuestions();
   }
 };
 
@@ -310,14 +327,27 @@ export const generateResultsAnalysis = async (): Promise<any> => {
 };
 
 /**
+ * Fallback questions that combine resume-based and algorithm questions
+ */
+const getFallbackQuestions = (): string[] => {
+  return [
+    "Tell me about your most recent project mentioned in your resume.",
+    "What is your greatest technical accomplishment?",
+    "Implement a function to find the most frequent element in an array. What is the time and space complexity of your solution?",
+    "Describe a technical challenge you faced and how you overcame it.",
+    "Design an algorithm to find if a given string is a palindrome after removing at most one character. What would be the time complexity?"
+  ];
+};
+
+/**
  * Default questions in case Gemini fails
  */
 const getDefaultQuestions = (): string[] => {
   return [
-    "Can you tell me about your experience with React and how you've used it in your projects?",
-    "What's your approach to handling state management in large applications?",
-    "How do you ensure your code is maintainable and scalable?",
-    "Can you describe a challenging technical problem you've solved recently?",
-    "How do you stay updated with the latest developments in web technologies?"
+    "Tell me about your most recent project mentioned in your resume.",
+    "What is your greatest technical accomplishment?",
+    "Implement a function to find the most frequent element in an array. What is the time and space complexity of your solution?",
+    "Describe a technical challenge you faced and how you overcame it.",
+    "Design an algorithm to find if a given string is a palindrome after removing at most one character. What would be the time complexity?"
   ];
 };

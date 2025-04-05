@@ -341,7 +341,7 @@ const Interview = () => {
                 const resumeFile = new File([blob], fileName, { type: fileType });
                 
                 resumeText = await extractTextFromPDF(resumeFile);
-                console.log("Successfully extracted resume text");
+                console.log("Successfully extracted resume text from URL");
               } catch (pdfError) {
                 console.error('Error extracting text from PDF:', pdfError);
                 resumeText = "Unable to extract text from resume. Proceeding with general interview.";
@@ -355,11 +355,18 @@ const Interview = () => {
             resumeText = "Unable to access resume. Proceeding with general interview.";
           }
         } else {
-          console.log('No resume URL available');
-          resumeText = "No resume provided. Proceeding with general interview.";
+          // Check if we have locally stored resume text from PDF upload
+          const localResumeText = localStorage.getItem('resumeText');
+          if (localResumeText) {
+            console.log('Using locally stored resume text, length:', localResumeText.length);
+            resumeText = localResumeText;
+          } else {
+            console.log('No resume available');
+            resumeText = "No resume provided. Proceeding with general interview.";
+          }
         }
         
-        console.log("Resume text length:", resumeText.length);
+        console.log("Resume text length for interview:", resumeText.length);
         
         // Initialize the interview with resume data
         const generatedQuestions = await initializeInterview(resumeText);
@@ -1415,29 +1422,32 @@ const Interview = () => {
         ? `
           The candidate has just introduced themselves: "${answer}"
           
-          Acknowledge their introduction briefly (1 sentence) and then ask the first technical question.
-          Be professional and direct. Don't provide any feedback on their introduction.
+          You are a technical interviewer with a no-nonsense, direct personality.
+          
+          Acknowledge their introduction with 1 brief sentence only. Do not say "thank you" or use overly polite language.
+          Then immediately ask the first technical question. Be direct, professional, and slightly intimidating.
           `
         : `
-          You are an AI technical interviewer conducting a serious job interview.
+          You are a technical interviewer with high standards and a critical eye for detail.
           
           Candidate's answer: "${answer}"
           
           Provide a very brief response (1 sentence maximum) that:
-          1. Acknowledges their answer without detailed feedback
-          2. Is professional and direct
-          3. Only corrects them if they're technically incorrect
+          1. Is direct and blunt - don't be afraid to be judgmental if warranted
+          2. Points out technical inaccuracies without sugarcoating
+          3. Never says "thank you" or uses phrases like "that's interesting"
+          4. Has a distinct personality that's challenging but fair
           
-          Your response should mimic a serious technical interviewer who is evaluating their knowledge.
-          Avoid generic phrases and focus on technical accuracy.
-          `;
+          Your tone should be that of a senior engineer who doesn't waste time with niceties.
+          Be critical when the candidate's answer lacks technical depth.
+          `
       
       // Create messages array that includes recent conversation history for context
       const recentMessages = conversationHistory.slice(-4); // Last 4 messages for context
       const messagesForAPI = [
         { 
           role: "system", 
-          content: "You are an AI technical interviewer conducting a serious job interview. Be concise, professional, and technically focused." 
+          content: "You are a technical interviewer with high standards and a direct personality. You never use phrases like 'thank you', 'that's great', or similar polite but empty phrases." 
         },
         ...recentMessages,
         { role: "user", content: prompt }
@@ -1453,7 +1463,7 @@ const Interview = () => {
           },
           body: JSON.stringify({
             messages: messagesForAPI,
-            temperature: 0.7,
+            temperature: 0.8, // Slightly higher temperature for more personality
             max_tokens: isIntroduction ? 150 : 60
           }),
         }
@@ -1480,41 +1490,50 @@ const Interview = () => {
       return aiResponse;
     } catch (error) {
       console.error("Error processing answer:", error);
-      return "I see. Let's continue.";
+      return "Moving on.";
     }
   };
 
-  // Update the initializeInterview function to generate fewer questions
+  // Update the initializeInterview function to generate better algorithm questions
   const initializeInterview = async (resumeText: string): Promise<string[]> => {
     try {
       // Get the Azure OpenAI API key from environment variables
       const azureOpenAIKey = import.meta.env.VITE_APP_AZURE_OPENAI_API_KEY;
+      
+      if (!azureOpenAIKey) {
+        throw new Error("Azure OpenAI API key is missing");
+      }
       
       // Get interview configuration from localStorage or use defaults
       const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
       const questionCount = interviewConfig.questionCount || 7;
       const difficultyLevel = interviewConfig.difficultyLevel || 'medium';
       
+      // Log the resume text length to verify it's being passed correctly
+      console.log("Resume text for question generation, length:", resumeText?.length);
+      
       // Create a system prompt that focuses on serious technical questions with configured options
       const systemPrompt = `
-        You are an AI technical interviewer conducting a professional job interview.
+        You are a technical interviewer with high standards and a critical, direct personality.
         
         IMPORTANT: The interview will start with you asking the candidate to introduce themselves.
-        Wait for their introduction before asking technical questions.
         
-        Based on the candidate's resume below, generate ${questionCount} ${difficultyLevel} level technical interview questions.
+        Based on the candidate's resume below, generate ${questionCount} specific interview questions:
         
-        Difficulty level: ${difficultyLevel.toUpperCase()}
+        1. 60% of questions should directly reference the candidate's experience, skills, and past projects mentioned in their resume:
+           - Reference specific projects, technologies, or skills mentioned in the resume
+           - Focus on challenging technical aspects and implementation details
+           - Ask about design decisions, optimizations, or technical tradeoffs they made
+           - Be specific and critical - dig into the real technical depth
         
-        Include a mix of:
-        - Technical knowledge questions specific to their skills/experience
-        - ${difficultyLevel === 'easy' ? 'Basic' : difficultyLevel === 'medium' ? 'Intermediate' : 'Advanced'} algorithmic problems ${difficultyLevel !== 'easy' ? 'with time/space complexity considerations' : ''}
-        - ${difficultyLevel === 'easy' ? 'Simple' : difficultyLevel === 'medium' ? 'Moderate' : 'Complex'} system design questions
-        - Problem-solving scenarios
-        - Questions about past projects and experiences
+        2. 40% of questions should be algorithm and data structure questions:
+           - Present clear problem statements in algorithm/pseudocode format (NOT actual code)
+           - Include questions about time/space complexity analysis
+           - Cover a range of topics: arrays, linked lists, trees, graphs, dynamic programming, etc.
+           - For each algorithm question, focus on the approach and complexity analysis, not implementation details
+           - Tailor difficulty to the setting: ${difficultyLevel.toUpperCase()}
         
-        Make questions industry-level, ${difficultyLevel} difficulty, and specific - not generic.
-        Focus on fundamentals (Big-O, data structures) and applied problems.
+        IMPORTANT: Do NOT ask generic questions. Make all questions targeted and specific.
         
         Resume:
         ${resumeText}
@@ -1533,10 +1552,10 @@ const Interview = () => {
           body: JSON.stringify({
             messages: [
               { role: "system", content: systemPrompt },
-              { role: "user", content: "Generate challenging technical interview questions based on this resume." }
+              { role: "user", content: "Generate challenging technical interview questions based on this resume with algorithm and data structure questions included." }
             ],
             temperature: 0.7,
-            max_tokens: 1000
+            max_tokens: 1500
           }),
         }
       );
@@ -1558,6 +1577,7 @@ const Interview = () => {
         const questions = JSON.parse(jsonString);
         
         if (Array.isArray(questions) && questions.length > 0) {
+          console.log("Successfully generated questions:", questions.length);
           return questions;
         } else {
           throw new Error("Invalid questions format");
@@ -1568,10 +1588,22 @@ const Interview = () => {
       }
     } catch (error) {
       console.error("Error generating interview questions:", error);
+      
+      // Fallback algorithm and technical questions
+      const fallbackQuestions = [
+        "Tell me about your most challenging technical project.",
+        "Describe an algorithm to find the kth largest element in an unsorted array and analyze its time complexity.",
+        "How would you implement a balanced binary search tree and what are the time complexity guarantees?",
+        "Explain how you would design a system to handle high throughput data processing.",
+        "Describe an approach to detect a cycle in a linked list. What's the space and time complexity?",
+        "How would you implement a least recently used (LRU) cache? Explain the data structures involved.",
+        "What's the most efficient algorithm to find the shortest path in a weighted graph and why?"
+      ];
+      
       // Get interview configuration from localStorage or use defaults
       const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
       const configQuestionCount = interviewConfig.questionCount || 7;
-      return getMockQuestions().slice(0, configQuestionCount); // Return configured number of mock questions
+      return fallbackQuestions.slice(0, configQuestionCount);
     }
   };
 
@@ -1689,7 +1721,7 @@ const Interview = () => {
     console.log("Stored answer with emotions:", { question, answer, emotions: emotionsToStore.length });
   };
 
-  // Update the generateNextQuestion function to prevent randomly moving to next question without user input
+  // Update the generateNextQuestion function to limit follow-ups and be more direct
   const generateNextQuestion = async (): Promise<string> => {
     try {
       // Get the Azure OpenAI API key from environment variables
@@ -1699,72 +1731,71 @@ const Interview = () => {
       const newFollowUpCount = followUpCount + 1;
       setFollowUpCount(newFollowUpCount);
       
-      // Only consider moving to the next main question if the user has answered at least once
-      // and we've asked enough follow-ups (removed random factor)
+      // Strict limit to follow-up questions - maximum of 2
       const shouldMoveToNextMainQuestion = userHasAnswered && newFollowUpCount >= 2;
-      
-      let prompt;
       
       if (shouldMoveToNextMainQuestion && currentQuestion < questions.length - 1) {
         // We want to move to the next main question
-        // Instead of generating a transition phrase with the next question,
-        // just return a simple transition phrase
-        return "Let's move on to the next question.";
+        return "Let's move on.";
       } else {
-        // Generate a follow-up to the current question
-        prompt = `
-          You are an AI technical interviewer.
+        // Generate a more direct, critical follow-up
+        const prompt = `
+          You are a technical interviewer with high standards and a critical eye.
           
-          Based on the conversation so far, generate a follow-up question related to the current topic.
+          Based on the conversation so far, generate a follow-up question that:
+          1. Is specific, technical, and challenging
+          2. Probes deeper into the technical aspects of their answer
+          3. Is concise (1 sentence maximum)
+          4. Has a direct, slightly confrontational tone
+          5. Questions their assumptions or implementation details
           
-          Make your question specific, technical, and challenging. Keep it concise (1-2 sentences).
+          Your goal is to test if they really understand the topic or are just repeating buzzwords.
+          Don't waste time with pleasantries - get straight to the technical question.
           
-          IMPORTANT: Do NOT include phrases like "let's move on to the next question" unless the candidate has fully addressed the topic.
+          IMPORTANT: Never include phrases like "thank you", "that's interesting", or similar empty statements.
         `;
-      }
-      
-      // Create messages array that includes recent conversation history for context
-      const recentMessages = conversationHistory.slice(-6);
-      const messagesForAPI = [
-        { 
-          role: "system", 
-          content: "You are an AI technical interviewer. Keep responses concise and focused." 
-        },
-        ...recentMessages,
-        { role: "user", content: prompt }
-      ];
-      
-      const response = await fetch(
-        `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'api-key': azureOpenAIKey,
+        
+        // Create messages array that includes recent conversation history for context
+        const recentMessages = conversationHistory.slice(-6);
+        const messagesForAPI = [
+          { 
+            role: "system", 
+            content: "You are a technical interviewer with high standards. Keep responses concise, challenging, and direct." 
           },
-          body: JSON.stringify({
-            messages: messagesForAPI,
-            temperature: 0.7,
-            max_tokens: 150
-          }),
+          ...recentMessages,
+          { role: "user", content: prompt }
+        ];
+        
+        const response = await fetch(
+          `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'api-key': azureOpenAIKey,
+            },
+            body: JSON.stringify({
+              messages: messagesForAPI,
+              temperature: 0.8,
+              max_tokens: 100
+            }),
+          }
+        );
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("Azure OpenAI API error:", errorText);
+          throw new Error(`Failed to generate next question: ${response.status}`);
         }
-      );
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Azure OpenAI API error:", errorText);
-        throw new Error(`Failed to generate next question: ${response.status}`);
+        
+        const result = await response.json();
+        const nextQuestion = result.choices[0].message.content.trim();
+        
+        return nextQuestion;
       }
-      
-      const result = await response.json();
-      const nextQuestion = result.choices[0].message.content.trim();
-      
-      return nextQuestion;
     } catch (error) {
       console.error("Error generating next question:", error);
-      
-      // Fallback to a simple follow-up question - never randomly move to next question
-      return "Could you elaborate more on that point?";
+      return "Explain that in more technical detail.";
     }
   };
 
