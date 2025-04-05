@@ -501,20 +501,15 @@ const Interview = () => {
         audioChunks.push(e.data);
       };
       
-      // Set up interval to capture emotions during recording
-      let emotionCaptureInterval: NodeJS.Timeout | null = null;
-      
+      // Capture emotions once at the start of recording if camera is on
       if (isCameraOn && videoRef.current) {
-        // Capture emotions every 3 seconds during recording
-        emotionCaptureInterval = setInterval(() => {
-          captureAndAnalyzeFrame();
-        }, 3000);
+        captureAndAnalyzeFrame();
       }
       
       recorder.onstop = async () => {
-        // Clear the emotion capture interval
-        if (emotionCaptureInterval) {
-          clearInterval(emotionCaptureInterval);
+        // Capture emotions once more after recording is complete
+        if (isCameraOn && videoRef.current) {
+          await captureAndAnalyzeFrame();
         }
         
         try {
@@ -1086,12 +1081,11 @@ const Interview = () => {
         setIsCameraOn(true);
         setHasVideoPermission(true);
         
-        // Start the analysis interval (every 5 seconds)
-        const interval = setInterval(() => {
-          captureAndAnalyzeFrame();
-        }, 5000);
+        // Initial emotion capture when camera starts
+        captureAndAnalyzeFrame();
         
-        setCaptureInterval(interval);
+        // We're removing the interval-based approach as requested
+        // and will only capture emotions when needed
       } catch (err) {
         setHasVideoPermission(false);
         setCameraError('Could not access camera. Please check permissions.');
@@ -1117,6 +1111,11 @@ const Interview = () => {
 
   const handleSendMessage = async () => {
     if (!userInput.trim() || isThinking || isSpeaking) return;
+    
+    // Capture emotions if camera is on before processing the message
+    if (isCameraOn && videoRef.current) {
+      await captureAndAnalyzeFrame();
+    }
     
     // Add user message
     const userMessage: Message = {
@@ -1402,7 +1401,7 @@ const Interview = () => {
   // Determine if send button should be disabled
   const isSendDisabled = !userInput.trim() || isThinking || isSpeaking;
 
-  // Update the processUserAnswer function to handle the introduction specially
+  // Update the processUserAnswer function to include emotions in the prompt
   const processUserAnswer = async (answer: string): Promise<string> => {
     try {
       // Get the Azure OpenAI API key from environment variables
@@ -1417,10 +1416,27 @@ const Interview = () => {
       // Store answer with emotions for results page
       storeAnswerWithEmotions(currentQuestionText, answer, currentEmotions);
       
+      // Format emotions data for the prompt
+      let emotionsText = "";
+      if (currentEmotions && currentEmotions.length > 0) {
+        // Sort emotions by score in descending order and take top 3
+        const topEmotions = [...currentEmotions]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3);
+          
+        emotionsText = topEmotions
+          .map(e => `${e.name}: ${(e.score * 100).toFixed(0)}%`)
+          .join(", ");
+      } else {
+        emotionsText = "No emotional data available";
+      }
+      
       // If this is the introduction, use a special prompt
       const prompt = isIntroduction 
         ? `
           The candidate has just introduced themselves: "${answer}"
+          
+          Detected emotions: ${emotionsText}
           
           You are a technical interviewer with a no-nonsense, direct personality.
           
@@ -1432,12 +1448,21 @@ const Interview = () => {
           
           Candidate's answer: "${answer}"
           
-          Provide a very brief response (1 sentence maximum) that:
+          Detected emotions: ${emotionsText}
+          
+          Provide a response that:
           1. Is direct and blunt - don't be afraid to be judgmental if warranted
           2. Points out technical inaccuracies without sugarcoating
           3. Never says "thank you" or uses phrases like "that's interesting"
           4. Has a distinct personality that's challenging but fair
           
+          IMPORTANTLY, briefly address their emotional state if relevant:
+          - If they show confusion (score > 40%), add a brief clarification before moving on
+          - If they show concentration (score > 60%), acknowledge their focus
+          - If they show uncertainty (score > 40%), be more critical
+          - If they show confidence (score > 60%), challenge them further
+          
+          Keep your response concise (2 sentences maximum). End with a question if not moving to the next topic.
           Your tone should be that of a senior engineer who doesn't waste time with niceties.
           Be critical when the candidate's answer lacks technical depth.
           `
@@ -1447,7 +1472,7 @@ const Interview = () => {
       const messagesForAPI = [
         { 
           role: "system", 
-          content: "You are a technical interviewer with high standards and a direct personality. You never use phrases like 'thank you', 'that's great', or similar polite but empty phrases." 
+          content: `You are a technical interviewer with high standards and a direct personality. You never use phrases like 'thank you', 'that's great', or similar polite but empty phrases. You can respond to the candidate's emotional state based on the data provided.` 
         },
         ...recentMessages,
         { role: "user", content: prompt }
@@ -1464,7 +1489,7 @@ const Interview = () => {
           body: JSON.stringify({
             messages: messagesForAPI,
             temperature: 0.8, // Slightly higher temperature for more personality
-            max_tokens: isIntroduction ? 150 : 60
+            max_tokens: isIntroduction ? 150 : 80 // Increased max tokens to allow for emotion response
           }),
         }
       );
@@ -1721,7 +1746,7 @@ const Interview = () => {
     console.log("Stored answer with emotions:", { question, answer, emotions: emotionsToStore.length });
   };
 
-  // Update the generateNextQuestion function to limit follow-ups and be more direct
+  // Update the generateNextQuestion function to include emotions
   const generateNextQuestion = async (): Promise<string> => {
     try {
       // Get the Azure OpenAI API key from environment variables
@@ -1738,7 +1763,22 @@ const Interview = () => {
         // We want to move to the next main question
         return "Let's move on.";
       } else {
-        // Generate a more direct, critical follow-up
+        // Format emotions data for the prompt
+        let emotionsText = "";
+        if (currentEmotions && currentEmotions.length > 0) {
+          // Sort emotions by score in descending order and take top 3
+          const topEmotions = [...currentEmotions]
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 3);
+            
+          emotionsText = topEmotions
+            .map(e => `${e.name}: ${(e.score * 100).toFixed(0)}%`)
+            .join(", ");
+        } else {
+          emotionsText = "No emotional data available";
+        }
+        
+        // Generate a more direct, critical follow-up with emotion awareness
         const prompt = `
           You are a technical interviewer with high standards and a critical eye.
           
@@ -1749,10 +1789,16 @@ const Interview = () => {
           4. Has a direct, slightly confrontational tone
           5. Questions their assumptions or implementation details
           
+          The candidate's current emotional state: ${emotionsText}
+          
+          Adapt your question based on their emotions:
+          - If they show confusion (score > 40%), simplify the question but remain challenging
+          - If they show concentration (score > 60%), increase the technical difficulty
+          - If they show uncertainty (score > 40%), focus on fundamentals
+          - If they show confidence (score > 60%), ask for more implementation details
+          
           Your goal is to test if they really understand the topic or are just repeating buzzwords.
           Don't waste time with pleasantries - get straight to the technical question.
-          
-          IMPORTANT: Never include phrases like "thank you", "that's interesting", or similar empty statements.
         `;
         
         // Create messages array that includes recent conversation history for context
