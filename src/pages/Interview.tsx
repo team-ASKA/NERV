@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Mic, MicOff, Camera, CameraOff, Volume2, VolumeX, 
   Loader2, Send, User, Bot, MessageSquare, Brain, 
-  Menu, Edit, LogOut, Linkedin, Globe, X, FileText, ArrowLeft
+  Menu, Edit, LogOut, Linkedin, Globe, X, FileText, ArrowLeft, Download, ChevronLeft, ChevronRight, ArrowRight
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { FaVideo } from 'react-icons/fa';
@@ -13,6 +13,7 @@ import { auth, db, storage } from '../lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { extractTextFromPDF } from '../services/pdfService';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
   id: string;
@@ -56,6 +57,101 @@ const pulseStyle = `
 const AZURE_OPENAI_ENDPOINT = "https://kushal43.openai.azure.com";
 const AZURE_OPENAI_DEPLOYMENT = "gpt-4";
 const AZURE_OPENAI_API_VERSION = "2025-01-01-preview";
+
+// Mock questions for fallback
+const mockQuestions: Question[] = [
+  {
+    id: 1,
+    text: "Can you tell me about your experience and skills?",
+    isAsked: true
+  },
+  {
+    id: 2,
+    text: "What are your greatest strengths and weaknesses?",
+    isAsked: false
+  },
+  {
+    id: 3,
+    text: "Where do you see yourself in 5 years?",
+    isAsked: false
+  },
+  {
+    id: 4,
+    text: "Why should we hire you?",
+    isAsked: false
+  },
+  {
+    id: 5,
+    text: "Tell me about a challenging project you worked on.",
+    isAsked: false
+  }
+];
+
+// Update the speakResponse function to handle sequential TTS
+const speakResponse = async (text: string) => {
+  try {
+    // Get the Azure TTS API key from environment variables
+    const ttsApiKey = import.meta.env.VITE_APP_AZURE_TTS_API_KEY || '';
+    const endpoint = "https://kusha-m8t3pks8-swedencentral.cognitiveservices.azure.com";
+    const deploymentName = "tts";
+    
+    console.log("Converting text to speech...");
+    
+    // Ensure we have text to convert
+    if (!text || text.trim() === '') {
+      console.error("Empty text provided for TTS");
+      return;
+    }
+    
+    // Prepare the request payload
+    const payload = {
+      model: "tts-1",
+      input: text,
+      voice: "nova"
+    };
+    
+    // Make the API request
+    const response = await fetch(
+      `${endpoint}/openai/deployments/${deploymentName}/audio/speech?api-version=2024-05-01-preview`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': ttsApiKey,
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Azure TTS API error:", errorText);
+      throw new Error(`Failed to convert text to speech: ${response.status}`);
+    }
+    
+    // Get the audio data
+    const audioBlob = await response.blob();
+    
+    // Create an audio element and play it
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const audio = new Audio(audioUrl);
+    
+    // Return a promise that resolves when the audio finishes playing
+    return new Promise<void>((resolve) => {
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        resolve();
+      };
+      audio.play().catch(error => {
+        console.error("Error playing audio:", error);
+        resolve();
+      });
+    });
+  } catch (error) {
+    console.error("Error in speakResponse:", error);
+    return Promise.resolve();
+  }
+};
 
 const Interview = () => {
   const { currentUser } = useAuth();
@@ -102,13 +198,27 @@ const Interview = () => {
     import.meta.env.VITE_APP_AZURE_TTS_API_KEY || ''
   );
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [userDetails, setUserDetails] = useState<any>(null);
+  const [userDetails, setUserDetails] = useState<{
+    name: string;
+    email: string;
+    resumeURL: string | null;
+    resumeName: string | null;
+    linkedinURL: string | null;
+    portfolioURL: string | null;
+  }>({
+    name: '',
+    email: '',
+    resumeURL: null,
+    resumeName: null,
+    linkedinURL: null,
+    portfolioURL: null
+  });
   const [isInitialized, setIsInitialized] = useState(false);
   const [currentEmotions, setCurrentEmotions] = useState<any[]>([]);
   const [interviewIntroduction, setInterviewIntroduction] = useState<string>(
     "Hello! I'm your NERV interviewer today. Let's begin our technical interview."
   );
-  const [conversationHistory, setConversationHistory] = useState<Array<{role: string, content: string}>>([
+  const [conversationHistory, setConversationHistory] = useState<{ role: string; content: string }[]>([
     { role: "system", content: "You are NERV, an AI technical interviewer conducting a job interview." }
   ]);
   const [followUpCount, setFollowUpCount] = useState<number>(0);
@@ -1093,10 +1203,30 @@ const Interview = () => {
             idx === nextQuestionIndex ? { ...q, isAsked: true } : q
           )
         );
+        
+        // Add the actual next question
+        const nextQuestionText = questions[nextQuestionIndex].text;
+        const actualQuestionMsg: Message = {
+          id: Date.now().toString() + '-actual-question',
+          text: nextQuestionText,
+          sender: 'ai',
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, actualQuestionMsg]);
+        
+        // Update conversation history with the actual next question
+        setConversationHistory(prev => [
+          ...prev,
+          { role: "assistant", content: nextQuestionText }
+        ]);
+        
+        // Speak the next question
+        await speakResponse(nextQuestionText);
+      } else {
+        // Speak the follow-up question
+        await speakResponse(nextQuestion);
       }
-      
-      // Speak the next question
-      await speakResponse(nextQuestion);
       
       // After both messages are spoken, set the interview state back to idle
       setInterviewState('idle');
@@ -1164,255 +1294,6 @@ const Interview = () => {
   
   // Determine if send button should be disabled
   const isSendDisabled = !userInput.trim() || isThinking || isSpeaking;
-
-  // Update the speakResponse function to handle sequential TTS
-  const speakResponse = async (text: string) => {
-    try {
-      setIsSpeaking(true);
-      
-      // Get the Azure TTS API key from environment variables
-      const ttsApiKey = import.meta.env.VITE_APP_AZURE_TTS_API_KEY || '';
-      const endpoint = "https://kusha-m8t3pks8-swedencentral.cognitiveservices.azure.com";
-      const deploymentName = "tts";
-      
-      console.log("Converting text to speech...");
-      
-      // Ensure we have text to convert
-      if (!text || text.trim() === '') {
-        console.error("Empty text provided for TTS");
-        setIsSpeaking(false);
-        return;
-      }
-      
-      // Prepare the request payload
-      const payload = {
-        model: "tts-1",
-        input: text,
-        voice: "nova"
-      };
-      
-      // Make the API request
-      const response = await fetch(
-        `${endpoint}/openai/deployments/${deploymentName}/audio/speech?api-version=2024-05-01-preview`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'api-key': ttsApiKey,
-          },
-          body: JSON.stringify(payload),
-        }
-      );
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Text-to-speech error response:", errorText);
-        throw new Error(`Text-to-speech failed: ${response.status}`);
-      }
-      
-      // Get the audio blob
-      const audioBlob = await response.blob();
-      
-      // Create a URL for the audio blob
-      const audioUrl = URL.createObjectURL(audioBlob);
-      
-      // Play the audio
-      if (audioRef.current) {
-        audioRef.current.src = audioUrl;
-        
-        // Return a promise that resolves when the audio finishes playing
-        return new Promise((resolve) => {
-          if (audioRef.current) {
-            // Set up event handlers before setting src to avoid race conditions
-            audioRef.current.onended = () => {
-              setIsSpeaking(false);
-              URL.revokeObjectURL(audioUrl);
-              resolve(true);
-            };
-            
-            audioRef.current.onerror = () => {
-              console.error("Audio playback error");
-              setIsSpeaking(false);
-              URL.revokeObjectURL(audioUrl);
-              resolve(false);
-            };
-            
-            // Handle play() promise properly
-            audioRef.current.oncanplaythrough = () => {
-              if (audioRef.current) {
-                audioRef.current.play()
-                  .then(() => {
-                    // Play started successfully, will resolve via onended
-                  })
-                  .catch(error => {
-                    console.error("Error playing audio:", error);
-                    setIsSpeaking(false);
-                    URL.revokeObjectURL(audioUrl);
-                    resolve(false);
-                  });
-              }
-            };
-          } else {
-            setIsSpeaking(false);
-            URL.revokeObjectURL(audioUrl);
-            resolve(false);
-          }
-        });
-      } else {
-        setIsSpeaking(false);
-        return Promise.resolve(false);
-      }
-      
-    } catch (error) {
-      console.error('Text-to-speech error:', error);
-      setIsSpeaking(false);
-      return Promise.resolve(false);
-    }
-  };
-
-  const toggleMenu = () => {
-    setIsMenuOpen(!isMenuOpen);
-  };
-
-  useEffect(() => {
-    const fetchUserDetails = async () => {
-      try {
-        // Get current user
-        const user = auth.currentUser;
-        
-        if (!user) {
-          console.log('No user logged in');
-          return;
-        }
-        
-        // Get user document from Firestore
-        const userDocRef = doc(db, 'users', user.uid);
-        const userDoc = await getDoc(userDocRef);
-        
-        if (!userDoc.exists()) {
-          console.log('User document not found');
-          return;
-        }
-        
-        const userData = userDoc.data();
-        
-        // Get resume download URL if resumePath exists
-        let resumeURL = null;
-        let resumeName = null;
-        
-        if (userData.resumePath) {
-          try {
-            const resumeRef = ref(storage, userData.resumePath);
-            resumeURL = await getDownloadURL(resumeRef);
-            // Extract filename from path
-            resumeName = userData.resumePath.split('/').pop();
-          } catch (error) {
-            console.error('Error getting resume URL:', error);
-          }
-        }
-        
-        // Set user details with all available information
-        setUserDetails({
-          name: userData.name || user.displayName || 'User',
-          email: user.email || 'No email provided',
-          resumeURL,
-          resumeName,
-          linkedinURL: userData.linkedinURL || null,
-          portfolioURL: userData.portfolioURL || null,
-          // Add any other fields you need
-        });
-        
-      } catch (error) {
-        console.error('Error fetching user details:', error);
-      }
-    };
-
-    fetchUserDetails();
-  }, []);
-
-  // Initialize the interview with the user's resume
-  useEffect(() => {
-    const initializeWithResume = async () => {
-      if (!currentUser || isInitialized) return;
-      
-      try {
-        setIsThinking(true);
-        
-        let resumeText = '';
-        
-        // Try to get the user's resume
-        if (userDetails?.resumeURL) {
-          try {
-            // Fetch the resume file
-            const response = await fetch(userDetails.resumeURL);
-            const blob = await response.blob();
-            const file = new File([blob], userDetails.resumeName || 'resume.pdf', { type: 'application/pdf' });
-            
-            // Extract text from the PDF
-            resumeText = await extractTextFromPDF(file);
-          } catch (error) {
-            console.error('Error processing resume:', error);
-            resumeText = 'Unable to process resume. Using default questions.';
-          }
-        } else {
-          resumeText = 'No resume provided. Using default questions.';
-        }
-        
-        // Initialize the interview with GPT-4
-        const generatedQuestions = await initializeInterview(resumeText);
-        
-        // Format the questions
-        const formattedQuestions: Question[] = generatedQuestions.map((text, index) => ({
-          id: index + 1,
-          text,
-          isAsked: index === 0 // Mark the first question as asked
-        }));
-        
-        setQuestions(formattedQuestions);
-        setCurrentQuestion(0);
-        
-        // Add initial AI messages
-        setMessages([
-          {
-            id: '1',
-            text: "Hello! I'm your NERV interviewer today. Let's start with the first question.",
-            sender: 'ai',
-            timestamp: new Date()
-          },
-          {
-            id: '2',
-            text: formattedQuestions[0].text,
-            sender: 'ai',
-            timestamp: new Date()
-          }
-        ]);
-        
-        // Start TTS for the introduction and first question
-        setIsSpeaking(true);
-        setInterviewState('ai-speaking');
-        
-        await speakResponse("Hello! I'm your NERV interviewer today. Let's start with the first question.");
-        await speakResponse(formattedQuestions[0].text);
-        
-        setIsSpeaking(false);
-        setInterviewState('idle');
-        setIsUserTurn(true);
-        setIsInitialized(true);
-        
-      } catch (error) {
-        console.error('Error initializing interview:', error);
-        
-        // Fall back to mock questions if there's an error
-        setQuestions(mockQuestions);
-        setIsInitialized(true);
-        
-      } finally {
-        setIsThinking(false);
-      }
-    };
-    
-    initializeWithResume();
-  }, [currentUser, userDetails, isInitialized]);
 
   // Update the processUserAnswer function to handle the introduction specially
   const processUserAnswer = async (answer: string): Promise<string> => {
@@ -1700,16 +1581,9 @@ const Interview = () => {
       
       if (shouldMoveToNextMainQuestion && currentQuestion < questions.length - 1) {
         // We want to move to the next main question
-        prompt = `
-          You are an AI technical interviewer.
-          
-          Based on the conversation so far, we need to move to the next main question.
-          
-          Create a brief transition phrase (1 sentence) that includes words like "next question" or "move on", 
-          followed by the next question: "${questions[currentQuestion + 1].text}"
-          
-          Example: "Let's move on to the next question. [Insert question here]"
-        `;
+        // Instead of generating a transition phrase with the next question,
+        // just return a simple transition phrase
+        return "Let's move on to the next question.";
       } else {
         // Generate a follow-up to the current question
         prompt = `
@@ -1724,7 +1598,7 @@ const Interview = () => {
       }
       
       // Create messages array that includes recent conversation history for context
-      const recentMessages = conversationHistory.slice(-6); // Last 6 messages for context
+      const recentMessages = conversationHistory.slice(-6);
       const messagesForAPI = [
         { 
           role: "system", 
@@ -1765,7 +1639,7 @@ const Interview = () => {
       
       // Fallback to a simple follow-up or next question
       if (currentQuestion < questions.length - 1 && Math.random() < 0.5) {
-        return `Let's move on to the next question. ${questions[currentQuestion + 1].text}`;
+        return "Let's move on to the next question.";
       } else {
         return "Could you elaborate more on that point?";
       }
@@ -1979,7 +1853,7 @@ const Interview = () => {
               </div>
               {/* Hamburger Menu Button */}
               <button
-                onClick={toggleMenu}
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
                 className="p-2 rounded-full hover:bg-white/10 transition-colors"
                 aria-label="Open menu"
               >
@@ -1999,7 +1873,7 @@ const Interview = () => {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 className="fixed inset-0 z-40"
-                onClick={toggleMenu}
+                onClick={() => setIsMenuOpen(false)}
               >
                 {/* This creates a gradient that only blurs the right side of the screen */}
                 <div className="h-full w-full bg-gradient-to-r from-black/30 to-black/70 backdrop-blur-[2px]">
@@ -2020,7 +1894,7 @@ const Interview = () => {
                   <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-bold">Menu</h2>
                     <button
-                      onClick={toggleMenu}
+                      onClick={() => setIsMenuOpen(false)}
                       className="p-1 rounded-full hover:bg-white/10 transition-colors"
                       aria-label="Close menu"
                     >
