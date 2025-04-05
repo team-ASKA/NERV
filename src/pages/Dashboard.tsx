@@ -92,7 +92,17 @@ const Dashboard = () => {
       try {
         const storedHistory = localStorage.getItem('interviewHistory');
         if (storedHistory) {
-          const parsedHistory = JSON.parse(storedHistory);
+          let parsedHistory = JSON.parse(storedHistory);
+          
+          // Ensure all interviews have the expected structure
+          parsedHistory = parsedHistory.map((interview: any) => ({
+            id: interview.id || Date.now().toString(),
+            summary: interview.summary || "",
+            emotionsData: Array.isArray(interview.emotionsData) ? interview.emotionsData : [],
+            transcriptions: Array.isArray(interview.transcriptions) ? interview.transcriptions : [],
+            timestamp: interview.timestamp || new Date().toISOString()
+          }));
+          
           // Sort by timestamp, newest first
           parsedHistory.sort((a: any, b: any) => 
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
@@ -1028,7 +1038,7 @@ const Dashboard = () => {
                             </h3>
                             
                             <p className="text-gray-400 text-sm line-clamp-2">
-                              {interview.summary.split('\n')[0] || "Interview completed"}
+                              {interview.summary ? interview.summary.split('\n')[0] : "Interview completed"}
                             </p>
                             
                             <div className="mt-3 flex items-center text-blue-400 text-xs">
