@@ -2118,39 +2118,94 @@ const Interview = () => {
           />
         </div>
 
-        {/* Interview header - fixed */}
-        <div className="bg-black/80 py-4 px-6 border-b border-white/20 sticky top-0 z-10 backdrop-blur-sm">
-          <div className="max-w-6xl mx-auto flex justify-between items-center">
-            <div>
-              <h1 className="text-xl font-semibold">Technical Interview</h1>
-              <p className="text-sm text-gray-400">Question {currentQuestion + 1} of {questions.length}</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={toggleSpeech}
-                className={`p-2 rounded-full ${
-                  isSpeaking ? 'bg-white text-black' : 'bg-black/50 text-gray-400 border border-white/30'
-                }`}
-                disabled={isRecording || isThinking}
-              >
-                {isSpeaking ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-              </button>
-              <div className="md:hidden">
+        {/* Interview header - adjusted height and theme-matched */}
+        <div className="bg-black/80 py-3 px-6 border-b border-white/20 sticky top-0 z-10 backdrop-blur-sm shadow-md">
+          <div className="max-w-6xl mx-auto">
+            <div className="flex justify-between items-center">
+              {/* Left side with title and progress */}
+              <div className="flex items-center gap-3">
+                {/* Logo/badge */}
+                <div className="hidden md:flex h-9 w-9 rounded-full bg-white/5 border border-white/10 items-center justify-center">
+                  <Bot className="h-5 w-5 text-white/70" />
+                </div>
+                
+                {/* Title and progress */}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-xl font-semibold text-white">Technical Interview</h1>
+                    <span className="hidden md:flex px-1.5 py-0.5 text-xs bg-white/10 text-white/70 rounded-full border border-white/10">
+                      LIVE
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-3 mt-0.5">
+                    <div className="flex items-center">
+                      <div className="w-1 h-1 rounded-full bg-green-400 mr-1.5 animate-pulse"></div>
+                      <p className="text-xs text-gray-400">Q{currentQuestion + 1}/{questions.length}</p>
+                    </div>
+                    
+                    {/* Compact progress bar */}
+                    <div className="w-24 bg-black/50 rounded-full h-1 overflow-hidden">
+                      <div className="bg-white h-1 rounded-full" 
+                        style={{ width: `${progress}%` }}>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Right side with action buttons */}
+              <div className="flex items-center gap-2">
+                {/* Interview status indicator */}
+                <div className="hidden md:block">
+                  {isThinking ? (
+                    <span className="flex items-center px-2 py-0.5 text-xs bg-white/5 text-gray-300 rounded border border-white/10">
+                      <Brain className="h-3 w-3 mr-1 animate-pulse" />
+                      Thinking
+                    </span>
+                  ) : isSpeaking ? (
+                    <span className="flex items-center px-2 py-0.5 text-xs bg-white/5 text-gray-300 rounded border border-white/10">
+                      <Volume2 className="h-3 w-3 mr-1 animate-pulse" />
+                      Speaking
+                    </span>
+                  ) : isRecording ? (
+                    <span className="flex items-center px-2 py-0.5 text-xs bg-red-500/20 text-red-300 rounded border border-red-500/20">
+                      <Mic className="h-3 w-3 mr-1 animate-pulse" />
+                      Recording
+                    </span>
+                  ) : null}
+                </div>
+                
                 <button
-                  onClick={() => setViewMode(viewMode === 'camera' ? 'chat' : 'camera')}
-                  className="p-2 rounded-full bg-white text-black"
+                  onClick={toggleSpeech}
+                  className={`p-2 rounded-full flex items-center justify-center ${
+                    isSpeaking 
+                      ? 'bg-white text-black' 
+                      : 'bg-black/50 text-gray-400 border border-white/30 hover:bg-black/70'
+                  }`}
+                  disabled={isRecording || isThinking}
                 >
-                  {viewMode === 'camera' ? <MessageSquare className="h-5 w-5" /> : <Camera className="h-5 w-5" />}
+                  {isSpeaking ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                </button>
+                
+                <div className="md:hidden">
+                  <button
+                    onClick={() => setViewMode(viewMode === 'camera' ? 'chat' : 'camera')}
+                    className="p-2 rounded-full bg-white text-black"
+                  >
+                    {viewMode === 'camera' ? <MessageSquare className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+                  </button>
+                </div>
+                
+                {/* Hamburger Menu Button */}
+                <button
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                  aria-label="Open menu"
+                >
+                  <Menu className="h-5 w-5" />
                 </button>
               </div>
-              {/* Hamburger Menu Button */}
-              <button
-                onClick={() => setIsMenuOpen(!isMenuOpen)}
-                className="p-2 rounded-full hover:bg-white/10 transition-colors"
-                aria-label="Open menu"
-              >
-                <Menu className="h-5 w-5" />
-              </button>
             </div>
           </div>
         </div>
@@ -2256,14 +2311,6 @@ const Interview = () => {
                     </button>
                     
                     <button
-                      onClick={handleEndInterview}
-                      className="w-full flex items-center gap-2 p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-left"
-                    >
-                      <ArrowRight className="h-4 w-4" />
-                      <span>End Interview & Get Feedback</span>
-                    </button>
-                    
-                    <button
                       onClick={() => navigate('/profile')}
                       className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors text-left"
                     >
@@ -2291,57 +2338,102 @@ const Interview = () => {
             <div className="flex flex-col md:flex-row h-full gap-4">
               {/* AI Avatar Section */}
               <div className="md:w-1/4 md:h-full hidden md:block">
-                <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg">
-                  <div className="p-4 border-b border-white/20 bg-white/10 rounded-t-xl">
-                    <h2 className="font-medium">NERV Interviewer</h2>
+                <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg overflow-hidden">
+                  <div className="p-4 border-b border-white/20 bg-black/40 rounded-t-xl">
+                    <div className="flex items-center justify-between">
+                      <h2 className="font-medium text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 font-bold">NERV OS v2.4</h2>
+                      <div className="flex gap-1">
+                        <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
+                        <div className="w-2 h-2 rounded-full bg-blue-400"></div>
+                      </div>
+                    </div>
                   </div>
                   
-                  <div className="flex-1 flex flex-col items-center justify-center p-6">
-                    <div className="w-32 h-32 bg-gradient-to-br from-white/20 to-white/5 rounded-full flex items-center justify-center mb-6 border border-white/10">
-                      <Bot className="h-16 w-16 text-white/80" />
+                  <div className="flex-1 flex flex-col items-center justify-start p-6 relative">
+                    {/* Background decorative elements */}
+                    <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
+                      <div className="absolute top-10 left-4 w-32 h-32 border border-white/20 rounded-full"></div>
+                      <div className="absolute bottom-20 right-4 w-24 h-24 border border-white/20 rounded-full"></div>
+                      <div className="absolute top-40 right-6 w-16 h-16 border border-blue-500/30 rounded-full"></div>
+                      <div className="absolute top-1/2 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+                    </div>
+                    
+                    <div className="w-32 h-32 bg-gradient-to-br from-blue-900/50 to-purple-900/50 rounded-full flex items-center justify-center mb-6 border border-white/20 relative shadow-lg">
+                      <div className="absolute inset-0 rounded-full bg-black/50 backdrop-blur-sm"></div>
+                      <Bot className="h-16 w-16 text-white/80 relative z-10" />
+                      <div className="absolute inset-0 rounded-full border-2 border-white/5"></div>
+                      <div className="absolute -top-1 -right-1 w-6 h-6 bg-green-500/80 rounded-full flex items-center justify-center">
+                        <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                      </div>
+                    </div>
+                    
+                    <div className="text-center mb-4 relative">
+                      <h3 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-300">
+                        Technical Interviewer
+                      </h3>
+                      <p className="text-xs text-white/60">Advanced AI Evaluation System</p>
                     </div>
                     
                     {isThinking ? (
-                      <div className="text-center">
-                        <div className="flex items-center justify-center gap-2 mb-3">
-                          <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                          <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                          <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                      <div className="text-center bg-black/20 px-4 py-3 rounded-lg w-full border border-white/10 backdrop-blur-sm">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                         </div>
-                        <p className="text-gray-400">Thinking...</p>
+                        <p className="text-blue-300/80 text-sm font-medium">Processing Response...</p>
                       </div>
                     ) : isSpeaking ? (
-                      <div className="relative">
-                        <div className="absolute inset-0 bg-white/5 rounded-full animate-ping opacity-75"></div>
-                        <div className="relative bg-white/10 p-3 rounded-full">
-                          <Volume2 className="h-6 w-6 text-white" />
+                      <div className="text-center bg-black/20 px-4 py-3 rounded-lg w-full border border-white/10 backdrop-blur-sm">
+                        <div className="relative mb-2 flex justify-center">
+                          <div className="absolute inset-0 bg-blue-500/20 rounded-full animate-ping opacity-75"></div>
+                          <div className="relative bg-blue-500/30 p-3 rounded-full">
+                            <Volume2 className="h-6 w-6 text-blue-300" />
+                          </div>
                         </div>
-                        <p className="text-center mt-3 text-gray-400">Speaking...</p>
+                        <p className="text-blue-300/80 text-sm font-medium">Voice Output Active</p>
                       </div>
                     ) : (
-                      <div className="text-center">
-                        <p className="text-gray-400">
-                          {isUserTurn ? "Waiting for your response..." : "Listening..."}
+                      <div className="text-center bg-black/20 px-4 py-3 rounded-lg w-full border border-white/10 backdrop-blur-sm">
+                        <div className="mb-2 flex justify-center">
+                          <div className="bg-white/10 p-3 rounded-full">
+                            <User className="h-6 w-6 text-white/60" />
+                          </div>
+                        </div>
+                        <p className="text-blue-300/80 text-sm font-medium">
+                          {isUserTurn ? "Awaiting Your Input..." : "Input Processing..."}
                         </p>
                       </div>
                     )}
                     
-                    <div className="mt-8 space-y-3 w-full">
-                      <div className="bg-white/5 p-3 rounded-lg">
-                        <p className="text-xs text-gray-400 mb-1">Current Topic</p>
-                        <p className="text-sm">{questions && questions[currentQuestion] ? questions[currentQuestion].text.length > 60 ? 
-                          questions[currentQuestion].text.substring(0, 60) + '...' : 
-                          questions[currentQuestion].text : "Loading question..."}
-                        </p>
+                    <div className="mt-6 space-y-4 w-full">
+                      <div className="bg-black/30 p-4 rounded-lg border border-white/10 backdrop-blur-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-medium text-blue-300/90 uppercase tracking-wider">Current Topic</p>
+                          <div className="h-4 w-4 rounded-full bg-blue-500/30 flex items-center justify-center">
+                            <div className="h-1.5 w-1.5 rounded-full bg-blue-400"></div>
+                          </div>
+                        </div>
+                        <div className="relative">
+                          <p className="text-sm text-white/90">{questions && questions[currentQuestion] ? questions[currentQuestion].text.length > 60 ? 
+                            questions[currentQuestion].text.substring(0, 60) + '...' : 
+                            questions[currentQuestion].text : "Loading question..."}
+                          </p>
+                        </div>
                       </div>
                       
-                      <div className="bg-white/5 p-3 rounded-lg">
-                        <p className="text-xs text-gray-400 mb-1">Interview Progress</p>
-                        <div className="w-full bg-black/50 rounded-full h-2.5">
-                          <div className="bg-white h-2.5 rounded-full" style={{ width: `${progress}%` }}></div>
+                      <div className="bg-black/30 p-4 rounded-lg border border-white/10 backdrop-blur-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-medium text-blue-300/90 uppercase tracking-wider">Progress</p>
+                          <p className="text-xs text-white/60 font-mono">
+                            {currentQuestion + 1}/{questions.length}
+                          </p>
                         </div>
-                        <p className="text-xs text-right mt-1 text-gray-400">
-                          {currentQuestion + 1} of {questions.length} questions
+                        <div className="w-full bg-black/50 rounded-full h-2 overflow-hidden p-0.5">
+                          <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-1 rounded-full" style={{ width: `${progress}%` }}></div>
+                        </div>
+                        <p className="text-xs text-right mt-2 text-white/50 font-mono">
+                          {progress.toFixed(0)}% complete
                         </p>
                       </div>
                     </div>
@@ -2351,19 +2443,37 @@ const Interview = () => {
               
               {/* AI chat section - scrollable content */}
               <div className={`md:w-2/4 h-full md:block ${viewMode === 'camera' ? 'hidden' : 'block'}`}>
-                <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg">
-                  <div className="p-4 border-b border-white/20 flex-shrink-0 bg-white/10 rounded-t-xl">
-                    <div className="flex items-center">
-                      <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center mr-2">
-                        <Bot className="h-4 w-4 text-white" />
+                <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg overflow-hidden">
+                  <div className="p-4 border-b border-white/20 flex-shrink-0 bg-black/40 rounded-t-xl">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <div className="w-9 h-9 rounded-full bg-black/50 border border-white/20 flex items-center justify-center mr-3">
+                          <Bot className="h-5 w-5 text-white/80" />
+                        </div>
+                        <div>
+                          <h2 className="font-medium text-white">
+                            NERV Interviewer
+                          </h2>
+                          <p className="text-xs text-white/50">Interview session active</p>
+                        </div>
                       </div>
-                      <h2 className="font-medium">NERV Interviewer</h2>
+                      <div className="flex gap-1">
+                        <div className="w-2 h-2 rounded-full bg-green-500/80"></div>
+                      </div>
                     </div>
                   </div>
                   
                   {/* This div is scrollable */}
-                  <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-                    <div className="space-y-6">
+                  <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent relative">
+                    {/* Background decorative elements */}
+                    <div className="absolute top-0 left-0 w-full h-full opacity-5 pointer-events-none">
+                      <div className="absolute top-20 right-10 w-40 h-40 border border-white/20 rounded-full"></div>
+                      <div className="absolute bottom-40 left-10 w-32 h-32 border border-white/20 rounded-full"></div>
+                      <div className="absolute top-1/3 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+                      <div className="absolute bottom-1/3 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+                    </div>
+                    
+                    <div className="space-y-6 relative z-10">
                       {messages.map((message, index) => (
                         <div
                           key={message.id}
@@ -2371,23 +2481,27 @@ const Interview = () => {
                           ref={index === messages.length - 1 ? lastMessageRef : null}
                         >
                           <div
-                            className={`max-w-[80%] rounded-lg p-3 ${
+                            className={`max-w-[80%] rounded-lg p-3 backdrop-blur-sm ${
                               message.sender === 'user'
-                                ? 'bg-blue-600 text-white rounded-br-none'
-                                : 'bg-white/10 text-white rounded-bl-none'
+                                ? 'bg-blue-600/90 text-white rounded-br-none border border-blue-500/50'
+                                : 'bg-black/40 text-white rounded-bl-none border border-white/10'
                             }`}
                           >
                             <div className="flex items-start">
                               <div className="flex-shrink-0 mr-2">
                                 {message.sender === 'user' ? (
-                                  <User className="h-5 w-5 text-white/70" />
+                                  <div className="w-5 h-5 rounded-full bg-blue-500/30 flex items-center justify-center">
+                                    <User className="h-3 w-3 text-white/90" />
+                                  </div>
                                 ) : (
-                                  <Bot className="h-5 w-5 text-white/70" />
+                                  <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center">
+                                    <Bot className="h-3 w-3 text-white/90" />
+                                  </div>
                                 )}
                               </div>
                               <div>
                                 <p className="text-sm whitespace-pre-wrap">{message.text}</p>
-                                <p className="text-xs text-white/50 mt-1">
+                                <p className="text-xs text-white/50 mt-1 font-mono">
                                   {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </p>
                               </div>
@@ -2398,17 +2512,17 @@ const Interview = () => {
                       
                       {isThinking && (
                         <div className="flex justify-start">
-                          <div className="bg-white/5 text-white rounded-2xl rounded-tl-none p-4 max-w-[80%]">
+                          <div className="bg-black/30 text-white rounded-xl rounded-tl-none p-4 max-w-[80%] border border-white/10 backdrop-blur-sm">
                             <div className="flex items-center mb-2">
-                              <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center mr-2">
-                                <Bot className="h-3 w-3" />
+                              <div className="w-6 h-6 rounded-full bg-black/50 flex items-center justify-center mr-2 border border-white/10">
+                                <Bot className="h-3 w-3 text-white/80" />
                               </div>
-                              <span className="text-sm font-medium">NERV Interview chat</span>
+                              <span className="text-sm font-medium text-blue-300/90">NERV System</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                              <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                              <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                              <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                             </div>
                           </div>
                         </div>
@@ -2416,12 +2530,12 @@ const Interview = () => {
                       
                       {isRecording && (
                         <div className="flex justify-end">
-                          <div className="bg-white/10 text-white rounded-2xl rounded-tr-none p-4 max-w-[80%]">
+                          <div className="bg-black/30 text-white rounded-xl rounded-tr-none p-4 max-w-[80%] border border-white/10 backdrop-blur-sm">
                             <div className="flex items-center mb-2">
-                              <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center mr-2">
-                                <User className="h-3 w-3" />
+                              <div className="w-6 h-6 rounded-full bg-black/50 flex items-center justify-center mr-2 border border-white/10">
+                                <User className="h-3 w-3 text-white/80" />
                               </div>
-                              <span className="text-sm font-medium">You</span>
+                              <span className="text-sm font-medium text-white/90">You</span>
                               <div className="ml-2 flex items-center">
                                 <div className="w-2 h-2 rounded-full bg-red-500 mr-1 animate-pulse"></div>
                                 <span className="text-xs text-red-400">Recording</span>
@@ -2435,23 +2549,23 @@ const Interview = () => {
                       )}
                       
                       {isTranscribing && !isThinking && !isSpeaking && (
-                        <div className="flex items-center justify-center gap-2 text-sm text-gray-400 mt-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Transcribing...</span>
+                        <div className="flex items-center justify-center gap-2 text-sm text-blue-300/80 mt-2 bg-black/20 py-1 px-3 rounded-full border border-white/5 w-fit mx-auto backdrop-blur-sm">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span className="text-xs">Transcribing</span>
                         </div>
                       )}
                       
                       {isThinking && !isTranscribing && !isSpeaking && (
-                        <div className="flex items-center justify-center gap-2 text-sm text-gray-400 mt-2">
-                          <Brain className="h-4 w-4 animate-pulse" />
-                          <span>Thinking...</span>
+                        <div className="flex items-center justify-center gap-2 text-sm text-blue-300/80 mt-2 bg-black/20 py-1 px-3 rounded-full border border-white/5 w-fit mx-auto backdrop-blur-sm">
+                          <Brain className="h-3 w-3 animate-pulse" />
+                          <span className="text-xs">Processing</span>
                         </div>
                       )}
                       
                       {isSpeaking && !isTranscribing && !isThinking && (
-                        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-blue-500 text-white px-4 py-2 rounded-full text-sm z-50 flex items-center gap-2">
+                        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-blue-500/70 text-white px-4 py-2 rounded-full text-sm z-50 flex items-center gap-2 border border-blue-400/30 backdrop-blur-sm">
                           <Volume2 className="h-4 w-4 animate-pulse" />
-                          <span>Speaking...</span>
+                          <span>Voice Output</span>
                         </div>
                       )}
                       
@@ -2460,35 +2574,25 @@ const Interview = () => {
                   </div>
                   
                   {/* Input area - fixed at bottom */}
-                  <div className="p-4 border-t border-white/20 flex-shrink-0 bg-white/5">
-                    <div className="mb-3">
-                      <button
-                        onClick={handleEndInterview}
-                        className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors flex items-center justify-center"
-                      >
-                        <ArrowRight className="h-4 w-4 mr-2" />
-                        End Interview & Get Detailed Feedback
-                      </button>
-                    </div>
-                    
+                  <div className="p-4 border-t border-white/10 flex-shrink-0 bg-black/40 backdrop-blur-sm">
                     <div className="flex items-center gap-2">
                       <button
                         onClick={toggleRecording}
                         disabled={isRecordingDisabled || isTranscribing}
-                        className={`p-4 rounded-full flex items-center justify-center transition-all ${
+                        className={`p-4 rounded-full flex items-center justify-center transition-all border ${
                           isRecording 
-                            ? 'bg-red-500 text-white pulsate-recording' 
+                            ? 'bg-red-500/80 text-white border-red-400/50 pulsate-recording' 
                             : isTranscribing
-                              ? 'bg-blue-500 text-white'
+                              ? 'bg-blue-500/40 text-white border-blue-400/30'
                               : isRecordingDisabled
-                                ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                                : 'bg-white text-black hover:bg-white/80'
+                                ? 'bg-black/60 text-gray-400 border-white/5 cursor-not-allowed'
+                                : 'bg-black/60 text-white/90 border-white/10 hover:bg-black/80'
                         }`}
                         style={{ minWidth: '48px', minHeight: '48px' }}
                       >
-                        {isRecording ? <MicOff className="h-6 w-6" /> : 
-                         isTranscribing ? <Loader2 className="h-6 w-6 animate-spin" /> : 
-                         <Mic className="h-6 w-6" />}
+                        {isRecording ? <MicOff className="h-5 w-5" /> : 
+                         isTranscribing ? <Loader2 className="h-5 w-5 animate-spin" /> : 
+                         <Mic className="h-5 w-5" />}
                       </button>
                       
                       <div className="flex-1 relative">
@@ -2505,13 +2609,13 @@ const Interview = () => {
                             "Type your response..."
                           }
                           disabled={isRecording || isSpeaking || isThinking || isTranscribing}
-                          className="w-full py-3 px-4 bg-black/30 border border-white/10 rounded-lg focus:ring-2 focus:ring-white/30 focus:outline-none pr-12"
+                          className="w-full py-3 px-4 bg-black/40 border border-white/10 rounded-lg focus:ring-1 focus:ring-blue-400/50 focus:outline-none pr-12 text-white/90 placeholder:text-white/30"
                         />
                         <button
                           onClick={() => handleSendMessage()}
                           disabled={isSendDisabled}
                           className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-2 ${
-                            isSendDisabled ? 'text-gray-600 cursor-not-allowed' : 'text-white hover:text-white/80'
+                            isSendDisabled ? 'text-gray-600 cursor-not-allowed' : 'text-blue-400 hover:text-blue-300'
                           }`}
                         >
                           <Send className="h-5 w-5" />
@@ -2524,14 +2628,19 @@ const Interview = () => {
               
               {/* User video section */}
               <div className={`md:w-1/4 md:h-full md:block ${viewMode === 'chat' ? 'hidden' : 'block'}`}>
-                <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg">
-                  <div className="p-4 border-b border-white/20 flex justify-between items-center bg-white/10 rounded-t-xl">
-                    <h2 className="font-medium">Your Camera</h2>
+                <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg overflow-hidden">
+                  <div className="p-4 border-b border-white/20 flex justify-between items-center bg-black/40 rounded-t-xl">
+                    <div className="flex items-center">
+                      <h2 className="font-medium text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-green-300 font-bold">Feed Monitor</h2>
+                    </div>
                     <div className="flex gap-2">
+                      <div className="h-4 w-4 rounded-full flex items-center justify-center bg-black/50 border border-white/20">
+                        <div className={`h-2 w-2 rounded-full ${isCameraOn ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                      </div>
                       <button
                         onClick={toggleCamera}
                         className={`p-2 rounded-full ${
-                          isCameraOn ? 'bg-white/20 text-white' : 'bg-black/50 text-gray-400 border border-white/30'
+                          isCameraOn ? 'bg-black/40 text-white border border-white/20' : 'bg-black/40 text-gray-400 border border-white/10'
                         }`}
                       >
                         {isCameraOn ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
@@ -2540,6 +2649,13 @@ const Interview = () => {
                   </div>
                   
                   <div className="relative flex-1 flex items-center justify-center bg-black/50 rounded-b-xl overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
+                      <div className="absolute top-10 right-4 w-24 h-24 border border-white/20 rounded-full"></div>
+                      <div className="absolute bottom-10 left-4 w-16 h-16 border border-white/20 rounded-full"></div>
+                      <div className="absolute top-1/3 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+                      <div className="absolute bottom-1/3 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+                    </div>
+                    
                     <div className="relative w-full h-full">
                       {isCameraOn ? (
                         <>
