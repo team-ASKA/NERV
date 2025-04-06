@@ -275,3 +275,63 @@ async def get_next_question(interview_input: InterviewInput, request: Request):
 ```
 
 ## Project Structure
+
+nerv-ai-interview/
+├── public/ # Static assets
+├── src/
+│ ├── components/ # Reusable UI components
+│ ├── contexts/ # React contexts (Auth, etc.)
+│ ├── pages/ # Main application pages
+│ │ ├── Dashboard.tsx
+│ │ ├── Interview.tsx
+│ │ ├── Results.tsx
+│ │ └── ...
+│ ├── services/ # API and service integrations
+│ ├── utils/ # Utility functions
+│ ├── App.tsx # Main application component
+│ └── main.tsx # Application entry point
+├── .env # Environment variables
+├── package.json # Dependencies and scripts
+├── vercel.json # Vercel deployment configuration
+└── README.md # Project documentation
+```
+
+## Usage
+
+1. **Sign Up/Login**: Create an account or log in to access the system
+2. **Upload Resume**: Upload your resume for personalized interview questions
+3. **Start Interview**: Begin the AI-driven interview process
+4. **Answer Questions**: Respond to questions verbally while the system analyzes your responses
+5. **Review Results**: Get detailed feedback on your performance, including emotional analysis
+
+## Technologies Used
+
+- **Frontend**: React, TypeScript, TailwindCSS
+- **AI Services**: 
+  - Azure OpenAI (GPT-4o for question generation)
+  - Azure Speech Services (Text-to-Speech)
+  - Azure Embeddings (text-embedding-ada-002)
+  - Hume AI (emotion recognition)
+- **Vector Database**: FAISS (Facebook AI Similarity Search)
+- **Authentication**: Firebase Authentication
+- **Storage**: Firebase Storage
+- **Deployment**: Vercel (frontend-only deployment)
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Azure OpenAI for providing the language model capabilities
+- Hume AI for emotion recognition technology
+- Firebase for authentication and storage solutions
+- LangChain for RAG implementation framework
