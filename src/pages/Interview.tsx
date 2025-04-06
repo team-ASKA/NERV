@@ -223,7 +223,7 @@ const Interview = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasVideoPermission, setHasVideoPermission] = useState(false);
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
-  const [viewMode, setViewMode] = useState<'camera' | 'chat'>('camera');
+  const [viewMode, setViewMode] = useState<'chat' | 'camera'>('chat');
   const [transcription, setTranscription] = useState('');
   const [isUserTurn, setIsUserTurn] = useState(false);
   const [interviewState, setInterviewState] = useState<'idle' | 'ai-speaking' | 'ai-thinking' | 'user-speaking'>('idle');
@@ -2335,6 +2335,28 @@ const Interview = () => {
         {/* Main content area - flex-1 to take remaining height */}
         <div className="flex-1 overflow-hidden">
           <div className="h-full max-w-6xl mx-auto p-4">
+            {/* Mobile view mode selector - new addition */}
+            <div className="flex md:hidden mb-4 gap-2">
+              <button
+                onClick={() => setViewMode('chat')}
+                className={`flex-1 py-2 px-4 rounded-lg flex items-center justify-center gap-2 ${
+                  viewMode === 'chat' ? 'bg-blue-600/70 text-white' : 'bg-black/40 text-white/70 border border-white/10'
+                }`}
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span>Chat</span>
+              </button>
+              <button
+                onClick={() => setViewMode('camera')}
+                className={`flex-1 py-2 px-4 rounded-lg flex items-center justify-center gap-2 ${
+                  viewMode === 'camera' ? 'bg-blue-600/70 text-white' : 'bg-black/40 text-white/70 border border-white/10'
+                }`}
+              >
+                <Camera className="h-4 w-4" />
+                <span>Camera</span>
+              </button>
+            </div>
+            
             <div className="flex flex-col md:flex-row h-full gap-4">
               {/* AI Avatar Section */}
               <div className="md:w-1/4 md:h-full hidden md:block">
@@ -2627,7 +2649,7 @@ const Interview = () => {
               </div>
               
               {/* User video section */}
-              <div className={`md:w-1/4 md:h-full md:block ${viewMode === 'chat' ? 'hidden' : 'block'}`}>
+              <div className={`md:w-1/4 md:h-full md:block ${viewMode === 'chat' ? 'hidden md:block' : 'block'}`}>
                 <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg overflow-hidden">
                   <div className="p-4 border-b border-white/20 flex justify-between items-center bg-black/40 rounded-t-xl">
                     <div className="flex items-center">
