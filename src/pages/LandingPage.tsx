@@ -68,7 +68,7 @@ const LandingPage = () => {
     <div className="relative">
       {/* Spline component as the main interactive element with responsive handling */}
       <div className="h-screen w-full overflow-hidden">
-        <div className="scale-105 md:block hidden">
+        <div className="scale-[1.30] md:block hidden">
           <Spline />
         </div>
         <div className="md:hidden flex flex-col items-center justify-center h-full px-4 bg-black">
