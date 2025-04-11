@@ -1,9 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Mic, MicOff, Camera, CameraOff, Volume2, VolumeX, 
-  Loader2, Send, User, Bot, MessageSquare, Brain, 
+import {
+  Mic, MicOff, Camera, CameraOff, Volume2, VolumeX,
+  Loader2, Send, User, Bot, MessageSquare, Brain,
   Menu, Edit, LogOut, Linkedin, Globe, X, FileText, ArrowLeft, Download, ChevronLeft, ChevronRight, ArrowRight
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -122,38 +122,38 @@ if (typeof window !== 'undefined') {
 const speakResponse = async (text: string) => {
   // Add debug logging to track speech requests
   console.log("Speech requested for text:", text.substring(0, 30) + "...");
-  
+
   // Global variable to track if audio is currently playing
   if (window.audioPlaying) {
     console.log("Another audio is already playing, skipping this request");
     return;
   }
-  
+
   try {
     // Set global flag to prevent concurrent speech
     window.audioPlaying = true;
-    
+
     // Get the Azure TTS API key from environment variables
     const ttsApiKey = import.meta.env.VITE_APP_AZURE_TTS_API_KEY || '';
     const endpoint = "https://kusha-m8t3pks8-swedencentral.cognitiveservices.azure.com";
     const deploymentName = "tts";
-    
+
     console.log("Converting text to speech...");
-    
+
     // Ensure we have text to convert
     if (!text || text.trim() === '') {
       console.error("Empty text provided for TTS");
       window.audioPlaying = false;
       return;
     }
-    
+
     // Prepare the request payload
     const payload = {
       model: "tts-1",
       input: text,
       voice: "nova"
     };
-    
+
     // Make the API request
     const response = await fetch(
       `${endpoint}/openai/deployments/${deploymentName}/audio/speech?api-version=2024-05-01-preview`,
@@ -166,21 +166,21 @@ const speakResponse = async (text: string) => {
         body: JSON.stringify(payload),
       }
     );
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Azure TTS API error:", errorText);
       window.audioPlaying = false;
       throw new Error(`Failed to convert text to speech: ${response.status}`);
     }
-    
+
     // Get the audio data
     const audioBlob = await response.blob();
-    
+
     // Create an audio element and play it
     const audioUrl = URL.createObjectURL(audioBlob);
     const audio = new Audio(audioUrl);
-    
+
     // Return a promise that resolves when the audio finishes playing
     return new Promise<void>((resolve) => {
       audio.onended = () => {
@@ -277,10 +277,10 @@ const Interview = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Create a Hume client instance
-  const humeClient = useMemo(() => 
+  const humeClient = useMemo(() =>
     new HumeClient({
       apiKey: humeApiKey,
-    }), 
+    }),
     [humeApiKey]
   );
 
@@ -300,27 +300,27 @@ const Interview = () => {
         navigate('/login');
         return;
       }
-      
+
       // Set loading state to true at the beginning
       setIsLoading(true);
-      
+
       // Clear previous interview data from localStorage
       localStorage.removeItem('interviewData');
       localStorage.removeItem('currentEmotions');
-      
+
       try {
         // Get user document from Firestore
         const userDocRef = doc(db, 'users', currentUser.uid);
         const userDoc = await getDoc(userDocRef);
-        
+
         if (!userDoc.exists()) {
           console.log('User document not found');
           return;
         }
-        
+
         const userData = userDoc.data();
         let resumeText = "No resume available.";
-        
+
         // Try to get resume content if available
         if (userData.resumeURL) {
           try {
@@ -329,9 +329,9 @@ const Interview = () => {
             if (!response.ok) {
               throw new Error(`Failed to fetch resume: ${response.status}`);
             }
-            
+
             const blob: Blob = await response.blob();
-            
+
             // Check if blob is valid before processing
             if (blob && blob.size > 0) {
               try {
@@ -339,7 +339,7 @@ const Interview = () => {
                 const fileName = "resume.pdf"; // Default name
                 const fileType = "application/pdf";
                 const resumeFile = new File([blob], fileName, { type: fileType });
-                
+
                 resumeText = await extractTextFromPDF(resumeFile);
                 console.log("Successfully extracted resume text from URL");
               } catch (pdfError) {
@@ -365,29 +365,29 @@ const Interview = () => {
             resumeText = "No resume provided. Proceeding with general interview.";
           }
         }
-        
+
         console.log("Resume text length for interview:", resumeText.length);
-        
+
         // Initialize the interview with resume data
         const generatedQuestions = await initializeInterview(resumeText);
-        
+
         // Set the questions
         setQuestions(generatedQuestions.map((text, index) => ({
           id: index + 1,
           text,
           isAsked: index === 0 // Only mark the first question as asked initially
         })));
-        
+
         // Create a more personalized introduction
         const personalizedIntro = `Hello! I'm your NERV technical interviewer today. Please introduce yourself briefly, and then we'll discuss your experience and skills.`;
-        
+
         // Start the interview with AI speaking the introduction
         setInterviewState('ai-speaking');
         setIsSpeaking(true);
-        
+
         // Generate unique IDs for messages
         const introId = Date.now().toString();
-        
+
         // Add initial AI message - just the introduction
         const initialMessages = [
           {
@@ -397,38 +397,38 @@ const Interview = () => {
             timestamp: new Date()
           }
         ];
-        
+
         setMessages(initialMessages);
-        
+
         // Update conversation history for context
         setConversationHistory(prev => [
           ...prev,
           { role: "assistant", content: personalizedIntro }
         ]);
-        
+
         // Turn off loading state before speaking
         setIsLoading(false);
-        
+
         // Speak the introduction only if it hasn't been spoken already
         if (!introductionSpoken) {
           setIntroductionSpoken(true);
           await speakResponse(personalizedIntro);
         }
-        
+
         // After introduction, set the interview state to idle to let user respond
         setIsSpeaking(false);
         setInterviewState('idle');
         setIsUserTurn(true);
-        
+
       } catch (error) {
         console.error('Error starting interview:', error);
-        
+
         // Even on error, we should turn off loading and show something
         setIsLoading(false);
-        
+
         // Minimal fallback with just an introduction
         const defaultIntro = "Hello! I'm your NERV interviewer today. Please introduce yourself, and we'll begin our technical interview.";
-        
+
         setMessages([
           {
             id: '1',
@@ -437,17 +437,17 @@ const Interview = () => {
             timestamp: new Date()
           }
         ]);
-        
+
         // Update conversation history
         setConversationHistory(prev => [
           ...prev,
           { role: "assistant", content: defaultIntro }
         ]);
-        
+
         // Set the speaking state
         setIsSpeaking(true);
         setInterviewState('ai-speaking');
-        
+
         // Speak the introduction only if it hasn't been spoken already
         if (!introductionSpoken) {
           setIntroductionSpoken(true);
@@ -476,10 +476,10 @@ const Interview = () => {
   // Add this function to check if text contains keywords indicating moving to next question
   const shouldMoveToNextQuestion = (text: string): boolean => {
     const nextQuestionKeywords = [
-      'next question', 'next topic', 'move on', 'let\'s continue', 
+      'next question', 'next topic', 'move on', 'let\'s continue',
       'proceed to', 'go to the next', 'following question'
     ];
-    
+
     const lowerText = text.toLowerCase();
     return nextQuestionKeywords.some(keyword => lowerText.includes(keyword));
   };
@@ -489,44 +489,44 @@ const Interview = () => {
       setIsRecording(true);
       setInterviewState('user-speaking');
       setTranscriptionError(null);
-      
+
       // Clear any previous transcription display
       setTranscription('');
-      
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
       const audioChunks: BlobPart[] = [];
-      
+
       recorder.ondataavailable = (e) => {
         audioChunks.push(e.data);
       };
-      
+
       // Capture emotions once at the start of recording if camera is on
       if (isCameraOn && videoRef.current) {
         captureAndAnalyzeFrame();
       }
-      
+
       recorder.onstop = async () => {
         // Capture emotions once more after recording is complete
         if (isCameraOn && videoRef.current) {
           await captureAndAnalyzeFrame();
         }
-        
+
         try {
           setIsTranscribing(true);
           setIsRecording(false);
-          
+
           const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
           const formData = new FormData();
           formData.append('file', audioBlob, 'recording.webm');
-          
+
           // Get the Azure API key from environment variables
           const azureApiKey = import.meta.env.VITE_APP_AZURE_API_KEY;
           const endpoint = "https://kusha-m8fgqe1k-eastus2.cognitiveservices.azure.com";
           const deploymentName = "whisper";
-          
+
           console.log("Sending transcription request to Azure Whisper API...");
-          
+
           // Send to Azure for transcription
           const response = await fetch(
             `${endpoint}/openai/deployments/${deploymentName}/audio/transcriptions?api-version=2023-09-01-preview`,
@@ -538,21 +538,21 @@ const Interview = () => {
               body: formData
             }
           );
-          
+
           if (!response.ok) {
             const errorText = await response.text();
             console.error("Azure API error response:", errorText);
             throw new Error(`Transcription failed: ${response.status} ${response.statusText}`);
           }
-          
+
           const result = await response.json();
           console.log("Transcription result:", result);
-          
+
           // Azure Whisper returns text in the 'text' field
           if (result.text) {
             const transcribedText = result.text;
             setTranscription(transcribedText);
-            
+
             // Add user message to chat
             const userMessage: Message = {
               id: Date.now().toString(),
@@ -560,29 +560,29 @@ const Interview = () => {
               sender: 'user',
               timestamp: new Date()
             };
-            
+
             // Update messages state with the new user message
             setMessages(prev => [...prev, userMessage]);
-            
+
             // Update conversation history with user's message
             setConversationHistory(prev => [
               ...prev,
               { role: "user", content: transcribedText }
             ]);
-            
+
             // Mark that the user has answered the current question
             setUserHasAnswered(true);
-            
+
             // Get current question text and store answer with emotions
             const currentQuestionText = questions[currentQuestion]?.text || "Unknown question";
             storeAnswerWithEmotions(currentQuestionText, transcribedText, currentEmotions);
-            
+
             // Check if user wants to move to next question
             const userWantsNextQuestion = shouldMoveToNextQuestion(transcribedText);
-            
+
             setIsThinking(true);
             setInterviewState('ai-thinking');
-            
+
             try {
               // If user wants to move to next question and we're not at the last question
               if (userWantsNextQuestion && currentQuestion < questions.length - 1) {
@@ -590,21 +590,21 @@ const Interview = () => {
                 setCurrentQuestion(nextQuestionIndex);
                 setFollowUpCount(0);
                 setUserHasAnswered(false); // Reset user answer flag for new question
-                
+
                 // Mark the next question as asked
-                setQuestions(prevQuestions => 
-                  prevQuestions.map((q, idx) => 
+                setQuestions(prevQuestions =>
+                  prevQuestions.map((q, idx) =>
                     idx === nextQuestionIndex ? { ...q, isAsked: true } : q
                   )
                 );
-                
+
                 setIsThinking(false);
                 setIsSpeaking(true);
                 setInterviewState('ai-speaking');
-                
+
                 const transitionMessage = "Let's move on to the next question.";
                 const nextQuestionText = questions[nextQuestionIndex].text;
-                
+
                 // Add transition and question messages
                 const transitionMsg: Message = {
                   id: Date.now().toString() + '-transition',
@@ -612,42 +612,42 @@ const Interview = () => {
                   sender: 'ai',
                   timestamp: new Date()
                 };
-                
+
                 const questionMsg: Message = {
                   id: Date.now().toString() + '-question',
                   text: nextQuestionText,
                   sender: 'ai',
                   timestamp: new Date(Date.now() + 100)
                 };
-                
+
                 setMessages(prev => [...prev, transitionMsg, questionMsg]);
-                
+
                 // Update conversation history
                 setConversationHistory(prev => [
                   ...prev,
                   { role: "assistant", content: transitionMessage },
                   { role: "assistant", content: nextQuestionText }
                 ]);
-                
+
                 // Speak the transition and question
                 await speakResponse(transitionMessage);
                 await speakResponse(nextQuestionText);
-                
+
                 setIsSpeaking(false);
                 setInterviewState('idle');
                 setIsUserTurn(true);
-                
+
                 return;
               }
-              
+
               // Process the user's answer with GPT to get a contextual response
               const feedback = await processUserAnswer(transcribedText);
-              
+
               // AI stops thinking and starts speaking
               setIsThinking(false);
               setIsSpeaking(true);
               setInterviewState('ai-speaking');
-              
+
               // Add AI response
               const feedbackMessage: Message = {
                 id: Date.now().toString() + '-feedback',
@@ -655,37 +655,37 @@ const Interview = () => {
                 sender: 'ai',
                 timestamp: new Date()
               };
-              
+
               setMessages(prev => [...prev, feedbackMessage]);
-              
+
               // Update conversation history with AI's response
               setConversationHistory(prev => [
                 ...prev,
                 { role: "assistant", content: feedback }
               ]);
-              
+
               // Check if AI wants to move to next question
               const aiWantsNextQuestion = shouldMoveToNextQuestion(feedback);
-              
+
               // Speak the feedback
               await speakResponse(feedback);
-              
+
               // If AI wants to move to next question and we're not at the last question
               if (aiWantsNextQuestion && currentQuestion < questions.length - 1) {
                 const nextQuestionIndex = currentQuestion + 1;
                 setCurrentQuestion(nextQuestionIndex);
                 setFollowUpCount(0);
                 setUserHasAnswered(false); // Reset user answer flag for new question
-                
+
                 // Mark the next question as asked
-                setQuestions(prevQuestions => 
-                  prevQuestions.map((q, idx) => 
+                setQuestions(prevQuestions =>
+                  prevQuestions.map((q, idx) =>
                     idx === nextQuestionIndex ? { ...q, isAsked: true } : q
                   )
                 );
-                
+
                 const nextQuestionText = questions[nextQuestionIndex].text;
-                
+
                 // Add next question message
                 const questionMsg: Message = {
                   id: Date.now().toString() + '-question',
@@ -693,39 +693,39 @@ const Interview = () => {
                   sender: 'ai',
                   timestamp: new Date()
                 };
-                
+
                 setMessages(prev => [...prev, questionMsg]);
-                
+
                 // Update conversation history
                 setConversationHistory(prev => [
                   ...prev,
                   { role: "assistant", content: nextQuestionText }
                 ]);
-                
+
                 // Speak the next question
                 await speakResponse(nextQuestionText);
-                
+
                 setIsSpeaking(false);
                 setInterviewState('idle');
                 setIsUserTurn(true);
-                
+
                 return;
               }
-              
+
               // After speaking feedback, set the interview state back to idle to allow user to respond
               setIsSpeaking(false);
               setInterviewState('idle');
               setIsUserTurn(true);
-              
+
               // Get interview configuration from localStorage or use defaults
               const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
               const configuredQuestionCount = interviewConfig.questionCount || 7;
-              
+
               // Check if we've reached the last question based on configured question count
               if (currentQuestion >= configuredQuestionCount - 1) {
                 // Interview complete
                 const completionMessage = "That concludes our interview. Thank you for your responses! I've gathered comprehensive insights from our discussion and will now generate your detailed feedback report.";
-                
+
                 // Add completion message
                 setMessages(prev => [
                   ...prev,
@@ -736,18 +736,18 @@ const Interview = () => {
                     timestamp: new Date(Date.now() + 100)
                   }
                 ]);
-                
+
                 // Update conversation history
                 setConversationHistory(prev => [
                   ...prev,
                   { role: "assistant", content: completionMessage }
                 ]);
-                
+
                 // Speak the completion message
                 setIsSpeaking(true);
                 setInterviewState('ai-speaking');
                 await speakResponse(completionMessage);
-                
+
                 // Navigate to results after a delay
                 setTimeout(() => {
                   handleEndInterview();
@@ -755,15 +755,15 @@ const Interview = () => {
               }
             } catch (error) {
               console.error('Error processing transcribed text:', error);
-              
+
               // Fallback to a simple response if processing fails
               setIsThinking(false);
               setIsSpeaking(true);
               setInterviewState('ai-speaking');
-              
+
               const fallbackResponse = "I understand. Let's move on to the next question.";
               const nextQuestion = questions[currentQuestion + 1]?.text || "Can you tell me more about your technical skills?";
-              
+
               setMessages(prev => [
                 ...prev,
                 {
@@ -779,7 +779,7 @@ const Interview = () => {
                   timestamp: new Date(Date.now() + 100)
                 }
               ]);
-              
+
               // Speak the fallback response and next question
               speakResponse(fallbackResponse).then(() => {
                 return speakResponse(nextQuestion);
@@ -787,13 +787,13 @@ const Interview = () => {
                 setIsSpeaking(false);
                 setInterviewState('idle');
                 setIsUserTurn(true);
-                
+
                 if (currentQuestion < questions.length - 1) {
                   setCurrentQuestion(prev => prev + 1);
-                  
+
                   // Mark the next question as asked
-                  setQuestions(prevQuestions => 
-                    prevQuestions.map((q, idx) => 
+                  setQuestions(prevQuestions =>
+                    prevQuestions.map((q, idx) =>
                       idx === currentQuestion + 1 ? { ...q, isAsked: true } : q
                     )
                   );
@@ -814,26 +814,26 @@ const Interview = () => {
           setIsTranscribing(false);
         }
       };
-      
+
       recorder.start();
       setMediaRecorder(recorder);
-      
+
     } catch (error) {
       console.error('Error starting recording:', error);
       setIsRecording(false);
       setTranscriptionError(`Microphone error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
-  
+
   const stopRecording = () => {
     if (mediaRecorder && isRecording) {
       // Capture emotions before stopping recording
       captureAndAnalyzeFrame();
-      
+
       // Store current question for reference
       const currentQuestionText = questions[currentQuestion]?.text || "Unknown question";
       localStorage.setItem('currentQuestion', currentQuestionText);
-      
+
       mediaRecorder.stop();
       // Note: We don't set isRecording to false here because that's handled in the onstop handler
     }
@@ -844,7 +844,7 @@ const Interview = () => {
       // Can't record while AI is speaking or thinking
       return;
     }
-    
+
     if (!isRecording) {
       startRecording();
     } else {
@@ -862,7 +862,7 @@ const Interview = () => {
       // Restart AI speaking if it's not already speaking and user is not recording
       setIsSpeaking(true);
       setInterviewState('ai-speaking');
-      
+
       // Simulate AI finishing speaking after 3 seconds
       setTimeout(() => {
         setIsSpeaking(false);
@@ -874,33 +874,33 @@ const Interview = () => {
 
   const captureAndAnalyzeFrame = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current || !isCameraOn || !videoStream) return;
-    
+
     try {
       setIsAnalyzing(true);
       console.log("Starting facial analysis...");
-      
+
       // Capture frame from video
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
-      
+
       if (!context) return;
-      
+
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
+
       // Convert to blob
       const blob = await new Promise<Blob | null>((resolve) => {
         canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.8);
       });
-      
+
       if (!blob) return;
       console.log("Image captured, size:", blob.size, "bytes");
-      
+
       // Create a File object from the blob
       const file = new File([blob], "frame.jpg", { type: "image/jpeg" });
-      
+
       // Start inference job
       console.log("Starting inference job...");
       const formData = new FormData();
@@ -908,65 +908,65 @@ const Interview = () => {
       formData.append('json', JSON.stringify({
         models: { face: {} }
       }));
-      
+
       const jobResponse = await fetch('https://api.hume.ai/v0/batch/jobs', {
         method: 'POST',
         headers: { 'X-Hume-Api-Key': humeApiKey },
         body: formData,
       });
-      
+
       if (!jobResponse.ok) {
         const errorText = await jobResponse.text();
         console.error("Job creation error:", errorText);
         throw new Error(`API error: ${jobResponse.status}`);
       }
-      
+
       const jobData = await jobResponse.json();
       const jobId = jobData.job_id;
       console.log("Job created with ID:", jobId);
-      
+
       // Poll for job completion
       let jobStatus = 'RUNNING';
       let attempts = 0;
       const maxAttempts = 30; // Maximum polling attempts
-      
+
       console.log("Polling for job completion...");
       while (jobStatus === 'RUNNING' && attempts < maxAttempts) {
         attempts++;
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
+
         const statusResponse = await fetch(`https://api.hume.ai/v0/batch/jobs/${jobId}`, {
           method: 'GET',
           headers: { 'X-Hume-Api-Key': humeApiKey },
         });
-        
+
         if (!statusResponse.ok) {
           console.error("Status check failed:", await statusResponse.text());
           break;
         }
-        
+
         const statusData = await statusResponse.json();
         jobStatus = statusData.state?.status || statusData.status;
         console.log(`Job status (attempt ${attempts}): ${jobStatus}`);
-        
+
         if (jobStatus === 'COMPLETED') {
           console.log("Job completed, waiting before fetching predictions...");
           // Add a small delay to ensure predictions are ready
           await new Promise(resolve => setTimeout(resolve, 1000));
-          
+
           // Try up to 3 times to get predictions
           let predictionsFound = false;
           for (let predAttempt = 1; predAttempt <= 3; predAttempt++) {
             console.log(`Fetching predictions (attempt ${predAttempt})...`);
-            
+
             const predictionsResponse = await fetch(`https://api.hume.ai/v0/batch/jobs/${jobId}/predictions`, {
               method: 'GET',
-              headers: { 
+              headers: {
                 'X-Hume-Api-Key': humeApiKey,
                 'accept': 'application/json; charset=utf-8'
               },
             });
-            
+
             if (!predictionsResponse.ok) {
               console.error(`Predictions fetch failed (attempt ${predAttempt}):`, await predictionsResponse.text());
               if (predAttempt < 3) {
@@ -975,31 +975,31 @@ const Interview = () => {
               }
               break;
             }
-            
+
             const predictions = await predictionsResponse.json();
             console.log(`Predictions response (attempt ${predAttempt}):`, predictions);
-            
+
             if (predictions && Array.isArray(predictions) && predictions.length > 0) {
               console.log("Processing predictions structure...");
-              
+
               // Check if we have predictions array in the results
-              if (predictions[0].results?.predictions && 
-                  Array.isArray(predictions[0].results.predictions) && 
-                  predictions[0].results.predictions.length > 0) {
-                
+              if (predictions[0].results?.predictions &&
+                Array.isArray(predictions[0].results.predictions) &&
+                predictions[0].results.predictions.length > 0) {
+
                 // Get the first prediction which contains the file data
                 const filePrediction = predictions[0].results.predictions[0];
                 console.log("File prediction:", filePrediction);
-                
+
                 // Check if we have face model results with grouped_predictions
-                if (filePrediction.models?.face?.grouped_predictions && 
-                    filePrediction.models.face.grouped_predictions.length > 0 &&
-                    filePrediction.models.face.grouped_predictions[0].predictions &&
-                    filePrediction.models.face.grouped_predictions[0].predictions.length > 0) {
-                  
+                if (filePrediction.models?.face?.grouped_predictions &&
+                  filePrediction.models.face.grouped_predictions.length > 0 &&
+                  filePrediction.models.face.grouped_predictions[0].predictions &&
+                  filePrediction.models.face.grouped_predictions[0].predictions.length > 0) {
+
                   // Extract the emotions array from the first prediction
                   const emotions = filePrediction.models.face.grouped_predictions[0].predictions[0].emotions;
-                  
+
                   if (emotions && emotions.length > 0) {
                     console.log("Emotions found:", emotions.length, "emotions");
                     setFacialExpressions({ emotions });
@@ -1007,40 +1007,40 @@ const Interview = () => {
                     setCurrentEmotions(emotions);
                     localStorage.setItem('currentEmotions', JSON.stringify(emotions));
                     console.log("Stored emotions in localStorage:", emotions.length, "emotions");
-                    
+
                     predictionsFound = true;
                   } else {
                     console.log("No emotions array in the prediction");
                   }
-                  
+
                   break;
                 } else {
                   console.log("No grouped_predictions in face model results");
                 }
               }
             }
-            
+
             if (predAttempt < 3 && !predictionsFound) {
               console.log("Waiting before retrying predictions...");
               await new Promise(resolve => setTimeout(resolve, 2000));
             }
           }
-          
+
           if (!predictionsFound) {
             console.log("Failed to get valid predictions after multiple attempts");
           }
-          
+
           break;
         } else if (jobStatus === 'FAILED') {
           console.error("Job failed");
           break;
         }
       }
-      
+
       if (attempts >= maxAttempts) {
         console.log("Max polling attempts reached");
       }
-      
+
     } catch (error) {
       console.error('Error analyzing facial expressions:', error);
     } finally {
@@ -1056,7 +1056,7 @@ const Interview = () => {
         setVideoStream(null);
       }
       setIsCameraOn(false);
-      
+
       // Stop the analysis interval
       if (captureInterval) {
         clearInterval(captureInterval);
@@ -1066,24 +1066,24 @@ const Interview = () => {
       // Turn on camera
       try {
         setCameraError(null);
-        
-        const stream = await navigator.mediaDevices.getUserMedia({ 
+
+        const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false
         });
-        
+
         setVideoStream(stream);
-        
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
-        
+
         setIsCameraOn(true);
         setHasVideoPermission(true);
-        
+
         // Initial emotion capture when camera starts
         captureAndAnalyzeFrame();
-        
+
         // We're removing the interval-based approach as requested
         // and will only capture emotions when needed
       } catch (err) {
@@ -1097,12 +1097,12 @@ const Interview = () => {
     if (videoRef.current && videoStream) {
       videoRef.current.srcObject = videoStream;
     }
-    
+
     return () => {
       if (videoStream) {
         videoStream.getTracks().forEach(track => track.stop());
       }
-      
+
       if (captureInterval) {
         clearInterval(captureInterval);
       }
@@ -1111,12 +1111,12 @@ const Interview = () => {
 
   const handleSendMessage = async () => {
     if (!userInput.trim() || isThinking || isSpeaking) return;
-    
+
     // Capture emotions if camera is on before processing the message
     if (isCameraOn && videoRef.current) {
       await captureAndAnalyzeFrame();
     }
-    
+
     // Add user message
     const userMessage: Message = {
       id: Date.now().toString() + '-user',
@@ -1124,47 +1124,47 @@ const Interview = () => {
       sender: 'user',
       timestamp: new Date()
     };
-    
+
     setMessages(prev => [...prev, userMessage]);
-    
+
     // Update conversation history with user's message
     setConversationHistory(prev => [
       ...prev,
       { role: "user", content: userInput }
     ]);
-    
+
     // Mark that the user has answered the current question
     setUserHasAnswered(true);
-    
+
     // Check if user wants to move to next question
     const userWantsNextQuestion = shouldMoveToNextQuestion(userInput);
-    
+
     setUserInput('');
     setIsThinking(true);
     setInterviewState('ai-thinking');
     setIsUserTurn(false);
-    
+
     try {
       // If user wants to move to next question and we're not at the last question
       if (userWantsNextQuestion && currentQuestion < questions.length - 1) {
         const nextQuestionIndex = currentQuestion + 1;
         setCurrentQuestion(nextQuestionIndex);
         setFollowUpCount(0);
-        
+
         // Mark the next question as asked
-        setQuestions(prevQuestions => 
-          prevQuestions.map((q, idx) => 
+        setQuestions(prevQuestions =>
+          prevQuestions.map((q, idx) =>
             idx === nextQuestionIndex ? { ...q, isAsked: true } : q
           )
         );
-        
+
         setIsThinking(false);
         setIsSpeaking(true);
         setInterviewState('ai-speaking');
-        
+
         const transitionMessage = "Let's move on to the next question.";
         const nextQuestionText = questions[nextQuestionIndex].text;
-        
+
         // Add transition and question messages
         const transitionMsg: Message = {
           id: Date.now().toString() + '-transition',
@@ -1172,44 +1172,44 @@ const Interview = () => {
           sender: 'ai',
           timestamp: new Date()
         };
-        
+
         const questionMsg: Message = {
           id: Date.now().toString() + '-question',
           text: nextQuestionText,
           sender: 'ai',
           timestamp: new Date(Date.now() + 100)
         };
-        
+
         setMessages(prev => [...prev, transitionMsg, questionMsg]);
-        
+
         // Update conversation history
         setConversationHistory(prev => [
           ...prev,
           { role: "assistant", content: transitionMessage },
           { role: "assistant", content: nextQuestionText }
         ]);
-        
+
         // Speak the transition and question
         await speakResponse(transitionMessage);
         await speakResponse(nextQuestionText);
-        
+
         setIsSpeaking(false);
         setInterviewState('idle');
         setIsUserTurn(true);
-        
+
         return;
       }
-      
+
       // Process the user's answer with GPT to get a contextual response
       const feedback = await processUserAnswer(userInput);
-      
+
       // Short delay before AI response
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       setIsThinking(false);
       setIsSpeaking(true);
       setInterviewState('ai-speaking');
-      
+
       // Add feedback message
       const feedbackMessage: Message = {
         id: Date.now().toString() + '-feedback',
@@ -1217,36 +1217,36 @@ const Interview = () => {
         sender: 'ai',
         timestamp: new Date()
       };
-      
+
       setMessages(prev => [...prev, feedbackMessage]);
-      
+
       // Update conversation history with AI's response
       setConversationHistory(prev => [
         ...prev,
         { role: "assistant", content: feedback }
       ]);
-      
+
       // Check if AI wants to move to next question
       const aiWantsNextQuestion = shouldMoveToNextQuestion(feedback);
-      
+
       // Speak the feedback first
       await speakResponse(feedback);
-      
+
       // If AI wants to move to next question and we're not at the last question
       if (aiWantsNextQuestion && currentQuestion < questions.length - 1) {
         const nextQuestionIndex = currentQuestion + 1;
         setCurrentQuestion(nextQuestionIndex);
         setFollowUpCount(0);
-        
+
         // Mark the next question as asked
-        setQuestions(prevQuestions => 
-          prevQuestions.map((q, idx) => 
+        setQuestions(prevQuestions =>
+          prevQuestions.map((q, idx) =>
             idx === nextQuestionIndex ? { ...q, isAsked: true } : q
           )
         );
-        
+
         const nextQuestionText = questions[nextQuestionIndex].text;
-        
+
         // Add next question message
         const questionMsg: Message = {
           id: Date.now().toString() + '-question',
@@ -1254,28 +1254,28 @@ const Interview = () => {
           sender: 'ai',
           timestamp: new Date()
         };
-        
+
         setMessages(prev => [...prev, questionMsg]);
-        
+
         // Update conversation history
         setConversationHistory(prev => [
           ...prev,
           { role: "assistant", content: nextQuestionText }
         ]);
-        
+
         // Speak the next question
         await speakResponse(nextQuestionText);
-        
+
         setIsSpeaking(false);
         setInterviewState('idle');
         setIsUserTurn(true);
-        
+
         return;
       }
-      
+
       // If not moving to next question, generate a follow-up or next question
       const nextQuestion = await generateNextQuestion();
-      
+
       // Add question message
       const questionMessage: Message = {
         id: Date.now().toString() + '-question',
@@ -1283,29 +1283,29 @@ const Interview = () => {
         sender: 'ai',
         timestamp: new Date()
       };
-      
+
       setMessages(prev => [...prev, questionMessage]);
-      
+
       // Update conversation history with the new question
       setConversationHistory(prev => [
         ...prev,
         { role: "assistant", content: nextQuestion }
       ]);
-      
+
       // Check if this new question indicates moving to next topic
       if (shouldMoveToNextQuestion(nextQuestion) && currentQuestion < questions.length - 1) {
         // Update to next question in the list
         const nextQuestionIndex = currentQuestion + 1;
         setCurrentQuestion(nextQuestionIndex);
         setFollowUpCount(0);
-        
+
         // Mark the next question as asked
-        setQuestions(prevQuestions => 
-          prevQuestions.map((q, idx) => 
+        setQuestions(prevQuestions =>
+          prevQuestions.map((q, idx) =>
             idx === nextQuestionIndex ? { ...q, isAsked: true } : q
           )
         );
-        
+
         // Add the actual next question
         const nextQuestionText = questions[nextQuestionIndex].text;
         const actualQuestionMsg: Message = {
@@ -1314,35 +1314,35 @@ const Interview = () => {
           sender: 'ai',
           timestamp: new Date()
         };
-        
+
         setMessages(prev => [...prev, actualQuestionMsg]);
-        
+
         // Update conversation history with the actual next question
         setConversationHistory(prev => [
           ...prev,
           { role: "assistant", content: nextQuestionText }
         ]);
-        
+
         // Speak the next question
         await speakResponse(nextQuestionText);
       } else {
         // Speak the follow-up question
         await speakResponse(nextQuestion);
       }
-      
+
       // After both messages are spoken, set the interview state back to idle
       setInterviewState('idle');
       setIsUserTurn(true);
-      
+
       // Get interview configuration from localStorage or use defaults
       const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
       const configuredQuestionCount = interviewConfig.questionCount || 7;
-      
+
       // Check if we've asked enough questions based on configured question count
       if (questions.length >= configuredQuestionCount && currentQuestion >= questions.length - 1) {
         // Interview complete
         const completionMessage = "That concludes our interview. Thank you for your responses! I've gathered comprehensive insights from our discussion and will now generate your detailed feedback report.";
-        
+
         // Add completion message
         const completionMsg: Message = {
           id: Date.now().toString() + '-complete',
@@ -1350,21 +1350,21 @@ const Interview = () => {
           sender: 'ai',
           timestamp: new Date()
         };
-        
+
         setMessages(prev => [...prev, completionMsg]);
-        
+
         // Update conversation history
         setConversationHistory(prev => [
           ...prev,
           { role: "assistant", content: completionMessage }
         ]);
-        
+
         // Speak the completion message
         await speakResponse(completionMessage);
-        
+
         // After speaking, navigate to results
         setInterviewState('idle');
-        
+
         // Navigate to results after a delay
         setTimeout(() => {
           handleEndInterview();
@@ -1387,9 +1387,9 @@ const Interview = () => {
       "I see what you mean. That's a solid explanation.",
       "That's helpful context. Let's move on to the next question."
     ];
-    
+
     const randomFeedback = feedbacks[Math.floor(Math.random() * feedbacks.length)];
-    
+
     return randomFeedback;
   };
 
@@ -1397,7 +1397,7 @@ const Interview = () => {
 
   // Determine if recording button should be disabled
   const isRecordingDisabled = interviewState === 'ai-speaking' || interviewState === 'ai-thinking';
-  
+
   // Determine if send button should be disabled
   const isSendDisabled = !userInput.trim() || isThinking || isSpeaking;
 
@@ -1406,16 +1406,16 @@ const Interview = () => {
     try {
       // Get the Azure OpenAI API key from environment variables
       const azureOpenAIKey = import.meta.env.VITE_APP_AZURE_OPENAI_API_KEY;
-      
+
       // Check if this is the first response (introduction)
       const isIntroduction = messages.length <= 1;
-      
+
       // Get current question text
       const currentQuestionText = questions[currentQuestion]?.text || "No question available";
-      
+
       // Store answer with emotions for results page
       storeAnswerWithEmotions(currentQuestionText, answer, currentEmotions);
-      
+
       // Format emotions data for the prompt
       let emotionsText = "";
       if (currentEmotions && currentEmotions.length > 0) {
@@ -1423,16 +1423,16 @@ const Interview = () => {
         const topEmotions = [...currentEmotions]
           .sort((a, b) => b.score - a.score)
           .slice(0, 3);
-          
+
         emotionsText = topEmotions
           .map(e => `${e.name}: ${(e.score * 100).toFixed(0)}%`)
           .join(", ");
       } else {
         emotionsText = "No emotional data available";
       }
-      
+
       // If this is the introduction, use a special prompt
-      const prompt = isIntroduction 
+      const prompt = isIntroduction
         ? `
           The candidate has just introduced themselves: "${answer}"
           
@@ -1466,18 +1466,18 @@ const Interview = () => {
           Your tone should be that of a senior engineer who doesn't waste time with niceties.
           Be critical when the candidate's answer lacks technical depth.
           `
-      
+
       // Create messages array that includes recent conversation history for context
       const recentMessages = conversationHistory.slice(-4); // Last 4 messages for context
       const messagesForAPI = [
-        { 
-          role: "system", 
-          content: `You are a technical interviewer with high standards and a direct personality. You never use phrases like 'thank you', 'that's great', or similar polite but empty phrases. You can respond to the candidate's emotional state based on the data provided.` 
+        {
+          role: "system",
+          content: `You are a technical interviewer with high standards and a direct personality. You never use phrases like 'thank you', 'that's great', or similar polite but empty phrases. You can respond to the candidate's emotional state based on the data provided.`
         },
         ...recentMessages,
         { role: "user", content: prompt }
       ];
-      
+
       const response = await fetch(
         `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
         {
@@ -1493,25 +1493,25 @@ const Interview = () => {
           }),
         }
       );
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Azure OpenAI API error:", errorText);
         throw new Error(`Failed to process answer: ${response.status}`);
       }
-      
+
       const result = await response.json();
       const aiResponse = result.choices[0].message.content.trim();
-      
+
       // If this was the introduction, we'll ask the first question after acknowledging
       if (isIntroduction) {
         // After the introduction, mark that we're ready to start asking technical questions
         setFollowUpCount(0);
-        
+
         // The AI response already includes the first question
         return aiResponse;
       }
-      
+
       return aiResponse;
     } catch (error) {
       console.error("Error processing answer:", error);
@@ -1524,19 +1524,19 @@ const Interview = () => {
     try {
       // Get the Azure OpenAI API key from environment variables
       const azureOpenAIKey = import.meta.env.VITE_APP_AZURE_OPENAI_API_KEY;
-      
+
       if (!azureOpenAIKey) {
         throw new Error("Azure OpenAI API key is missing");
       }
-      
+
       // Get interview configuration from localStorage or use defaults
       const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
       const questionCount = interviewConfig.questionCount || 7;
       const difficultyLevel = interviewConfig.difficultyLevel || 'medium';
-      
+
       // Log the resume text length to verify it's being passed correctly
       console.log("Resume text for question generation, length:", resumeText?.length);
-      
+
       // Create a system prompt that focuses on serious technical questions with configured options
       const systemPrompt = `
         You are a technical interviewer with high standards and a critical, direct personality.
@@ -1565,7 +1565,7 @@ const Interview = () => {
         
         Return ONLY a JSON array of strings, each containing one question. Do not include any explanations.
       `;
-      
+
       const response = await fetch(
         `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
         {
@@ -1584,23 +1584,23 @@ const Interview = () => {
           }),
         }
       );
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Azure OpenAI API error:", errorText);
         throw new Error(`Failed to generate questions: ${response.status}`);
       }
-      
+
       const result = await response.json();
       const content = result.choices[0].message.content.trim();
-      
+
       // Try to parse the JSON response
       try {
         // Extract JSON array if it's wrapped in code blocks or other text
         const jsonMatch = content.match(/\[[\s\S]*\]/);
         const jsonString = jsonMatch ? jsonMatch[0] : content;
         const questions = JSON.parse(jsonString);
-        
+
         if (Array.isArray(questions) && questions.length > 0) {
           console.log("Successfully generated questions:", questions.length);
           return questions;
@@ -1613,7 +1613,7 @@ const Interview = () => {
       }
     } catch (error) {
       console.error("Error generating interview questions:", error);
-      
+
       // Fallback algorithm and technical questions
       const fallbackQuestions = [
         "Tell me about your most challenging technical project.",
@@ -1624,7 +1624,7 @@ const Interview = () => {
         "How would you implement a least recently used (LRU) cache? Explain the data structures involved.",
         "What's the most efficient algorithm to find the shortest path in a weighted graph and why?"
       ];
-      
+
       // Get interview configuration from localStorage or use defaults
       const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
       const configQuestionCount = interviewConfig.questionCount || 7;
@@ -1645,10 +1645,10 @@ const Interview = () => {
     try {
       // Get the Azure OpenAI API key from environment variables
       const azureOpenAIKey = import.meta.env.VITE_APP_AZURE_OPENAI_API_KEY;
-      
+
       // Store the answer and emotions for results page
       storeAnswerWithEmotions(question, answer, emotions);
-      
+
       // Use the full conversation context to generate a response
       const prompt = `
         You are an AI technical interviewer having a conversation with a candidate.
@@ -1669,9 +1669,9 @@ const Interview = () => {
       // Create messages array that includes recent conversation history for context
       const recentMessages = conversationHistory.slice(-4); // Last 4 messages for context
       const messagesForAPI = [
-        { 
-          role: "system", 
-          content: "You are an AI technical interviewer. Keep responses extremely brief (1 sentence)." 
+        {
+          role: "system",
+          content: "You are an AI technical interviewer. Keep responses extremely brief (1 sentence)."
         },
         ...recentMessages,
         { role: "user", content: prompt }
@@ -1701,14 +1701,14 @@ const Interview = () => {
 
       const result = await response.json();
       const acknowledgment = result.choices[0].message.content.trim();
-      
+
       // Update conversation history with user's answer and AI's acknowledgment
       setConversationHistory(prev => [
         ...prev,
         { role: "user", content: answer },
         { role: "assistant", content: acknowledgment }
       ]);
-      
+
       return acknowledgment;
     } catch (error) {
       console.error("Error processing answer:", error);
@@ -1721,17 +1721,17 @@ const Interview = () => {
     // Get existing data or initialize new array
     const existingData = localStorage.getItem('interviewData') || '[]';
     let interviewData = [];
-    
+
     try {
       interviewData = JSON.parse(existingData);
     } catch (e) {
       console.error("Error parsing interview data:", e);
       interviewData = [];
     }
-    
+
     // Use currentEmotions from state if available, otherwise use provided emotions
     const emotionsToStore = currentEmotions.length > 0 ? currentEmotions : emotions;
-    
+
     // Add new entry
     interviewData.push({
       question,
@@ -1739,10 +1739,10 @@ const Interview = () => {
       emotions: emotionsToStore,
       timestamp: new Date().toISOString()
     });
-    
+
     // Store updated data
     localStorage.setItem('interviewData', JSON.stringify(interviewData));
-    
+
     console.log("Stored answer with emotions:", { question, answer, emotions: emotionsToStore.length });
   };
 
@@ -1751,14 +1751,14 @@ const Interview = () => {
     try {
       // Get the Azure OpenAI API key from environment variables
       const azureOpenAIKey = import.meta.env.VITE_APP_AZURE_OPENAI_API_KEY;
-      
+
       // Increment follow-up counter
       const newFollowUpCount = followUpCount + 1;
       setFollowUpCount(newFollowUpCount);
-      
+
       // Strict limit to follow-up questions - maximum of 2
       const shouldMoveToNextMainQuestion = userHasAnswered && newFollowUpCount >= 2;
-      
+
       if (shouldMoveToNextMainQuestion && currentQuestion < questions.length - 1) {
         // We want to move to the next main question
         return "Let's move on.";
@@ -1770,14 +1770,14 @@ const Interview = () => {
           const topEmotions = [...currentEmotions]
             .sort((a, b) => b.score - a.score)
             .slice(0, 3);
-            
+
           emotionsText = topEmotions
             .map(e => `${e.name}: ${(e.score * 100).toFixed(0)}%`)
             .join(", ");
         } else {
           emotionsText = "No emotional data available";
         }
-        
+
         // Generate a more direct, critical follow-up with emotion awareness
         const prompt = `
           You are a technical interviewer with high standards and a critical eye.
@@ -1800,18 +1800,18 @@ const Interview = () => {
           Your goal is to test if they really understand the topic or are just repeating buzzwords.
           Don't waste time with pleasantries - get straight to the technical question.
         `;
-        
+
         // Create messages array that includes recent conversation history for context
         const recentMessages = conversationHistory.slice(-6);
         const messagesForAPI = [
-          { 
-            role: "system", 
-            content: "You are a technical interviewer with high standards. Keep responses concise, challenging, and direct." 
+          {
+            role: "system",
+            content: "You are a technical interviewer with high standards. Keep responses concise, challenging, and direct."
           },
           ...recentMessages,
           { role: "user", content: prompt }
         ];
-        
+
         const response = await fetch(
           `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
           {
@@ -1827,16 +1827,16 @@ const Interview = () => {
             }),
           }
         );
-        
+
         if (!response.ok) {
           const errorText = await response.text();
           console.error("Azure OpenAI API error:", errorText);
           throw new Error(`Failed to generate next question: ${response.status}`);
         }
-        
+
         const result = await response.json();
         const nextQuestion = result.choices[0].message.content.trim();
-        
+
         return nextQuestion;
       }
     } catch (error) {
@@ -1850,10 +1850,10 @@ const Interview = () => {
     try {
       // Get the Azure OpenAI API key from environment variables
       const azureOpenAIKey = import.meta.env.VITE_APP_AZURE_OPENAI_API_KEY;
-      
+
       // Get stored interview data with emotions
       const interviewData = JSON.parse(localStorage.getItem('interviewData') || '[]');
-      
+
       // Create a detailed prompt including emotional data
       let emotionSummary = "";
       if (interviewData && interviewData.length > 0) {
@@ -1868,7 +1868,7 @@ const Interview = () => {
           return `Question: "${item.question}"\nAnswer: "${item.answer}"\nEmotions: ${emotionsText}`;
         }).join("\n\n");
       }
-      
+
       // Store the full interview results for the results page
       const interviewResults: InterviewResults = {
         id: Date.now().toString(),
@@ -1877,7 +1877,7 @@ const Interview = () => {
         transcriptions: interviewData.map((item: any) => item.answer),
         timestamp: new Date().toISOString()
       };
-      
+
       // Create a prompt for generating the summary with more details
       const prompt = `
         You are an AI technical interviewer who has just completed an interview with a candidate.
@@ -1916,17 +1916,17 @@ const Interview = () => {
         Be honest, specific, and constructive in your feedback.
         Provide a critical analysis that would be valuable for both the interviewer and the candidate.
       `;
-      
+
       // Create messages array from conversation history
       const messagesForAPI = [
-        { 
-          role: "system", 
-          content: "You are an AI technical interviewer generating a comprehensive interview summary with critical analysis." 
+        {
+          role: "system",
+          content: "You are an AI technical interviewer generating a comprehensive interview summary with critical analysis."
         },
         ...conversationHistory, // Use the full conversation history
         { role: "user", content: prompt }
       ];
-      
+
       const response = await fetch(
         `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
         {
@@ -1942,22 +1942,22 @@ const Interview = () => {
           }),
         }
       );
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Azure OpenAI API error:", errorText);
         throw new Error(`Failed to generate summary: ${response.status}`);
       }
-      
+
       const result = await response.json();
       const summary = result.choices[0].message.content.trim();
-      
+
       // Store the summary in the interview results
       interviewResults.summary = summary;
-      
+
       // Save the complete results to localStorage for the results page
       localStorage.setItem('interviewResults', JSON.stringify(interviewResults));
-      
+
       return summary;
     } catch (error) {
       console.error("Error generating interview summary:", error);
@@ -1968,26 +1968,26 @@ const Interview = () => {
   // Modify your handleEndInterview function to increment the interview count
   const handleEndInterview = async () => {
     setIsThinking(true);
-    
+
     try {
       // Get all stored interview data
       const interviewDataString = localStorage.getItem('interviewData') || '[]';
       let interviewData: EmotionItem[] = [];
-      
+
       try {
         interviewData = JSON.parse(interviewDataString);
       } catch (e) {
         console.error("Error parsing interview data:", e);
       }
-      
+
       // Get all user messages for transcriptions
       const userMessages = messages
         .filter(msg => msg.sender === 'user');
-      
+
       // Create a map of question-answer pairs from messages
       const questionAnswerMap = new Map<string, string>();
       let currentQuestion = "";
-      
+
       messages.forEach((msg) => {
         if (msg.sender === 'ai') {
           // Check if this is a question (not AI feedback)
@@ -1999,7 +1999,7 @@ const Interview = () => {
           questionAnswerMap.set(currentQuestion, msg.text);
         }
       });
-      
+
       // Remove duplicate entries from interviewData
       const uniqueQuestions = new Set<string>();
       interviewData = interviewData.filter(item => {
@@ -2009,7 +2009,7 @@ const Interview = () => {
         uniqueQuestions.add(item.question);
         return true;
       });
-      
+
       // Make sure we have at least one item with emotions
       if (interviewData.length === 0 && questionAnswerMap.size > 0) {
         // Create emotion items from the map
@@ -2022,11 +2022,11 @@ const Interview = () => {
           });
         });
       }
-      
+
       // Get unique transcriptions from the interview data
       const transcriptionsSet = new Set(interviewData.map(item => item.answer));
       const transcriptions = Array.from(transcriptionsSet);
-      
+
       // Create interview result object with unique ID
       const interviewId = Date.now().toString();
       const interviewResults: InterviewResults = {
@@ -2035,7 +2035,7 @@ const Interview = () => {
         transcriptions,
         timestamp: new Date().toISOString()
       };
-      
+
       // Try to generate a summary if possible
       try {
         const summary = await generateInterviewSummary();
@@ -2044,42 +2044,42 @@ const Interview = () => {
         console.error("Error generating summary:", summaryError);
         interviewResults.summary = "A summary could not be generated due to an error.";
       }
-      
+
       // Store current interview results
       localStorage.setItem('interviewResults', JSON.stringify(interviewResults));
-      
+
       // Also store current messages for backup
       localStorage.setItem('interviewMessages', JSON.stringify(messages));
-      
+
       // Store in interview history
       const interviewHistory = JSON.parse(localStorage.getItem('interviewHistory') || '[]');
       interviewHistory.push(interviewResults);
       localStorage.setItem('interviewHistory', JSON.stringify(interviewHistory));
-      
+
       // Update interview count in Firebase if user is logged in
       if (currentUser) {
         try {
           const userDocRef = doc(db, 'users', currentUser.uid);
-          
+
           // Get current user data
           const userDoc = await getDoc(userDocRef);
           const userData = userDoc.exists() ? userDoc.data() : {};
-          
+
           // Increment interviews completed count
           const currentCount = userData.interviewsCompleted || 0;
-          
+
           await updateDoc(userDocRef, {
             interviewsCompleted: currentCount + 1,
             lastInterviewDate: new Date().toISOString()
           });
-          
+
           console.log("Updated interview count in database");
         } catch (dbError) {
           console.error("Error updating interview count:", dbError);
           // Continue even if database update fails
         }
       }
-      
+
       // Navigate to results
       navigate('/results');
     } catch (error) {
@@ -2104,10 +2104,10 @@ const Interview = () => {
           </div>
         </div>
       )}
-      
+
       <div className="min-h-screen bg-black flex flex-col h-screen overflow-hidden">
         <style>{pulseStyle}</style>
-        
+
         {/* Progress bar - fixed at top */}
         <div className="fixed top-0 left-0 w-full h-1 bg-black z-10">
           <motion.div
@@ -2128,7 +2128,7 @@ const Interview = () => {
                 <div className="hidden md:flex h-9 w-9 rounded-full bg-white/5 border border-white/10 items-center justify-center">
                   <Bot className="h-5 w-5 text-white/70" />
                 </div>
-                
+
                 {/* Title and progress */}
                 <div>
                   <div className="flex items-center gap-2">
@@ -2137,23 +2137,23 @@ const Interview = () => {
                       LIVE
                     </span>
                   </div>
-                  
+
                   <div className="flex items-center gap-3 mt-0.5">
                     <div className="flex items-center">
                       <div className="w-1 h-1 rounded-full bg-green-400 mr-1.5 animate-pulse"></div>
                       <p className="text-xs text-gray-400">Q{currentQuestion + 1}/{questions.length}</p>
                     </div>
-                    
+
                     {/* Compact progress bar */}
                     <div className="w-24 bg-black/50 rounded-full h-1 overflow-hidden">
-                      <div className="bg-white h-1 rounded-full" 
+                      <div className="bg-white h-1 rounded-full"
                         style={{ width: `${progress}%` }}>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-              
+
               {/* Right side with action buttons */}
               <div className="flex items-center gap-2">
                 {/* Interview status indicator */}
@@ -2175,19 +2175,18 @@ const Interview = () => {
                     </span>
                   ) : null}
                 </div>
-                
+
                 <button
                   onClick={toggleSpeech}
-                  className={`p-2 rounded-full flex items-center justify-center ${
-                    isSpeaking 
-                      ? 'bg-white text-black' 
+                  className={`p-2 rounded-full flex items-center justify-center ${isSpeaking
+                      ? 'bg-white text-black'
                       : 'bg-black/50 text-gray-400 border border-white/30 hover:bg-black/70'
-                  }`}
+                    }`}
                   disabled={isRecording || isThinking}
                 >
                   {isSpeaking ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
                 </button>
-                
+
                 <div className="md:hidden">
                   <button
                     onClick={() => setViewMode(viewMode === 'camera' ? 'chat' : 'camera')}
@@ -2196,7 +2195,7 @@ const Interview = () => {
                     {viewMode === 'camera' ? <MessageSquare className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
                   </button>
                 </div>
-                
+
                 {/* Hamburger Menu Button */}
                 <button
                   onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -2228,7 +2227,7 @@ const Interview = () => {
                   <div className="absolute top-0 right-0 h-full w-[320px] bg-black/40 backdrop-blur-md" />
                 </div>
               </motion.div>
-              
+
               {/* Menu Panel */}
               <motion.div
                 initial={{ opacity: 0, x: 300 }}
@@ -2248,7 +2247,7 @@ const Interview = () => {
                       <X className="h-5 w-5" />
                     </button>
                   </div>
-                  
+
                   {userDetails && (
                     <div className="mb-6">
                       <div className="flex items-center gap-3 mb-4">
@@ -2260,7 +2259,7 @@ const Interview = () => {
                           <p className="text-sm text-gray-400">{userDetails.email}</p>
                         </div>
                       </div>
-                      
+
                       <div className="space-y-2">
                         {userDetails.resumeURL && (
                           <a
@@ -2273,7 +2272,7 @@ const Interview = () => {
                             View Resume
                           </a>
                         )}
-                        
+
                         {userDetails.linkedinURL && (
                           <a
                             href={userDetails.linkedinURL}
@@ -2285,7 +2284,7 @@ const Interview = () => {
                             LinkedIn Profile
                           </a>
                         )}
-                        
+
                         {userDetails.portfolioURL && (
                           <a
                             href={userDetails.portfolioURL}
@@ -2300,7 +2299,7 @@ const Interview = () => {
                       </div>
                     </div>
                   )}
-                  
+
                   <div className="space-y-2 border-t border-white/10 pt-4">
                     <button
                       onClick={() => navigate('/dashboard')}
@@ -2309,7 +2308,7 @@ const Interview = () => {
                       <ArrowLeft className="h-4 w-4" />
                       <span>Back to Dashboard</span>
                     </button>
-                    
+
                     <button
                       onClick={() => navigate('/profile')}
                       className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors text-left"
@@ -2317,7 +2316,7 @@ const Interview = () => {
                       <Edit className="h-4 w-4" />
                       <span>Edit Profile</span>
                     </button>
-                    
+
                     <button
                       onClick={() => navigate('/login')}
                       className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors text-left"
@@ -2339,24 +2338,22 @@ const Interview = () => {
             <div className="flex md:hidden mb-4 gap-2">
               <button
                 onClick={() => setViewMode('chat')}
-                className={`flex-1 py-2 px-4 rounded-lg flex items-center justify-center gap-2 ${
-                  viewMode === 'chat' ? 'bg-blue-600/70 text-white' : 'bg-black/40 text-white/70 border border-white/10'
-                }`}
+                className={`flex-1 py-2 px-4 rounded-lg flex items-center justify-center gap-2 ${viewMode === 'chat' ? 'bg-blue-600/70 text-white' : 'bg-black/40 text-white/70 border border-white/10'
+                  }`}
               >
                 <MessageSquare className="h-4 w-4" />
                 <span>Chat</span>
               </button>
               <button
                 onClick={() => setViewMode('camera')}
-                className={`flex-1 py-2 px-4 rounded-lg flex items-center justify-center gap-2 ${
-                  viewMode === 'camera' ? 'bg-blue-600/70 text-white' : 'bg-black/40 text-white/70 border border-white/10'
-                }`}
+                className={`flex-1 py-2 px-4 rounded-lg flex items-center justify-center gap-2 ${viewMode === 'camera' ? 'bg-blue-600/70 text-white' : 'bg-black/40 text-white/70 border border-white/10'
+                  }`}
               >
                 <Camera className="h-4 w-4" />
                 <span>Camera</span>
               </button>
             </div>
-            
+
             <div className="flex flex-col md:flex-row h-full gap-4">
               {/* AI Avatar Section */}
               <div className="md:w-1/4 md:h-full hidden md:block">
@@ -2370,7 +2367,7 @@ const Interview = () => {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="flex-1 flex flex-col items-center justify-start p-6 relative">
                     {/* Background decorative elements */}
                     <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
@@ -2379,7 +2376,7 @@ const Interview = () => {
                       <div className="absolute top-40 right-6 w-16 h-16 border border-blue-500/30 rounded-full"></div>
                       <div className="absolute top-1/2 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
                     </div>
-                    
+
                     <div className="w-32 h-32 bg-gradient-to-br from-blue-900/50 to-purple-900/50 rounded-full flex items-center justify-center mb-6 border border-white/20 relative shadow-lg">
                       <div className="absolute inset-0 rounded-full bg-black/50 backdrop-blur-sm"></div>
                       <Bot className="h-16 w-16 text-white/80 relative z-10" />
@@ -2388,14 +2385,14 @@ const Interview = () => {
                         <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
                       </div>
                     </div>
-                    
+
                     <div className="text-center mb-4 relative">
                       <h3 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-300">
                         Technical Interviewer
                       </h3>
                       <p className="text-xs text-white/60">Advanced AI Evaluation System</p>
                     </div>
-                    
+
                     {isThinking ? (
                       <div className="text-center bg-black/20 px-4 py-3 rounded-lg w-full border border-white/10 backdrop-blur-sm">
                         <div className="flex items-center justify-center gap-2 mb-2">
@@ -2427,7 +2424,7 @@ const Interview = () => {
                         </p>
                       </div>
                     )}
-                    
+
                     <div className="mt-6 space-y-4 w-full">
                       <div className="bg-black/30 p-4 rounded-lg border border-white/10 backdrop-blur-sm">
                         <div className="flex items-center justify-between mb-2">
@@ -2437,13 +2434,13 @@ const Interview = () => {
                           </div>
                         </div>
                         <div className="relative">
-                          <p className="text-sm text-white/90">{questions && questions[currentQuestion] ? questions[currentQuestion].text.length > 60 ? 
-                            questions[currentQuestion].text.substring(0, 60) + '...' : 
+                          <p className="text-sm text-white/90">{questions && questions[currentQuestion] ? questions[currentQuestion].text.length > 60 ?
+                            questions[currentQuestion].text.substring(0, 60) + '...' :
                             questions[currentQuestion].text : "Loading question..."}
                           </p>
                         </div>
                       </div>
-                      
+
                       <div className="bg-black/30 p-4 rounded-lg border border-white/10 backdrop-blur-sm">
                         <div className="flex items-center justify-between mb-2">
                           <p className="text-xs font-medium text-blue-300/90 uppercase tracking-wider">Progress</p>
@@ -2462,7 +2459,7 @@ const Interview = () => {
                   </div>
                 </div>
               </div>
-              
+
               {/* AI chat section - scrollable content */}
               <div className={`md:w-2/4 h-full md:block ${viewMode === 'camera' ? 'hidden' : 'block'}`}>
                 <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg overflow-hidden">
@@ -2484,7 +2481,7 @@ const Interview = () => {
                       </div>
                     </div>
                   </div>
-                  
+
                   {/* This div is scrollable */}
                   <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent relative">
                     {/* Background decorative elements */}
@@ -2494,7 +2491,7 @@ const Interview = () => {
                       <div className="absolute top-1/3 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
                       <div className="absolute bottom-1/3 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
                     </div>
-                    
+
                     <div className="space-y-6 relative z-10">
                       {messages.map((message, index) => (
                         <div
@@ -2503,11 +2500,10 @@ const Interview = () => {
                           ref={index === messages.length - 1 ? lastMessageRef : null}
                         >
                           <div
-                            className={`max-w-[80%] rounded-lg p-3 backdrop-blur-sm ${
-                              message.sender === 'user'
+                            className={`max-w-[80%] rounded-lg p-3 backdrop-blur-sm ${message.sender === 'user'
                                 ? 'bg-blue-600/90 text-white rounded-br-none border border-blue-500/50'
                                 : 'bg-black/40 text-white rounded-bl-none border border-white/10'
-                            }`}
+                              }`}
                           >
                             <div className="flex items-start">
                               <div className="flex-shrink-0 mr-2">
@@ -2531,7 +2527,7 @@ const Interview = () => {
                           </div>
                         </div>
                       ))}
-                      
+
                       {isThinking && (
                         <div className="flex justify-start">
                           <div className="bg-black/30 text-white rounded-xl rounded-tl-none p-4 max-w-[80%] border border-white/10 backdrop-blur-sm">
@@ -2549,7 +2545,7 @@ const Interview = () => {
                           </div>
                         </div>
                       )}
-                      
+
                       {isRecording && (
                         <div className="flex justify-end">
                           <div className="bg-black/30 text-white rounded-xl rounded-tr-none p-4 max-w-[80%] border border-white/10 backdrop-blur-sm">
@@ -2569,54 +2565,53 @@ const Interview = () => {
                           </div>
                         </div>
                       )}
-                      
+
                       {isTranscribing && !isThinking && !isSpeaking && (
                         <div className="flex items-center justify-center gap-2 text-sm text-blue-300/80 mt-2 bg-black/20 py-1 px-3 rounded-full border border-white/5 w-fit mx-auto backdrop-blur-sm">
                           <Loader2 className="h-3 w-3 animate-spin" />
                           <span className="text-xs">Transcribing</span>
                         </div>
                       )}
-                      
+
                       {isThinking && !isTranscribing && !isSpeaking && (
                         <div className="flex items-center justify-center gap-2 text-sm text-blue-300/80 mt-2 bg-black/20 py-1 px-3 rounded-full border border-white/5 w-fit mx-auto backdrop-blur-sm">
                           <Brain className="h-3 w-3 animate-pulse" />
                           <span className="text-xs">Processing</span>
                         </div>
                       )}
-                      
+
                       {isSpeaking && !isTranscribing && !isThinking && (
                         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-blue-500/70 text-white px-4 py-2 rounded-full text-sm z-50 flex items-center gap-2 border border-blue-400/30 backdrop-blur-sm">
                           <Volume2 className="h-4 w-4 animate-pulse" />
                           <span>Voice Output</span>
                         </div>
                       )}
-                      
+
                       <div ref={messagesEndRef} />
                     </div>
                   </div>
-                  
+
                   {/* Input area - fixed at bottom */}
                   <div className="p-4 border-t border-white/10 flex-shrink-0 bg-black/40 backdrop-blur-sm">
                     <div className="flex items-center gap-2">
                       <button
                         onClick={toggleRecording}
                         disabled={isRecordingDisabled || isTranscribing}
-                        className={`p-4 rounded-full flex items-center justify-center transition-all border ${
-                          isRecording 
-                            ? 'bg-red-500/80 text-white border-red-400/50 pulsate-recording' 
+                        className={`p-4 rounded-full flex items-center justify-center transition-all border ${isRecording
+                            ? 'bg-red-500/80 text-white border-red-400/50 pulsate-recording'
                             : isTranscribing
                               ? 'bg-blue-500/40 text-white border-blue-400/30'
                               : isRecordingDisabled
                                 ? 'bg-black/60 text-gray-400 border-white/5 cursor-not-allowed'
                                 : 'bg-black/60 text-white/90 border-white/10 hover:bg-black/80'
-                        }`}
+                          }`}
                         style={{ minWidth: '48px', minHeight: '48px' }}
                       >
-                        {isRecording ? <MicOff className="h-5 w-5" /> : 
-                         isTranscribing ? <Loader2 className="h-5 w-5 animate-spin" /> : 
-                         <Mic className="h-5 w-5" />}
+                        {isRecording ? <MicOff className="h-5 w-5" /> :
+                          isTranscribing ? <Loader2 className="h-5 w-5 animate-spin" /> :
+                            <Mic className="h-5 w-5" />}
                       </button>
-                      
+
                       <div className="flex-1 relative">
                         <input
                           type="text"
@@ -2624,11 +2619,11 @@ const Interview = () => {
                           onChange={(e) => setUserInput(e.target.value)}
                           onKeyPress={(e) => e.key === 'Enter' && !isSendDisabled && handleSendMessage()}
                           placeholder={
-                            isRecording ? "Listening..." : 
-                            isTranscribing ? "Transcribing..." :
-                            isSpeaking ? "AI is speaking..." :
-                            isThinking ? "AI is thinking..." :
-                            "Type your response..."
+                            isRecording ? "Listening..." :
+                              isTranscribing ? "Transcribing..." :
+                                isSpeaking ? "AI is speaking..." :
+                                  isThinking ? "AI is thinking..." :
+                                    "Type your response..."
                           }
                           disabled={isRecording || isSpeaking || isThinking || isTranscribing}
                           className="w-full py-3 px-4 bg-black/40 border border-white/10 rounded-lg focus:ring-1 focus:ring-blue-400/50 focus:outline-none pr-12 text-white/90 placeholder:text-white/30"
@@ -2636,9 +2631,8 @@ const Interview = () => {
                         <button
                           onClick={() => handleSendMessage()}
                           disabled={isSendDisabled}
-                          className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-2 ${
-                            isSendDisabled ? 'text-gray-600 cursor-not-allowed' : 'text-blue-400 hover:text-blue-300'
-                          }`}
+                          className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-2 ${isSendDisabled ? 'text-gray-600 cursor-not-allowed' : 'text-blue-400 hover:text-blue-300'
+                            }`}
                         >
                           <Send className="h-5 w-5" />
                         </button>
@@ -2647,7 +2641,7 @@ const Interview = () => {
                   </div>
                 </div>
               </div>
-              
+
               {/* User video section */}
               <div className={`md:w-1/4 md:h-full md:block ${viewMode === 'chat' ? 'hidden md:block' : 'block'}`}>
                 <div className="bg-white/5 border border-white/20 rounded-xl h-full flex flex-col shadow-lg overflow-hidden">
@@ -2661,15 +2655,14 @@ const Interview = () => {
                       </div>
                       <button
                         onClick={toggleCamera}
-                        className={`p-2 rounded-full ${
-                          isCameraOn ? 'bg-black/40 text-white border border-white/20' : 'bg-black/40 text-gray-400 border border-white/10'
-                        }`}
+                        className={`p-2 rounded-full ${isCameraOn ? 'bg-black/40 text-white border border-white/20' : 'bg-black/40 text-gray-400 border border-white/10'
+                          }`}
                       >
                         {isCameraOn ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
                       </button>
                     </div>
                   </div>
-                  
+
                   <div className="relative flex-1 flex items-center justify-center bg-black/50 rounded-b-xl overflow-hidden">
                     <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
                       <div className="absolute top-10 right-4 w-24 h-24 border border-white/20 rounded-full"></div>
@@ -2677,7 +2670,7 @@ const Interview = () => {
                       <div className="absolute top-1/3 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
                       <div className="absolute bottom-1/3 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
                     </div>
-                    
+
                     <div className="relative w-full h-full">
                       {isCameraOn ? (
                         <>
@@ -2689,7 +2682,7 @@ const Interview = () => {
                             className="w-full h-full object-cover transform scale-x-[-1]"
                           />
                           <canvas ref={canvasRef} className="hidden" />
-                          
+
                           {/* Brain button for manual analysis */}
                           <button
                             onClick={captureAndAnalyzeFrame}
@@ -2710,7 +2703,7 @@ const Interview = () => {
                           {cameraError}
                         </div>
                       )}
-                      
+
                       {/* Facial expression display */}
                       {facialExpressions && facialExpressions.emotions && (
                         <div className="absolute top-2 left-2 bg-black/70 p-2 rounded text-xs max-w-[180px] overflow-auto">
@@ -2724,8 +2717,8 @@ const Interview = () => {
                                 <div key={emotion.name} className="flex justify-between items-center mb-1">
                                   <span className="text-gray-300 capitalize">{emotion.name}:</span>
                                   <div className="flex items-center">
-                                    <div 
-                                      className="bg-white h-1.5 rounded-full" 
+                                    <div
+                                      className="bg-white h-1.5 rounded-full"
                                       style={{ width: `${emotion.score * 50}px` }}
                                     ></div>
                                     <span className="text-white ml-1">{(emotion.score * 100).toFixed(0)}%</span>
@@ -2737,14 +2730,14 @@ const Interview = () => {
                           )}
                         </div>
                       )}
-                      
+
                       {isAnalyzing && (
                         <div className="absolute bottom-2 right-2 bg-blue-500/70 px-2 py-1 rounded-full">
                           <span className="text-xs text-white">Analyzing...</span>
                         </div>
                       )}
                     </div>
-                    
+
                     {isRecording && (
                       <div className="absolute top-2 right-2 flex items-center bg-black/70 px-2 py-1 rounded-full">
                         <div className="w-2 h-2 rounded-full bg-red-500 mr-2 animate-pulse"></div>
@@ -2762,10 +2755,10 @@ const Interview = () => {
             {transcriptionError}
           </div>
         )}
-        
+
         {/* Add audio element for text-to-speech with controls for debugging */}
         <audio ref={audioRef} className="hidden" />
-        
+
         {/* Add speaking indicator */}
         {isSpeaking && (
           <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-blue-500 text-white px-4 py-2 rounded-full text-sm z-50 flex items-center gap-2">
