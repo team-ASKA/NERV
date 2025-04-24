@@ -8,8 +8,6 @@ import { db } from '../lib/firebase';
 import { collection, getDocs, query, where, setDoc, Timestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { extractTextFromPDF } from '../services/pdfService';
-import { StorageKey, saveData, loadData } from '../services/storageService';
-import { isValidPDF } from '../services/pdfValidationService';
 
 // Add proper type for user details
 type UserDetails = {
@@ -72,9 +70,6 @@ const Dashboard = () => {
 
   // Add this new state for the improvement plan summary
   const [latestImprovementPlan, setLatestImprovementPlan] = useState<any>(null);
-
-  // Add a new state variable for resume availability
-  const [resumeAvailable, setResumeAvailable] = useState(false);
 
   // Fetch user details from Firestore
   useEffect(() => {
@@ -151,20 +146,6 @@ const Dashboard = () => {
       }
     }
   }, [currentUser]);
-
-  // Load resume data from storage
-  useEffect(() => {
-    const loadResumeData = async () => {
-      try {
-        const resumeText = await loadData(StorageKey.ResumeText, '');
-        setResumeAvailable(!!resumeText);
-      } catch (error) {
-        console.error("Error loading resume data:", error);
-      }
-    };
-    
-    loadResumeData();
-  }, []);
 
   // Handle logout
   const handleLogout = async () => {
@@ -342,7 +323,7 @@ const Dashboard = () => {
     }
   };
 
-  // Handle resume upload
+  // Add this function to handle resume upload
   const handleResumeFileUpload = async () => {
     if (!file) {
       setUploadError('Please select a file first');
@@ -355,25 +336,8 @@ const Dashboard = () => {
     try {
       console.log("Starting PDF processing of file:", file.name, file.size/1024, "KB");
       
-      // First validate that this is a valid PDF
-      const isValid = await isValidPDF(file);
-      if (!isValid) {
-        setUploadError('The uploaded file does not appear to be a valid PDF. Please check the file and try again.');
-        setUploading(false);
-        return;
-      }
-      
       // Extract text from the PDF using our service
       const extractedText = await extractTextFromPDF(file);
-      
-      // Check if the extraction returned an error message
-      if (extractedText.startsWith('Failed to extract') || 
-          extractedText.startsWith('Could not extract') ||
-          extractedText.startsWith('The file')) {
-        setUploadError(extractedText);
-        setUploading(false);
-        return;
-      }
       
       console.log("Successfully extracted text from PDF, length:", extractedText.length);
       
@@ -384,11 +348,11 @@ const Dashboard = () => {
         return;
       }
       
-      // Store the extracted text using our storage service
-      await saveData(StorageKey.ResumeText, extractedText);
-      console.log("Stored resume text in storage service");
+      // Store the extracted text in localStorage for use in the interview
+      localStorage.setItem('resumeText', extractedText);
+      console.log("Stored resume text in localStorage");
       
-      // Update user metadata with file name
+      // Update user metadata with file name (but not URL, since we're processing locally)
       if (currentUser) {
         const userRef = doc(db, 'users', currentUser.uid);
         await updateDoc(userRef, {
@@ -403,9 +367,6 @@ const Dashboard = () => {
           resumeName: file.name,
           resumeURL: null
         }));
-        
-        // Update resume availability state
-        setResumeAvailable(true);
       }
       
       setFile(null);
@@ -734,7 +695,7 @@ const Dashboard = () => {
                             Your Resume
                           </h3>
                           
-                          {(userDetails?.resumeURL || resumeAvailable) ? (
+                          {(userDetails?.resumeURL || localStorage.getItem('resumeText')) ? (
                             <div>
                               <p className="text-sm text-gray-400 mb-2">Your resume is ready for interviews</p>
                               {userDetails?.resumeURL ? (
@@ -765,7 +726,7 @@ const Dashboard = () => {
                             onClick={() => document.getElementById('mobileResumeSection')?.scrollIntoView({ behavior: 'smooth' })}
                             className="mt-3 w-full py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-sm"
                           >
-                            {userDetails?.resumeURL || resumeAvailable ? 'Update Resume' : 'Add Resume'}
+                            {userDetails?.resumeURL || localStorage.getItem('resumeText') ? 'Update Resume' : 'Add Resume'}
                           </button>
                         </div>
 
@@ -776,7 +737,7 @@ const Dashboard = () => {
                             Your Resume
                           </h2>
                           
-                          {(userDetails?.resumeURL || resumeAvailable) ? (
+                          {(userDetails?.resumeURL || localStorage.getItem('resumeText')) ? (
                             <div className="mb-4">
                               <p className="text-gray-400 mb-2">Your resume is ready for interviews</p>
                               {userDetails?.resumeURL ? (

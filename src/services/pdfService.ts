@@ -1,145 +1,132 @@
 /**
- * PDF text extraction service using PDF.js
- */
-import * as pdfjsLib from 'pdfjs-dist';
-import { TextItem, PDFDocumentProxy } from 'pdfjs-dist/types/src/display/api';
-import { isValidPDF } from './pdfValidationService';
-
-// Initialize PDF.js with the worker
-// The worker is copied to /public/pdf.worker.min.js during build
-if (typeof window !== 'undefined' && 'Worker' in window) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-}
-
-/**
- * Fallback PDF text extraction using simple regex
- * This is a last resort if PDF.js fails to load
- * @param file - The PDF file to extract text from
- * @returns The extracted text
- */
-const fallbackExtractText = async (file: File): Promise<string> => {
-  try {
-    console.log("Using fallback PDF extraction method");
-    const arrayBuffer = await file.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    const textDecoder = new TextDecoder('utf-8');
-    const content = textDecoder.decode(uint8Array);
-    
-    // Look for text between parentheses, which often contains readable text in PDFs
-    const parenthesesText = content.match(/\([^\)]{2,100}\)/g) || [];
-    let extractedText = '';
-    
-    parenthesesText.forEach(match => {
-      const cleaned = match.replace(/[()]/g, '').trim();
-      if (cleaned.length > 2 && /[a-zA-Z]{3,}/.test(cleaned)) {
-        extractedText += cleaned + ' ';
-      }
-    });
-    
-    // Clean up and format
-    extractedText = extractedText
-      .replace(/\s+/g, ' ')
-      .replace(/[^\x20-\x7E]/g, ' ')
-      .trim();
-    
-    return extractedText || `Could not extract text from ${file.name}. The file might be encrypted, scanned, or contain only images.`;
-  } catch (error) {
-    console.error('Error in fallback PDF extraction:', error);
-    return `Failed to extract text from ${file.name}.`;
-  }
-};
-
-/**
- * Extract text from a PDF file using PDF.js library
+ * Extract text from a PDF file
  * @param file - The PDF file to extract text from
  * @returns The extracted text
  */
 export const extractTextFromPDF = async (file: File): Promise<string> => {
   try {
-    // Check if the file is valid
-    if (!await isValidPDF(file)) {
-      return `The file ${file.name} does not appear to be a valid PDF.`;
-    }
+    // Create a URL for the file
+    const fileURL = URL.createObjectURL(file);
     
-    // Log file details
-    console.log("PDF extraction: Processing file", file.name, "of size", (file.size / 1024).toFixed(2), "KB");
-    
-    // Convert file to ArrayBuffer
+    // Read the PDF file as an ArrayBuffer
     const arrayBuffer = await file.arrayBuffer();
     
-    // Ensure the worker is loaded before proceeding
-    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-      console.warn("PDF.js worker source is not set. Setting to default location.");
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-    }
-    
-    try {
-      // Try to load the PDF using PDF.js
-      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-      let pdf: PDFDocumentProxy;
+    // Use FileReader as a fallback method to extract text
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
       
-      try {
-        // Set a timeout for PDF loading
-        const pdfPromise = loadingTask.promise;
-        
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('PDF loading timed out')), 15000);
-        });
-        
-        pdf = await Promise.race([pdfPromise, timeoutPromise]);
-      } catch (timeoutError) {
-        console.error('PDF loading timed out or failed:', timeoutError);
-        return await fallbackExtractText(file);
-      }
-      
-      console.log("PDF loaded successfully with", pdf.numPages, "pages");
-      
-      // Initialize text collection
-      let extractedText = '';
-      
-      // Process each page
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      reader.onload = async (event) => {
         try {
-          // Get the page
-          const page = await pdf.getPage(pageNum);
+          // Simple text extraction approach
+          // This is not ideal but works as a fallback without external libraries
+          const buffer = event.target?.result as ArrayBuffer;
+          let text = '';
           
-          // Get text content from the page
-          const textContent = await page.getTextContent();
+          // Convert ArrayBuffer to string and try to extract plain text
+          const uint8Array = new Uint8Array(buffer);
+          const textDecoder = new TextDecoder('utf-8');
+          const content = textDecoder.decode(uint8Array);
           
-          // Extract text items and join them with spaces
-          const pageText = textContent.items
-            .map((item) => ('str' in item ? (item as TextItem).str : ''))
-            .join(' ');
+          console.log("PDF extraction: Processing file of size", file.size / 1024, "KB");
           
-          extractedText += pageText + '\n\n';
-        } catch (pageError) {
-          console.error(`Error processing page ${pageNum}:`, pageError);
-          extractedText += `[Error extracting content from page ${pageNum}]\n\n`;
+          // Extract text content between markers (enhanced heuristic approach)
+          // Look for common PDF text markers
+          const textMarkers = [
+            /\/Text/g,
+            /\/T\s/g,
+            /\/Contents/g, 
+            /\/TJ/g, 
+            /\/Tj/g,
+            /\([\w\s.,;:'"!?&()\-+]*\)/g,
+            /\[((?:\([^\)]*\)|<[^>]*>)[^\]]*)\]/g  // Array of text objects
+          ];
+          
+          // First pass - extract potential content areas
+          let potentialContent = '';
+          
+          // Extract text between BT and ET tags (Begin Text/End Text)
+          const textBlocks = content.match(/BT[\s\S]*?ET/g) || [];
+          textBlocks.forEach(block => {
+            potentialContent += block + '\n';
+          });
+          
+          // Process both the full content and potential content areas
+          [content, potentialContent].forEach(contentToProcess => {
+            textMarkers.forEach(marker => {
+              const matches = contentToProcess.match(marker);
+              if (matches) {
+                matches.forEach(match => {
+                  // Clean up the matched text
+                  const cleaned = match.replace(/[()\/\\<>\[\]]/g, ' ').trim();
+                  if (cleaned.length > 2) {
+                    text += cleaned + ' ';
+                  }
+                });
+              }
+            });
+          });
+          
+          // Clean up the text
+          text = text
+            // Remove repeated whitespace
+            .replace(/\s+/g, ' ')
+            // Remove strange control characters
+            .replace(/[^\x20-\x7E]/g, ' ')
+            // Clean up potential PDF artifacts
+            .replace(/\s+/g, ' ')
+            .trim();
+          
+          // If text extraction fails or produces too little content, try a different approach
+          if (text.length < 100) {
+            console.log("Initial extraction yielded insufficient text, trying secondary method");
+            
+            // Secondary method: try to find text between parentheses and decode hex values
+            const parenthesesText = content.match(/\([^\)]*\)/g) || [];
+            let secondaryText = '';
+            
+            parenthesesText.forEach(match => {
+              const cleaned = match.replace(/[()]/g, '').trim();
+              if (cleaned.length > 2) {
+                secondaryText += cleaned + ' ';
+              }
+            });
+            
+            // If secondary method produced more text, use it
+            if (secondaryText.length > text.length) {
+              text = secondaryText;
+            }
+            
+            // If still insufficient, add diagnostic info
+            if (text.length < 100) {
+              text = `PDF text extraction resulted in limited content. Here's what could be extracted: 
+              
+              ${text}
+              
+              The PDF appears to be ${(file.size / 1024).toFixed(2)} KB in size and is named ${file.name}.`;
+            }
+          }
+          
+          console.log("PDF extraction: Extracted text length:", text.length);
+          
+          // Clean up
+          URL.revokeObjectURL(fileURL);
+          
+          resolve(text);
+        } catch (error) {
+          console.error("PDF extraction error in reader.onload:", error);
+          reject(error);
         }
-      }
+      };
       
-      // Clean up the text: remove excessive whitespace, normalize line breaks
-      const cleanedText = extractedText
-        .replace(/\s+/g, ' ')
-        .replace(/\n\s*\n/g, '\n\n')
-        .trim();
+      reader.onerror = (error) => {
+        console.error("PDF extraction error in reader.onerror:", error);
+        reject(error);
+      };
       
-      // Validate the extracted content
-      if (cleanedText.length < 50) {
-        console.warn("PDF extraction yielded very little text content:", cleanedText.length, "characters");
-        // Try fallback method instead
-        return await fallbackExtractText(file);
-      }
-      
-      console.log("PDF extraction: Successfully extracted", cleanedText.length, "characters");
-      return cleanedText;
-    } catch (pdfJsError) {
-      // If PDF.js fails, try the fallback method
-      console.error('PDF.js extraction failed, using fallback method:', pdfJsError);
-      return await fallbackExtractText(file);
-    }
+      reader.readAsArrayBuffer(file);
+    });
   } catch (error) {
     console.error('Error extracting text from PDF:', error);
-    return `Failed to extract text from PDF: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    throw new Error('Failed to extract text from PDF');
   }
 };
