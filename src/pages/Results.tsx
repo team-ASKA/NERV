@@ -7,6 +7,9 @@ import { FaVideo } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { InterviewRoundType } from '../types/interview';
+import { Bar } from 'react-chartjs-2';
+import 'chart.js/auto';
 
 interface EmotionData {
   name: string;
@@ -18,6 +21,7 @@ interface EmotionItem {
   answer: string;
   emotions: EmotionData[];
   timestamp: string;
+  roundType?: InterviewRoundType;
 }
 
 interface InterviewResults {
@@ -26,6 +30,12 @@ interface InterviewResults {
   emotionsData: EmotionItem[];
   transcriptions: string[];
   timestamp: string;
+  roundType?: InterviewRoundType;
+  rounds?: Record<InterviewRoundType, {
+    summary?: string;
+    emotionsData: EmotionItem[];
+    transcriptions: string[];
+  }>;
 }
 
 interface UserSkills {
@@ -64,13 +74,34 @@ interface ImprovementPlan {
   generatedAt: string;
 }
 
+// Helper function to group emotions data by interview round
+const groupEmotionsByRound = (emotionsData: EmotionItem[]) => {
+  // Initialize with the enum values as keys
+  const grouped: Record<string, EmotionItem[]> = {
+    [InterviewRoundType.TECHNICAL]: [],
+    [InterviewRoundType.BEHAVIORAL]: [],
+    [InterviewRoundType.HR]: [],
+    'unspecified': []
+  };
+  
+  emotionsData.forEach(item => {
+    if (item.roundType) {
+      grouped[item.roundType].push(item);
+    } else {
+      grouped['unspecified'].push(item);
+    }
+  });
+  
+  return grouped;
+};
+
 const Results = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   const [results, setResults] = useState<InterviewResults | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState(0);
+  const [activeTab, setActiveTab] = useState<string>('summary');
   const [userSkills, setUserSkills] = useState<UserSkills>({ skills: [], expertise: [] });
   const [skillAnalysis, setSkillAnalysis] = useState<{
     matchedSkills: string[];
@@ -86,7 +117,11 @@ const Results = () => {
   // New state for the improvement plan
   const [improvementPlan, setImprovementPlan] = useState<ImprovementPlan | null>(null);
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
-  const tabs = ["Summary", "Transcription", "Emotional Analysis", "Skill Gap Analysis", "Improvement Plan"];
+  const [currentTranscriptPage, setCurrentTranscriptPage] = useState(1);
+  const itemsPerPage = 5;
+  const tabs = ["summary", "emotions", "transcript", "skills", "improvement"];
+  const [selectedRound, setSelectedRound] = useState<InterviewRoundType | 'overall'>('overall');
+  const [hasMultipleRounds, setHasMultipleRounds] = useState<boolean>(false);
 
   useEffect(() => {
     // Get results from localStorage
@@ -179,6 +214,11 @@ const Results = () => {
           }
           
           setResults(parsedResults);
+          
+          // Check if this is a multi-round interview
+          if (parsedResults.rounds && Object.keys(parsedResults.rounds).length > 0) {
+            setHasMultipleRounds(true);
+          }
         } else {
           console.log("No stored interview results found");
           
@@ -821,11 +861,13 @@ ${skillGapText}
   };
 
   const nextTab = () => {
-    setActiveTab((prev) => (prev === tabs.length - 1 ? 0 : prev + 1));
+    const currentIndex = tabs.indexOf(activeTab);
+    setActiveTab(tabs[(currentIndex + 1) % tabs.length]);
   };
 
   const prevTab = () => {
-    setActiveTab((prev) => (prev === 0 ? tabs.length - 1 : prev - 1));
+    const currentIndex = tabs.indexOf(activeTab);
+    setActiveTab(tabs[(currentIndex - 1 + tabs.length) % tabs.length]);
   };
 
   // Helper function to get emotion color
@@ -854,6 +896,144 @@ ${skillGapText}
     
     const lowerName = name.toLowerCase();
     return emotionColors[lowerName] || emotionColors.default;
+  };
+
+  const getRoundData = (roundType: InterviewRoundType | 'overall') => {
+    if (!results || !results.emotionsData || !results.transcriptions) return null;
+    
+    if (roundType === 'overall' || !hasMultipleRounds) {
+      return {
+        summary: results.summary,
+        emotionsData: results.emotionsData,
+        transcriptions: results.transcriptions
+      };
+    }
+    
+    if (results.rounds && results.rounds[roundType]) {
+      return {
+        ...results.rounds[roundType],
+        summary: results.rounds[roundType]?.summary || '',
+        emotionsData: results.rounds[roundType]?.emotionsData || [],
+        transcriptions: results.rounds[roundType]?.transcriptions || []
+      };
+    }
+    
+    return results;
+  };
+
+  const RoundSelector = () => {
+    if (!hasMultipleRounds) return null;
+    
+    const rounds = results?.rounds ? Object.keys(results.rounds) as InterviewRoundType[] : [];
+    
+    return (
+      <div className="mb-6 border-b border-gray-800">
+        <div className="flex space-x-1">
+          <button
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+              selectedRound === 'overall' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
+            }`}
+            onClick={() => setSelectedRound('overall')}
+          >
+            Overall Results
+          </button>
+          
+          {rounds.map((round) => (
+            <button
+              key={round}
+              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                selectedRound === round ? `border-${getEmotionColor(round as InterviewRoundType).slice(1)} text-${getEmotionColor(round as InterviewRoundType).slice(1)}` : 'border-transparent text-gray-400 hover:text-gray-300'
+              }`}
+              onClick={() => setSelectedRound(round as InterviewRoundType)}
+              style={{ borderColor: selectedRound === round ? getEmotionColor(round as InterviewRoundType) : 'transparent' }}
+            >
+              <div className="flex items-center gap-2">
+                <div 
+                  className="w-2 h-2 rounded-full" 
+                  style={{ backgroundColor: getEmotionColor(round as InterviewRoundType) }}
+                ></div>
+                {round}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const getEmotionsChartData = (emotionsData: any[]) => {
+    if (!emotionsData || emotionsData.length === 0) {
+      return null;
+    }
+
+    // Count emotions across all answers
+    const emotionCounts: Record<string, number> = {};
+    emotionsData.forEach((item: any) => {
+      if (item.emotions && item.emotions.length > 0) {
+        item.emotions.forEach((emotion: any) => {
+          if (emotion.score > 0.4) { // Only count significant emotions
+            emotionCounts[emotion.name] = (emotionCounts[emotion.name] || 0) + (emotion.score);
+          }
+        });
+      }
+    });
+
+    // Sort and get top emotions
+    const sortedEmotions = Object.entries(emotionCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6);
+
+    return {
+      labels: sortedEmotions.map(([name]) => name),
+      datasets: [
+        {
+          label: 'Emotion Score',
+          data: sortedEmotions.map(([, count]) => (count / emotionsData.length).toFixed(2)),
+          backgroundColor: [
+            'rgba(54, 162, 235, 0.6)',
+            'rgba(255, 99, 132, 0.6)',
+            'rgba(75, 192, 192, 0.6)',
+            'rgba(255, 206, 86, 0.6)',
+            'rgba(153, 102, 255, 0.6)',
+            'rgba(255, 159, 64, 0.6)',
+          ],
+          borderColor: [
+            'rgba(54, 162, 235, 1)',
+            'rgba(255, 99, 132, 1)',
+            'rgba(75, 192, 192, 1)',
+            'rgba(255, 206, 86, 1)',
+            'rgba(153, 102, 255, 1)',
+            'rgba(255, 159, 64, 1)',
+          ],
+          borderWidth: 1,
+        },
+      ],
+    };
+  };
+
+  // Add the missing getRoundName function
+  const getRoundName = (roundType: InterviewRoundType | string): string => {
+    switch (roundType) {
+      case InterviewRoundType.TECHNICAL:
+        return 'Technical Round';
+      case InterviewRoundType.BEHAVIORAL:
+        return 'Behavioral Round';
+      case InterviewRoundType.HR:
+        return 'HR Round';
+      case 'unspecified':
+        return 'Interview';
+      case 'overall':
+        return 'Overall Interview';
+      default:
+        return 'Interview Round';
+    }
+  };
+
+  // Pagination helper function
+  const paginate = (items: any[], currentPage: number) => {
+    const indexOfLastItem = currentPage * itemsPerPage;
+    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+    return items.slice(indexOfFirstItem, indexOfLastItem);
   };
 
   return (
@@ -906,761 +1086,259 @@ ${skillGapText}
           </motion.div>
         ) : results ? (
           <div className="space-y-8">
-            {/* Tab Navigation */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-              className="flex justify-between items-center"
-            >
-              <div className="flex space-x-2">
-                <button 
-                  onClick={prevTab}
-                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
+            <RoundSelector />
+            
+            {/* Tabs for different sections */}
+            <div className="border-b border-gray-800 mb-6">
+              <div className="flex space-x-6">
+                <button
+                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === 'summary' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
+                  }`}
+                  onClick={() => setActiveTab('summary')}
                 >
-                  <ChevronLeft className="h-5 w-5" />
+                  Summary
                 </button>
-                <div className="flex bg-black/30 backdrop-blur-sm rounded-lg border border-white/10 overflow-hidden">
-                  {tabs.map((tab, index) => (
-                    <button
-                      key={index}
-                      onClick={() => setActiveTab(index)}
-                      className={`px-4 py-2 font-medium transition-colors ${
-                        activeTab === index 
-                          ? "bg-white text-black" 
-                          : "text-white hover:bg-white/10"
-                      }`}
-                    >
-                      {tab}
-                    </button>
-                  ))}
-                </div>
-                <button 
-                  onClick={nextTab}
-                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                <button
+                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === 'emotions' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
+                  }`}
+                  onClick={() => setActiveTab('emotions')}
                 >
-                  <ChevronRight className="h-5 w-5" />
+                  Emotional Analysis
+                </button>
+                <button
+                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === 'transcript' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
+                  }`}
+                  onClick={() => setActiveTab('transcript')}
+                >
+                  Transcript
                 </button>
               </div>
-              
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                transition={{ duration: 0.2 }}
-                onClick={handleDownloadResults}
-                className="flex items-center px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
-              >
-                <Download className="h-5 w-5 mr-2" />
-                Download
-              </motion.button>
-            </motion.div>
+            </div>
             
-            {/* Tab Content with Swipe Animation */}
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-              className="min-h-[60vh]"
-            >
-              {/* Summary Tab */}
-              {activeTab === 0 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.5 }}
-                  className="p-8 rounded-xl bg-black/80 backdrop-blur-sm border border-white/10 hover:border-white/30 transition-all"
-                >
-                  <div className="flex items-center mb-6">
-                    <Brain className="h-6 w-6 text-white mr-3" />
-                    <h2 className="font-montserrat font-semibold text-2xl">Interview Summary</h2>
+            {/* Summary Tab */}
+            {activeTab === 'summary' && (
+              <div className="bg-black/30 border border-gray-800 rounded-xl p-6 mb-8">
+                <div className="mb-4 flex items-center">
+                  <div className="h-10 w-10 rounded-full bg-blue-500/20 flex items-center justify-center mr-3">
+                    <Brain className="h-5 w-5 text-blue-400" />
                   </div>
-                  
-                  {results.summary ? (
-                    <div className="space-y-6">
-                      {/* Animated card with overall assessment */}
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.4 }}
-                        className="bg-gradient-to-r from-blue-900/40 to-indigo-900/40 p-6 rounded-xl border border-blue-500/30 shadow-lg"
-                      >
-                        <div className="flex items-center mb-3">
-                          <BarChart2 className="h-5 w-5 text-blue-400 mr-2" />
-                          <h3 className="text-xl font-semibold text-blue-300">Overall Assessment</h3>
-                        </div>
-                        <div className="prose prose-invert max-w-none prose-p:text-white/90 prose-headings:text-white/90 prose-a:text-blue-300">
-                          {/* Extract and display the first paragraph as the overall assessment */}
-                          <ReactMarkdown>
-                            {results.summary.split('\n\n')[0]}
-                          </ReactMarkdown>
-                        </div>
-                      </motion.div>
-
-                      {/* Strengths section */}
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.4, delay: 0.1 }}
-                        className="bg-gradient-to-r from-green-900/40 to-emerald-900/40 p-6 rounded-xl border border-green-500/30 shadow-lg"
-                      >
-                        <div className="flex items-center mb-3">
-                          <CheckCircle2 className="h-5 w-5 text-green-400 mr-2" />
-                          <h3 className="text-xl font-semibold text-green-300">Strengths</h3>
-                        </div>
-                        <div className="prose prose-invert max-w-none prose-p:text-white/90 prose-headings:text-white/90 prose-a:text-green-300">
-                          {/* Extract strengths section if it exists */}
-                          <ReactMarkdown>
-                            {results.summary.includes('Strengths') ? 
-                              results.summary.split('Strengths')[1].split('Areas for Improvement')[0] : 
-                              results.summary.split('\n\n')[1] || ''}
-                          </ReactMarkdown>
-                        </div>
-                      </motion.div>
-
-                      {/* Areas for improvement section */}
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.4, delay: 0.2 }}
-                        className="bg-gradient-to-r from-amber-900/40 to-orange-900/40 p-6 rounded-xl border border-amber-500/30 shadow-lg"
-                      >
-                        <div className="flex items-center mb-3">
-                          <AlertTriangle className="h-5 w-5 text-amber-400 mr-2" />
-                          <h3 className="text-xl font-semibold text-amber-300">Areas for Improvement</h3>
-                        </div>
-                        <div className="prose prose-invert max-w-none prose-p:text-white/90 prose-headings:text-white/90 prose-a:text-amber-300">
-                          {/* Extract areas for improvement section if it exists */}
-                          <ReactMarkdown>
-                            {results.summary.includes('Areas for Improvement') ? 
-                              results.summary.split('Areas for Improvement')[1].split('Recommendations')[0] : 
-                              results.summary.split('\n\n')[2] || ''}
-                          </ReactMarkdown>
-                        </div>
-                      </motion.div>
-
-                      {/* Recommendations section */}
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.4, delay: 0.3 }}
-                        className="bg-gradient-to-r from-purple-900/40 to-violet-900/40 p-6 rounded-xl border border-purple-500/30 shadow-lg"
-                      >
-                        <div className="flex items-center mb-3">
-                          <ArrowUpRight className="h-5 w-5 text-purple-400 mr-2" />
-                          <h3 className="text-xl font-semibold text-purple-300">Recommendations</h3>
-                        </div>
-                        <div className="prose prose-invert max-w-none prose-p:text-white/90 prose-headings:text-white/90 prose-a:text-purple-300">
-                          {/* Extract recommendations section if it exists */}
-                          <ReactMarkdown>
-                            {results.summary.includes('Recommendations') ? 
-                              results.summary.split('Recommendations')[1] : 
-                              results.summary.split('\n\n')[3] || ''}
-                          </ReactMarkdown>
-                        </div>
-                      </motion.div>
-
-                      {/* Key points section */}
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.4, delay: 0.4 }}
-                        className="bg-gradient-to-r from-gray-800/40 to-gray-700/40 p-6 rounded-xl border border-gray-500/30 shadow-lg"
-                      >
-                        <div className="flex items-center mb-3">
-                          <List className="h-5 w-5 text-gray-400 mr-2" />
-                          <h3 className="text-xl font-semibold text-gray-300">Key Points</h3>
-                        </div>
-                        <div className="prose prose-invert max-w-none prose-p:text-white/90 prose-headings:text-white/90 prose-a:text-gray-300">
-                          {/* Display full summary as fallback */}
-                          <ReactMarkdown>
-                            {results.summary.split('\n\n').slice(4).join('\n\n') || ''}
-                          </ReactMarkdown>
-                        </div>
-                      </motion.div>
-                    </div>
-                  ) : (
-                    <div className="bg-gradient-to-r from-gray-900/40 to-gray-800/40 p-6 rounded-xl border border-gray-500/30 shadow-lg">
-                      <h3 className="text-xl font-semibold text-white mb-3">Interview Completed</h3>
-                      <p className="text-white/80 mb-2">You've successfully completed your interview with NERV AI.</p>
-                      <p className="text-white/80 mb-2">Check the Transcription tab to review your conversation, and the Emotional Analysis tab to see insights about your emotional expressions during the interview.</p>
-                      <p className="text-white/80">To start a new interview, click the "Start New Interview" button below.</p>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-              
-              {/* Transcription Tab */}
-              {activeTab === 1 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.5 }}
-                  className="p-8 rounded-xl bg-black/80 backdrop-blur-sm border border-white/10 hover:border-white/30 transition-all"
-                >
-                  <div className="flex items-center mb-6">
-                    <MessageSquare className="h-6 w-6 text-white mr-3" />
-                    <h2 className="font-montserrat font-semibold text-2xl">Conversation Transcript</h2>
+                  <h2 className="text-xl font-bold">
+                    {hasMultipleRounds && selectedRound !== 'overall'
+                      ? `${selectedRound} Summary`
+                      : 'AI Generated Summary'
+                    }
+                  </h2>
+                </div>
+                <div className="prose prose-invert max-w-none">
+                  <ReactMarkdown>
+                    {getRoundData(selectedRound)?.summary || 'No summary was generated for this interview.'}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            )}
+            
+            {/* Emotions Tab */}
+            {activeTab === 'emotions' && (
+              <div className="space-y-6">
+                <div className="overflow-hidden rounded-xl border border-gray-800">
+                  <div className="bg-black/40 border-b border-gray-800 px-4 py-3">
+                    <h3 className="text-lg font-semibold text-white">
+                      {hasMultipleRounds && selectedRound !== 'overall'
+                        ? `${selectedRound} Emotional Analysis`
+                        : 'Emotional Analysis by Round'
+                      }
+                    </h3>
                   </div>
-                  {results.emotionsData && results.emotionsData.length > 0 ? (
-                    <div className="space-y-6">
-                      {results.emotionsData.map((item, index) => (
-                        <motion.div
-                          key={index}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.3, delay: index * 0.1 }}
-                          className="bg-black/30 p-6 rounded-lg border border-white/10 hover:border-white/30 transition-colors"
-                        >
-                          <div className="flex items-start mb-4">
-                            <div className="bg-white/10 rounded-full p-2 mr-3">
-                              <Bot className="h-5 w-5 text-white" />
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-white/90">{item.question}</p>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-start ml-6">
-                            <div className="bg-white/10 rounded-full p-2 mr-3">
-                              <User className="h-5 w-5 text-white" />
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-white/80">{item.answer}</p>
-                            </div>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-white/60">No transcriptions available</p>
-                  )}
-                </motion.div>
-              )}
-              
-              {/* Emotional Analysis Tab */}
-              {activeTab === 2 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.5 }}
-                  className="p-8 rounded-xl bg-black/80 backdrop-blur-sm border border-white/10 hover:border-white/30 transition-all"
-                >
-                  <div className="flex items-center mb-6">
-                    <FaVideo className="h-6 w-6 text-white mr-3" />
-                    <h2 className="font-montserrat font-semibold text-2xl">Emotional Analysis</h2>
-                  </div>
-                  {results.emotionsData && results.emotionsData.length > 0 ? (
-                    <div className="space-y-8">
-                      {results.emotionsData.map((item, index) => (
-                        <motion.div
-                          key={index}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.3, delay: index * 0.1 }}
-                          className="border-b border-white/10 pb-6 last:border-0"
-                        >
-                          <div className="flex flex-col md:flex-row md:items-start gap-6">
-                            <div className="flex-1">
-                              <h3 className="font-medium text-white/90 mb-2 text-lg">Question {index + 1}</h3>
-                              <p className="text-white/70 mb-3 italic">"{item.question}"</p>
-                              <div className="bg-black/30 p-4 rounded-lg border border-white/10 mb-4">
-                                <p className="text-white/80">{item.answer}</p>
-                              </div>
-                            </div>
-                            
-                            <div className="md:w-1/3">
-                              <h4 className="text-sm text-white/90 mb-3 uppercase tracking-wider font-semibold">Detected Emotions</h4>
-                              <div className="space-y-2">
-                                {item.emotions && Array.isArray(item.emotions) && item.emotions.length > 0 ? 
-                                  item.emotions.slice(0, 5).map((emotion, idx) => {
-                                    const score = (emotion.score || 0) * 100;
-                                    
-                                    return (
-                                      <motion.div
-                                        key={idx}
-                                        initial={{ width: 0 }}
-                                        animate={{ width: "100%" }}
-                                        transition={{ duration: 0.5, delay: idx * 0.1 }}
-                                        className="bg-black/50 rounded-lg p-3"
-                                      >
-                                        <div className="flex justify-between items-center mb-1">
-                                          <span className="capitalize font-medium text-white/90">{emotion.name || 'Unknown'}</span>
-                                          <span className="text-white/80 font-semibold">{score.toFixed(0)}%</span>
-                                        </div>
-                                        <div className="w-full bg-white/10 rounded-full h-2">
-                                          <motion.div 
-                                            initial={{ width: 0 }}
-                                            animate={{ width: `${score}%` }}
-                                            transition={{ duration: 0.8, delay: idx * 0.1 }}
-                                            className={`${getEmotionColor(emotion.name || '')} h-2 rounded-full`}
-                                          ></motion.div>
-                                        </div>
-                                      </motion.div>
-                                    );
-                                  }) : (
-                                    <div className="bg-black/30 p-4 rounded-lg text-white/60">No emotion data available</div>
-                                  )
-                                }
-                              </div>
-                            </div>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-white/60">No emotional data recorded</p>
-                  )}
-                </motion.div>
-              )}
-              
-              {/* Skill Gap Analysis Tab */}
-              {activeTab === 3 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.5 }}
-                  className="p-8 rounded-xl bg-black/80 backdrop-blur-sm border border-white/10 hover:border-white/30 transition-all"
-                >
-                  <div className="flex items-center mb-6">
-                    <BarChart2 className="h-6 w-6 text-white mr-3" />
-                    <h2 className="font-montserrat font-semibold text-2xl">Skill Gap Analysis</h2>
-                  </div>
-                  
-                  {userSkills.skills.length > 0 ? (
-                    <div className="space-y-8">
-                      {/* Overall Score */}
-                      <div className="bg-black/40 rounded-lg p-6 border border-white/10">
-                        <h3 className="text-lg font-medium mb-4">Resume Skills Utilization</h3>
-                        <div className="flex flex-col sm:flex-row items-center justify-between">
-                          <div className="relative w-32 h-32 mb-4 sm:mb-0">
-                            <svg className="w-full h-full" viewBox="0 0 36 36">
-                              <path
-                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                fill="none"
-                                stroke="#2a2a2a"
-                                strokeWidth="3"
-                              />
-                              <path
-                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                fill="none"
-                                stroke="url(#gradient)"
-                                strokeWidth="3"
-                                strokeDasharray={`${skillAnalysis.overallScore}, 100`}
-                              />
-                              <defs>
-                                <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                                  <stop offset="0%" stopColor="#4F46E5" />
-                                  <stop offset="100%" stopColor="#8B5CF6" />
-                                </linearGradient>
-                              </defs>
-                            </svg>
-                            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
-                              <div className="text-2xl font-bold">{skillAnalysis.overallScore}%</div>
-                              <div className="text-xs text-gray-400">Skills Utilized</div>
-                            </div>
-                          </div>
-                          
-                          <div className="flex-1 ml-4">
-                            <p className="text-white/70 mb-4">
-                              {skillAnalysis.overallScore > 70 
-                                ? "You effectively demonstrated a high percentage of your resume skills during the interview. Great job!"
-                                : skillAnalysis.overallScore > 40
-                                ? "You demonstrated some of the skills from your resume during the interview, but could improve on highlighting more of your expertise."
-                                : "You demonstrated few of the skills listed in your resume during the interview. Focus on weaving your key skills into your answers."}
-                            </p>
-                            <p className="text-white/60 text-sm">
-                              Based on {userSkills.skills.length} skills in your profile and {skillAnalysis.matchedSkills.length} mentioned during your interview.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Skills Analysis */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Demonstrated Skills */}
-                        <div className="bg-black/40 rounded-lg p-6 border border-white/10">
-                          <div className="flex items-center mb-4">
-                            <CheckCircle2 className="h-5 w-5 text-green-500 mr-2" />
-                            <h3 className="text-lg font-medium">Demonstrated Resume Skills</h3>
-                          </div>
-                          
-                          {skillAnalysis.matchedSkills.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {skillAnalysis.matchedSkills.map((skill, index) => (
-                                <motion.span
-                                  key={index}
-                                  initial={{ opacity: 0, scale: 0.8 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  transition={{ duration: 0.3, delay: index * 0.05 }}
-                                  className="px-3 py-1 rounded-full bg-green-500/20 text-green-400 text-sm border border-green-500/30"
-                                >
-                                  {skill}
-                                </motion.span>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-white/60">No skills from your resume were mentioned during the interview.</p>
-                          )}
-                        </div>
+                  <div className="bg-black/20 p-4">
+                    <div className="grid gap-4">
+                      {Object.entries(groupEmotionsByRound(getRoundData(selectedRound)?.emotionsData || [])).map(([roundType, items]) => {
+                        if (items.length === 0) return null;
                         
-                        {/* Missing Skills */}
-                        <div className="bg-black/40 rounded-lg p-6 border border-white/10">
-                          <div className="flex items-center mb-4">
-                            <AlertTriangle className="h-5 w-5 text-amber-500 mr-2" />
-                            <h3 className="text-lg font-medium">Unmentiond Resume Skills</h3>
-                          </div>
-                          
-                          {skillAnalysis.missingSkills.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {skillAnalysis.missingSkills.map((skill, index) => (
-                                <motion.span
-                                  key={index}
-                                  initial={{ opacity: 0, scale: 0.8 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  transition={{ duration: 0.3, delay: index * 0.05 }}
-                                  className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-sm border border-amber-500/30"
-                                >
-                                  {skill}
-                                </motion.span>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-white/60">You mentioned all skills from your resume. Great job!</p>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* Recommendations */}
-                      <div className="bg-black/40 rounded-lg p-6 border border-white/10">
-                        <div className="flex items-center mb-4">
-                          <ArrowUpRight className="h-5 w-5 text-blue-500 mr-2" />
-                          <h3 className="text-lg font-medium">Improvement Recommendations</h3>
-                        </div>
+                        // Skip filtering by round if we're already showing round-specific data
+                        if (hasMultipleRounds && selectedRound !== 'overall' && roundType !== selectedRound && roundType !== 'unspecified') {
+                          return null;
+                        }
                         
-                        <div className="space-y-4">
-                          <p className="text-white/70">
-                            Based on your interview performance and resume skills, here are some recommendations to improve your skill presentation:
-                          </p>
-                          
-                          <ul className="space-y-3">
-                            {skillAnalysis.missingSkills.length > 0 && (
-                              <li className="flex items-start">
-                                <List className="h-5 w-5 text-white/70 mr-2 flex-shrink-0 mt-0.5" />
-                                <span className="text-white/70">
-                                  Highlight your <strong className="text-white/90">{skillAnalysis.missingSkills.slice(0, 3).join(', ')}</strong> skills in future interviews, as they were in your resume but not mentioned.
-                                </span>
-                              </li>
-                            )}
-                            
-                            <li className="flex items-start">
-                              <List className="h-5 w-5 text-white/70 mr-2 flex-shrink-0 mt-0.5" />
-                              <span className="text-white/70">
-                                Provide specific examples that demonstrate your resume skills rather than just listing them.
-                              </span>
-                            </li>
-                            
-                            <li className="flex items-start">
-                              <List className="h-5 w-5 text-white/70 mr-2 flex-shrink-0 mt-0.5" />
-                              <span className="text-white/70">
-                                Consider adding these relevant skills to your resume:
-                              </span>
-                            </li>
-                          </ul>
-                          
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {skillAnalysis.recommendedSkills.map((skill, index) => (
-                              <motion.span
-                                key={index}
-                                initial={{ opacity: 0, scale: 0.8 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                transition={{ duration: 0.3, delay: index * 0.05 }}
-                                className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 text-sm border border-blue-500/30"
-                              >
-                                {skill}
-                              </motion.span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-10">
-                      <p className="text-gray-400 mb-4">No resume data was found. Please upload your resume to enable skill gap analysis.</p>
-                      <button
-                        onClick={() => navigate('/dashboard')}
-                        className="px-4 py-2 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all"
-                      >
-                        Go to Dashboard
-                      </button>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-              
-              {/* Improvement Plan Tab - NEW */}
-              {activeTab === 4 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.5 }}
-                  className="p-8 rounded-xl bg-black/80 backdrop-blur-sm border border-white/10 hover:border-white/30 transition-all"
-                >
-                  <div className="flex items-center mb-6">
-                    <Brain className="h-6 w-6 text-white mr-3" />
-                    <h2 className="font-montserrat font-semibold text-2xl">Improvement Plan</h2>
-                  </div>
-                  
-                  {!improvementPlan && !isGeneratingPlan && (
-                    <div className="text-center py-8">
-                      <p className="text-white/70 mb-6">Generate a personalized improvement plan based on your interview performance.</p>
-                      <button
-                        onClick={generateImprovementPlan}
-                        className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all flex items-center justify-center mx-auto"
-                      >
-                        <Brain className="h-5 w-5 mr-2" />
-                        Generate Improvement Plan
-                      </button>
-                    </div>
-                  )}
-                  
-                  {isGeneratingPlan && (
-                    <div className="text-center py-10">
-                      <div className="animate-spin h-10 w-10 border-2 border-white border-t-transparent rounded-full mx-auto mb-4"></div>
-                      <p className="text-white/70">Analyzing your interview performance and generating recommendations...</p>
-                    </div>
-                  )}
-                  
-                  {improvementPlan && !isGeneratingPlan && (
-                    <div className="space-y-8">
-                      {/* Plan Summary */}
-                      <div className="bg-gradient-to-r from-indigo-900/30 to-purple-900/30 p-6 rounded-lg border border-white/10">
-                        <h3 className="text-lg font-medium mb-3">Plan Overview</h3>
-                        <p className="text-white/80">{improvementPlan.summary}</p>
-                      </div>
-                      
-                      {/* Skill Gaps */}
-                      <div className="bg-black/40 rounded-lg p-6 border border-white/10">
-                        <h3 className="text-lg font-medium mb-4">Identified Skill Gaps</h3>
+                        const roundColor = getEmotionColor(roundType as InterviewRoundType);
+                        const roundName = getRoundName(roundType as InterviewRoundType);
                         
-                        {improvementPlan.skillGaps.length > 0 ? (
-                          <div className="flex flex-wrap gap-2">
-                            {improvementPlan.skillGaps.map((skill, index) => (
-                              <motion.span
-                                key={index}
-                                initial={{ opacity: 0, scale: 0.8 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                transition={{ duration: 0.3, delay: index * 0.05 }}
-                                className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-sm border border-amber-500/30"
-                              >
-                                {skill}
-                              </motion.span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-white/60">No significant skill gaps identified. Focus on improving your existing skills.</p>
-                        )}
-                      </div>
-                      
-                      {/* Timeline */}
-                      <div className="bg-black/40 rounded-lg p-6 border border-white/10">
-                        <h3 className="text-lg font-medium mb-4">Development Timeline</h3>
-                        
-                        <div className="space-y-4">
-                          {improvementPlan.timeline.map((item, index) => (
-                            <motion.div 
-                              key={index}
-                              initial={{ opacity: 0, x: -20 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ duration: 0.3, delay: index * 0.1 }}
-                              className="flex items-start"
+                        return (
+                          <div key={roundType} className="bg-black/30 rounded-lg p-4 border border-gray-800">
+                            <h4 
+                              className="text-md font-medium mb-3 flex items-center gap-2"
+                              style={{ color: roundColor }}
                             >
-                              <div className="relative">
-                                <div className={`
-                                  w-4 h-4 rounded-full mt-1
-                                  ${item.priority === 'high' ? 'bg-red-500' : 
-                                    item.priority === 'medium' ? 'bg-yellow-500' : 'bg-blue-500'}
-                                `}></div>
-                                {index < improvementPlan.timeline.length - 1 && (
-                                  <div className="absolute top-5 bottom-0 left-2 w-0.5 -ml-px h-full bg-white/10"></div>
-                                )}
-                              </div>
-                              <div className="ml-4 pb-8">
-                                <div className="flex items-center">
-                                  <span className="text-white/40 text-sm font-medium bg-white/5 px-2 py-1 rounded">
-                                    {item.duration}
-                                  </span>
-                                  <span className={`
-                                    ml-2 text-xs px-2 py-0.5 rounded-full
-                                    ${item.priority === 'high' ? 'bg-red-500/20 text-red-400' : 
-                                      item.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-blue-500/20 text-blue-400'}
-                                  `}>
-                                    {item.priority.toUpperCase()} PRIORITY
-                                  </span>
-                                </div>
-                                <p className="text-white/80 mt-2">{item.task}</p>
-                              </div>
-                            </motion.div>
-                          ))}
-                        </div>
-                      </div>
-                      
-                      {/* Recommended Resources */}
-                      <div className="bg-black/40 rounded-lg p-6 border border-white/10">
-                        <h3 className="text-lg font-medium mb-4">Recommended Resources</h3>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {improvementPlan.resources.map((resource, index) => (
-                            <motion.div
-                              key={index}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.3, delay: index * 0.05 }}
-                              className="bg-black/30 p-4 rounded-lg border border-white/10 hover:border-white/30 transition-all"
-                            >
-                              <div className="flex items-start">
-                                <div className={`
-                                  p-2 rounded-lg mr-3 flex-shrink-0
-                                  ${resource.type === 'course' ? 'bg-blue-500/20' :
-                                    resource.type === 'book' ? 'bg-purple-500/20' :
-                                    resource.type === 'project' ? 'bg-green-500/20' :
-                                    resource.type === 'video' ? 'bg-red-500/20' : 'bg-amber-500/20'}
-                                `}>
-                                  {resource.type === 'course' && <ArrowRight className="h-5 w-5 text-blue-400" />}
-                                  {resource.type === 'book' && <FileText className="h-5 w-5 text-purple-400" />}
-                                  {resource.type === 'project' && <CheckCircle2 className="h-5 w-5 text-green-400" />}
-                                  {resource.type === 'video' && <FaVideo className="h-5 w-5 text-red-400" />}
-                                  {resource.type === 'article' && <FileText className="h-5 w-5 text-amber-400" />}
-                                </div>
-                                <div>
-                                  <h4 className="font-medium text-white/90 mb-1">{resource.title}</h4>
-                                  <div className="text-xs text-white/50 mb-2 uppercase tracking-wider">
-                                    {resource.type}
+                              <div className="h-3 w-3 rounded-full" style={{ backgroundColor: roundColor }}></div>
+                              {roundName}
+                            </h4>
+                            
+                            <div className="space-y-3">
+                              {items.slice(0, 3).map((item: any, index: number) => (
+                                <div key={index} className="bg-black/40 p-3 rounded border border-gray-800">
+                                  <div className="mb-2">
+                                    <div className="text-sm text-gray-400 mb-1">Question:</div>
+                                    <div className="text-white">{item.question}</div>
                                   </div>
-                                  <p className="text-white/70 text-sm mb-2">{resource.description}</p>
-                                  {resource.url && (
-                                    <a 
-                                      href={resource.url} 
-                                      target="_blank" 
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center text-indigo-400 hover:text-indigo-300 text-sm"
-                                    >
-                                      View Resource <ExternalLink className="h-3 w-3 ml-1" />
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
-                            </motion.div>
-                          ))}
-                        </div>
-                      </div>
-                      
-                      {/* Career Paths */}
-                      <div className="bg-black/40 rounded-lg p-6 border border-white/10">
-                        <h3 className="text-lg font-medium mb-4">Recommended Career Paths</h3>
-                        
-                        <div className="space-y-6">
-                          {improvementPlan.careerPaths.map((path, index) => (
-                            <motion.div
-                              key={index}
-                              initial={{ opacity: 0, y: 20 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.4, delay: index * 0.1 }}
-                              className="bg-gradient-to-r from-black/50 to-black/20 rounded-lg p-5 border border-white/10"
-                            >
-                              <div className="flex flex-col md:flex-row md:items-center justify-between mb-4">
-                                <div>
-                                  <h4 className="font-medium text-lg text-white/90">{path.role}</h4>
-                                  <div className="flex items-center mt-1">
-                                    <span className={`
-                                      text-xs px-2 py-0.5 rounded-full
-                                      ${path.level === 'entry' ? 'bg-green-500/20 text-green-400' : 
-                                        path.level === 'mid' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}
-                                    `}>
-                                      {path.level.toUpperCase()} LEVEL
-                                    </span>
+                                  <div className="mb-3">
+                                    <div className="text-sm text-gray-400 mb-1">Answer:</div>
+                                    <div className="text-white text-sm">{item.answer}</div>
                                   </div>
-                                </div>
-                                
-                                <div className="mt-4 md:mt-0">
-                                  <div className="flex items-center">
-                                    <div className="relative w-24 h-24">
-                                      <svg className="w-full h-full" viewBox="0 0 36 36">
-                                        <path
-                                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                          fill="none"
-                                          stroke="#2a2a2a"
-                                          strokeWidth="3"
-                                        />
-                                        <path
-                                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                          fill="none"
-                                          stroke="url(#gradient-career)"
-                                          strokeWidth="3"
-                                          strokeDasharray={`${path.matchPercentage}, 100`}
-                                        />
-                                        <defs>
-                                          <linearGradient id="gradient-career" x1="0%" y1="0%" x2="100%" y2="0%">
-                                            <stop offset="0%" stopColor="#4F46E5" />
-                                            <stop offset="100%" stopColor="#8B5CF6" />
-                                          </linearGradient>
-                                        </defs>
-                                      </svg>
-                                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
-                                        <div className="text-xl font-bold">{path.matchPercentage}%</div>
-                                        <div className="text-xs text-gray-400">Match</div>
-                                      </div>
+                                  <div>
+                                    <div className="text-sm text-gray-400 mb-1">Emotions:</div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {item.emotions && item.emotions.slice(0, 3).map((emotion: any, idx: number) => (
+                                        <div 
+                                          key={idx} 
+                                          className="px-2 py-0.5 rounded text-xs flex items-center gap-1"
+                                          style={{ 
+                                            backgroundColor: `${roundColor}20`,
+                                            color: roundColor 
+                                          }}
+                                        >
+                                          {emotion.name}
+                                          <span className="font-mono">
+                                            {Math.round(emotion.score * 100)}%
+                                          </span>
+                                        </div>
+                                      ))}
                                     </div>
                                   </div>
                                 </div>
-                              </div>
-                              
-                              <p className="text-white/70 mb-3">{path.description}</p>
-                              
-                              <div>
-                                <h5 className="text-sm font-medium text-white/90 mb-2">Required Skills:</h5>
-                                <div className="flex flex-wrap gap-2">
-                                  {path.requiredSkills.map((skill, idx) => (
-                                    <span 
-                                      key={idx}
-                                      className={`px-2 py-1 rounded-full text-xs 
-                                        ${skillAnalysis.matchedSkills.includes(skill) ? 
-                                          'bg-green-500/20 text-green-400 border border-green-500/30' : 
-                                          'bg-gray-500/20 text-gray-400 border border-gray-500/30'}`
-                                      }
-                                    >
-                                      {skill}
-                                    </span>
-                                  ))}
+                              ))}
+                              {items.length > 3 && (
+                                <div className="text-center">
+                                  <button className="text-blue-400 text-sm hover:underline">
+                                    Show {items.length - 3} more...
+                                  </button>
                                 </div>
-                              </div>
-                            </motion.div>
-                          ))}
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Emotions Chart */}
+                <div className="overflow-hidden rounded-xl border border-gray-800">
+                  <div className="bg-black/40 border-b border-gray-800 px-4 py-3">
+                    <h3 className="text-lg font-semibold text-white">Overall Emotion Distribution</h3>
+                  </div>
+                  <div className="bg-black/20 p-4">
+                    {getEmotionsChartData(getRoundData(selectedRound)?.emotionsData || []) ? (
+                      <div className="h-80 w-full">
+                        <Bar 
+                          data={getEmotionsChartData(getRoundData(selectedRound)?.emotionsData || [])!} 
+                          options={{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                              y: {
+                                beginAtZero: true,
+                                ticks: {
+                                  color: 'rgba(255, 255, 255, 0.7)'
+                                },
+                                grid: {
+                                  color: 'rgba(255, 255, 255, 0.1)'
+                                }
+                              },
+                              x: {
+                                ticks: {
+                                  color: 'rgba(255, 255, 255, 0.7)'
+                                },
+                                grid: {
+                                  color: 'rgba(255, 255, 255, 0.1)'
+                                }
+                              }
+                            },
+                            plugins: {
+                              legend: {
+                                display: false
+                              },
+                              tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                titleColor: 'rgba(255, 255, 255, 0.9)',
+                                bodyColor: 'rgba(255, 255, 255, 0.9)',
+                              }
+                            }
+                          }} 
+                        />
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 text-gray-400">
+                        Not enough emotional data to generate chart
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Transcript Tab */}
+            {activeTab === 'transcript' && (
+              <div className="overflow-hidden rounded-xl border border-gray-800">
+                <div className="bg-black/40 border-b border-gray-800 px-4 py-3">
+                  <h3 className="text-lg font-semibold text-white">
+                    {hasMultipleRounds && selectedRound !== 'overall'
+                      ? `${selectedRound} Transcript`
+                      : 'Interview Transcript'
+                    }
+                  </h3>
+                </div>
+                <div className="bg-black/20 divide-y divide-gray-800">
+                  {(getRoundData(selectedRound)?.transcriptions || []).length > 0 ? (
+                    paginate(getRoundData(selectedRound)?.transcriptions || [], currentTranscriptPage).map((transcript: string, index: number) => (
+                      <div key={index} className="p-4">
+                        <div className="flex items-start mb-2">
+                          <div className="h-8 w-8 rounded-full bg-black/40 border border-gray-700 flex items-center justify-center mr-3 flex-shrink-0">
+                            <User className="h-4 w-4 text-gray-400" />
+                          </div>
+                          <div>
+                            <p className="text-white">{transcript}</p>
+                            <span className="text-xs text-gray-500">
+                              Response {(currentTranscriptPage - 1) * itemsPerPage + index + 1} of {getRoundData(selectedRound)?.transcriptions?.length || 0}
+                            </span>
+                          </div>
                         </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="p-6 text-center text-gray-400">
+                      No transcript available for this interview.
                     </div>
                   )}
-                </motion.div>
-              )}
-            </motion.div>
-            
-            {/* Actions */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-              className="flex flex-col sm:flex-row justify-center gap-4 mt-10"
-            >
-              <motion.button 
-                whileHover={{ scale: 1.05 }}
-                transition={{ duration: 0.2 }}
-                onClick={() => navigate('/interview')} 
-                className="inline-flex items-center px-8 py-4 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all font-semibold text-lg"
-              >
-                Start New Interview
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </motion.button>
-            </motion.div>
+                </div>
+                
+                {/* Pagination */}
+                {(getRoundData(selectedRound)?.transcriptions?.length || 0) > itemsPerPage && (
+                  <div className="bg-black/40 border-t border-gray-800 px-4 py-3 flex items-center justify-between">
+                    <button
+                      className="flex items-center text-gray-400 hover:text-white disabled:opacity-50 disabled:hover:text-gray-400"
+                      onClick={() => setCurrentTranscriptPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentTranscriptPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Previous
+                    </button>
+                    <span className="text-sm text-gray-400">
+                      Page {currentTranscriptPage} of {Math.ceil((getRoundData(selectedRound)?.transcriptions?.length || 0) / itemsPerPage)}
+                    </span>
+                    <button
+                      className="flex items-center text-gray-400 hover:text-white disabled:opacity-50 disabled:hover:text-gray-400"
+                      onClick={() => setCurrentTranscriptPage(prev => Math.min(prev + 1, Math.ceil((getRoundData(selectedRound)?.transcriptions?.length || 0) / itemsPerPage)))}
+                      disabled={currentTranscriptPage === Math.ceil((getRoundData(selectedRound)?.transcriptions?.length || 0) / itemsPerPage)}
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : null}
       </div>
