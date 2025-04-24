@@ -36,7 +36,7 @@ const Dashboard = () => {
   const [updatingResumeLink, setUpdatingResumeLink] = useState(false);
   
   // Interview configuration options
-  const [questionCount, setQuestionCount] = useState<number>(7);
+  const [interviewDuration, setInterviewDuration] = useState<number>(15); // Default 15 minutes
   const [difficultyLevel, setDifficultyLevel] = useState<string>('medium');
   
   // Form state for profile editing
@@ -277,7 +277,7 @@ const Dashboard = () => {
   const startInterview = () => {
     // Store interview configuration in localStorage
     localStorage.setItem('interviewConfig', JSON.stringify({
-      questionCount,
+      interviewDuration,
       difficultyLevel
     }));
     
@@ -1117,19 +1117,25 @@ const Dashboard = () => {
               <div className="border-t border-white/10 pt-3 mb-3">
                 <h3 className="text-sm font-medium mb-2">Interview Configuration</h3>
                 
-                {/* Number of Questions */}
+                {/* Interview Duration */}
                 <div className="mb-2">
-                  <label className="block text-xs text-gray-400 mb-1">Number of Questions</label>
-                  <select
-                    value={questionCount}
-                    onChange={(e) => setQuestionCount(Number(e.target.value))}
-                    className="w-full px-2 py-1 text-sm bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                  >
-                    <option value="3">3 Questions (Short)</option>
-                    <option value="5">5 Questions (Medium)</option>
-                    <option value="7">7 Questions (Standard)</option>
-                    <option value="10">10 Questions (Extended)</option>
-                  </select>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-xs text-gray-400">Interview Duration</label>
+                    <span className="text-xs text-white/70">{interviewDuration} minutes</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="45"
+                    step="5"
+                    value={interviewDuration}
+                    onChange={(e) => setInterviewDuration(Number(e.target.value))}
+                    className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>5 min</span>
+                    <span>45 min</span>
+                  </div>
                 </div>
                 
                 {/* Difficulty Level */}

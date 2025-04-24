@@ -275,6 +275,23 @@ const Interview = () => {
   const [introductionSpoken, setIntroductionSpoken] = useState<boolean>(false);
   // We're using window.audioPlaying instead of this state to prevent race conditions
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
+  const [answers, setAnswers] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [timeRemaining, setTimeRemaining] = useState<number>(0);
+  const [isTimeUp, setIsTimeUp] = useState<boolean>(false);
+  const [startTime, setStartTime] = useState<number>(0);
+  const [questionStartTimes, setQuestionStartTimes] = useState<number[]>([]);
+  const [questionDurations, setQuestionDurations] = useState<number[]>([]);
+  const [progress, setProgress] = useState<number>(0);
+
+  // Add interview duration constant based on localStorage or default
+  const INTERVIEW_DURATION = (() => {
+    const config = JSON.parse(localStorage.getItem('interviewConfig') || '{}');
+    return (config.interviewDuration || 15) * 60 * 1000; // Convert minutes to milliseconds
+  })();
+
+  const QUESTION_TIME_LIMIT = 5 * 60; // 5 minutes per question in seconds
 
   // Create a Hume client instance
   const humeClient = useMemo(() =>
@@ -294,179 +311,342 @@ const Interview = () => {
     }
   }, [messages]);
 
-  useEffect(() => {
-    const fetchUserDetailsAndStartInterview = async () => {
-      if (!currentUser) {
-        navigate('/login');
-        return;
-      }
+  // Move handleEndInterview and handleNextQuestion above the timer effect
+  // to ensure they're defined before they're used
+  
+  const handleEndInterview = async () => {
+    setIsThinking(true);
 
-      // Set loading state to true at the beginning
-      setIsLoading(true);
-
-      // Clear previous interview data from localStorage
-      localStorage.removeItem('interviewData');
-      localStorage.removeItem('currentEmotions');
+    try {
+      // Get all stored interview data
+      const interviewDataString = localStorage.getItem('interviewData') || '[]';
+      let interviewData: EmotionItem[] = [];
 
       try {
-        // Get user document from Firestore
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        const userDoc = await getDoc(userDocRef);
+        interviewData = JSON.parse(interviewDataString);
+      } catch (e) {
+        console.error("Error parsing interview data:", e);
+      }
 
-        if (!userDoc.exists()) {
-          console.log('User document not found');
-          return;
+      // Get all user messages for transcriptions
+      const userMessages = messages
+        .filter(msg => msg.sender === 'user');
+
+      // Create a map of question-answer pairs from messages
+      const questionAnswerMap = new Map<string, string>();
+      let currentQuestion = "";
+
+      messages.forEach((msg) => {
+        if (msg.sender === 'ai') {
+          // Check if this is a question (not AI feedback)
+          if (msg.text.trim().endsWith('?')) {
+            currentQuestion = msg.text;
+          }
+        } else if (msg.sender === 'user' && currentQuestion) {
+          // If we have a question and this is a user answer, store it
+          questionAnswerMap.set(currentQuestion, msg.text);
         }
+      });
 
-        const userData = userDoc.data();
-        let resumeText = "No resume available.";
-
-        // Try to get resume content if available
-        if (userData.resumeURL) {
-          try {
-            // Fetch the resume content
-            const response = await fetch(userData.resumeURL);
-            if (!response.ok) {
-              throw new Error(`Failed to fetch resume: ${response.status}`);
-            }
-
-            const blob: Blob = await response.blob();
-
-            // Check if blob is valid before processing
-            if (blob && blob.size > 0) {
-              try {
-                // Convert Blob to File before extracting text
-                const fileName = "resume.pdf"; // Default name
-                const fileType = "application/pdf";
-                const resumeFile = new File([blob], fileName, { type: fileType });
-
-                resumeText = await extractTextFromPDF(resumeFile);
-                console.log("Successfully extracted resume text from URL");
-              } catch (pdfError) {
-                console.error('Error extracting text from PDF:', pdfError);
-                resumeText = "Unable to extract text from resume. Proceeding with general interview.";
-              }
-            } else {
-              console.error('Invalid blob received from resume URL');
-              resumeText = "Resume file appears to be empty or invalid. Proceeding with general interview.";
-            }
-          } catch (error) {
-            console.error('Error fetching resume:', error);
-            resumeText = "Unable to access resume. Proceeding with general interview.";
-          }
-        } else {
-          // Check if we have locally stored resume text from PDF upload
-          const localResumeText = localStorage.getItem('resumeText');
-          if (localResumeText) {
-            console.log('Using locally stored resume text, length:', localResumeText.length);
-            resumeText = localResumeText;
-          } else {
-            console.log('No resume available');
-            resumeText = "No resume provided. Proceeding with general interview.";
-          }
+      // Remove duplicate entries from interviewData
+      const uniqueQuestions = new Set<string>();
+      interviewData = interviewData.filter(item => {
+        if (uniqueQuestions.has(item.question)) {
+          return false; // Skip duplicate questions
         }
+        uniqueQuestions.add(item.question);
+        return true;
+      });
 
-        console.log("Resume text length for interview:", resumeText.length);
-
-        // Initialize the interview with resume data
-        const generatedQuestions = await initializeInterview(resumeText);
-
-        // Set the questions
-        setQuestions(generatedQuestions.map((text, index) => ({
-          id: index + 1,
-          text,
-          isAsked: index === 0 // Only mark the first question as asked initially
-        })));
-
-        // Create a more personalized introduction
-        const personalizedIntro = `Hello! I'm your NERV technical interviewer today. Please introduce yourself briefly, and then we'll discuss your experience and skills.`;
-
-        // Start the interview with AI speaking the introduction
-        setInterviewState('ai-speaking');
-        setIsSpeaking(true);
-
-        // Generate unique IDs for messages
-        const introId = Date.now().toString();
-
-        // Add initial AI message - just the introduction
-        const initialMessages = [
-          {
-            id: introId,
-            text: personalizedIntro,
-            sender: 'ai' as const,
-            timestamp: new Date()
-          }
-        ];
-
-        setMessages(initialMessages);
-
-        // Update conversation history for context
-        setConversationHistory(prev => [
-          ...prev,
-          { role: "assistant", content: personalizedIntro }
-        ]);
-
-        // Turn off loading state before speaking
-        setIsLoading(false);
-
-        // Speak the introduction only if it hasn't been spoken already
-        if (!introductionSpoken) {
-          setIntroductionSpoken(true);
-          await speakResponse(personalizedIntro);
-        }
-
-        // After introduction, set the interview state to idle to let user respond
-        setIsSpeaking(false);
-        setInterviewState('idle');
-        setIsUserTurn(true);
-
-      } catch (error) {
-        console.error('Error starting interview:', error);
-
-        // Even on error, we should turn off loading and show something
-        setIsLoading(false);
-
-        // Minimal fallback with just an introduction
-        const defaultIntro = "Hello! I'm your NERV interviewer today. Please introduce yourself, and we'll begin our technical interview.";
-
-        setMessages([
-          {
-            id: '1',
-            text: defaultIntro,
-            sender: 'ai',
-            timestamp: new Date()
-          }
-        ]);
-
-        // Update conversation history
-        setConversationHistory(prev => [
-          ...prev,
-          { role: "assistant", content: defaultIntro }
-        ]);
-
-        // Set the speaking state
-        setIsSpeaking(true);
-        setInterviewState('ai-speaking');
-
-        // Speak the introduction only if it hasn't been spoken already
-        if (!introductionSpoken) {
-          setIntroductionSpoken(true);
-          speakResponse(defaultIntro).then(() => {
-            setIsSpeaking(false);
-            setInterviewState('idle');
-            setIsUserTurn(true);
+      // Make sure we have at least one item with emotions
+      if (interviewData.length === 0 && questionAnswerMap.size > 0) {
+        // Create emotion items from the map
+        Array.from(questionAnswerMap.entries()).forEach(([question, answer]) => {
+          interviewData.push({
+            question,
+            answer,
+            emotions: currentEmotions.length > 0 ? currentEmotions : [],
+            timestamp: new Date().toISOString()
           });
-        } else {
-          // If introduction was already spoken, just update the state
-          setIsSpeaking(false);
-          setInterviewState('idle');
-          setIsUserTurn(true);
+        });
+      }
+
+      // Get unique transcriptions from the interview data
+      const transcriptionsSet = new Set(interviewData.map(item => item.answer));
+      const transcriptions = Array.from(transcriptionsSet);
+
+      // Create interview result object with unique ID
+      const interviewId = Date.now().toString();
+      const interviewResults: InterviewResults = {
+        id: interviewId,
+        emotionsData: interviewData,
+        transcriptions,
+        timestamp: new Date().toISOString()
+      };
+
+      // Try to generate a summary if possible
+      try {
+        const summary = await generateInterviewSummary();
+        interviewResults.summary = summary;
+      } catch (summaryError) {
+        console.error("Error generating summary:", summaryError);
+        interviewResults.summary = "A summary could not be generated due to an error.";
+      }
+
+      // Store current interview results
+      localStorage.setItem('interviewResults', JSON.stringify(interviewResults));
+
+      // Also store current messages for backup
+      localStorage.setItem('interviewMessages', JSON.stringify(messages));
+
+      // Store in interview history
+      const interviewHistory = JSON.parse(localStorage.getItem('interviewHistory') || '[]');
+      interviewHistory.push(interviewResults);
+      localStorage.setItem('interviewHistory', JSON.stringify(interviewHistory));
+
+      // Update interview count in Firebase if user is logged in
+      if (currentUser) {
+        try {
+          const userDocRef = doc(db, 'users', currentUser.uid);
+
+          // Get current user data
+          const userDoc = await getDoc(userDocRef);
+          const userData = userDoc.exists() ? userDoc.data() : {};
+
+          // Increment interviews completed count
+          const currentCount = userData.interviewsCompleted || 0;
+
+          await updateDoc(userDocRef, {
+            interviewsCompleted: currentCount + 1,
+            lastInterviewDate: new Date().toISOString()
+          });
+
+          console.log("Updated interview count in database");
+        } catch (dbError) {
+          console.error("Error updating interview count:", dbError);
+          // Continue even if database update fails
         }
       }
-    };
 
+      // Navigate to results
+      navigate('/results');
+    } catch (error) {
+      console.error("Error ending interview:", error);
+      alert("There was an error generating your interview results. Please try again.");
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  const handleNextQuestion = () => {
+    if (currentQuestionIndex < questions.length - 1) {
+      const now = Date.now();
+      setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+      setQuestionStartTimes(prevTimes => [...prevTimes, now]);
+      setQuestionDurations(prevDurations => [...prevDurations, 0]);
+    } else {
+      handleEndInterview();
+    }
+  };
+
+  // Add question timer effect
+  useEffect(() => {
+    // Don't run timer if we're still loading
+    if (isLoading) return;
+    
+    // Make sure we have a valid start time
+    if (!startTime) return;
+    
+    console.log("Starting interview timer with duration:", INTERVIEW_DURATION, "ms, limit per question:", QUESTION_TIME_LIMIT, "seconds");
+    
+    // Initialize progress tracking
+    const initialProgress = 0;
+    setProgress(initialProgress);
+    
+    const timer = setInterval(() => {
+      const now = Date.now();
+      
+      // Update overall interview time remaining
+      const elapsed = now - startTime;
+      const remaining = Math.max(0, INTERVIEW_DURATION - elapsed);
+      setTimeRemaining(remaining);
+      
+      // Calculate time-based progress (0-100%)
+      const timeProgress = Math.min(100, (elapsed / INTERVIEW_DURATION) * 100);
+      
+      // Calculate question-based progress
+      const questionProgress = ((currentQuestionIndex + 1) / questions.length) * 100;
+      
+      // Use a weighted average of time progress and question progress to make the bar smoother
+      // 70% weight to time progress, 30% to question progress
+      const combinedProgress = (timeProgress * 0.7) + (questionProgress * 0.3);
+      setProgress(combinedProgress);
+      
+      // Log time tracking information occasionally
+      if (elapsed % 10000 < 1000) { // Log every ~10 seconds
+        console.log(`Interview progress: ${timeProgress.toFixed(1)}%, Time remaining: ${(remaining/1000/60).toFixed(1)} minutes`);
+      }
+      
+      if (remaining === 0 && !isTimeUp) {
+        console.log("Interview time is up, ending interview");
+        setIsTimeUp(true);
+        handleEndInterview();
+        return;
+      }
+      
+      // Update current question duration
+      if (questionStartTimes[currentQuestionIndex]) {
+        const questionElapsed = now - questionStartTimes[currentQuestionIndex];
+        
+        // Update duration in state
+        setQuestionDurations(prevDurations => {
+          const newDurations = [...prevDurations];
+          newDurations[currentQuestionIndex] = questionElapsed;
+          return newDurations;
+        });
+        
+        // Log question time occasionally
+        if (questionElapsed % 10000 < 1000) { // Log every ~10 seconds
+          const timeLeftInQuestion = (QUESTION_TIME_LIMIT * 1000) - questionElapsed;
+          console.log(`Question ${currentQuestionIndex + 1} time remaining: ${(timeLeftInQuestion/1000).toFixed(1)} seconds`);
+        }
+        
+        // Check if current question time limit is reached
+        if (questionElapsed >= QUESTION_TIME_LIMIT * 1000 && !isTimeUp) {
+          console.log(`Question ${currentQuestionIndex + 1} time limit reached, moving to next question`);
+          
+          // Don't move automatically for the introduction question
+          if (currentQuestionIndex === 0 && questions[0]?.text.includes("introduce yourself")) {
+            console.log("Introduction question time expired, but allowing more time for response");
+          } else {
+            handleNextQuestion();
+          }
+        }
+      }
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [
+    startTime, 
+    currentQuestionIndex, 
+    questionStartTimes, 
+    isTimeUp, 
+    isLoading, 
+    questions.length, 
+    INTERVIEW_DURATION, 
+    QUESTION_TIME_LIMIT
+  ]);
+
+  const fetchUserDetailsAndStartInterview = async () => {
+    try {
+      // Set loading state to prevent premature navigation
+      setIsLoading(true);
+      
+      // Get resume text from localStorage (if available)
+      const resumeText = localStorage.getItem('resumeText');
+      
+      // Initialize questions based on resume or use mock questions
+      let interviewQuestions: string[];
+      if (resumeText) {
+        try {
+          interviewQuestions = await initializeInterview(resumeText);
+        } catch (error) {
+          console.error('Error initializing interview with resume:', error);
+          interviewQuestions = getMockQuestions();
+        }
+      } else {
+        interviewQuestions = getMockQuestions();
+      }
+      
+      console.log("Generated interview questions:", interviewQuestions);
+      
+      // Format questions into Question objects - make the first question explicitly ask for an introduction
+      const introductionQuestion = "Could you please introduce yourself and tell me about your background?";
+      
+      const formattedQuestions = [
+        { id: 1, text: introductionQuestion, isAsked: true },
+        ...interviewQuestions.map((text, index) => ({
+          id: index + 2,  // Start at 2 since introduction is 1
+          text,
+          isAsked: false
+        }))
+      ];
+      
+      // Set questions in state
+      setQuestions(formattedQuestions);
+      
+      // Initialize interview state
+      const now = Date.now();
+      setStartTime(now);
+      setTimeRemaining(INTERVIEW_DURATION);
+      setIsTimeUp(false);
+      setCurrentQuestionIndex(0);
+      setCurrentQuestion(0); // Make sure both indices are synced
+      setQuestionStartTimes([now]);
+      setQuestionDurations([0]);
+      
+      // Reset interview data
+      localStorage.removeItem('interviewData');
+      
+      // Add introduction message
+      const introMessage: Message = {
+        id: Date.now().toString(),
+        text: interviewIntroduction,
+        sender: 'ai',
+        timestamp: new Date()
+      };
+      
+      // Add the first question (introduction request)
+      const questionMsg: Message = {
+        id: Date.now().toString() + '-intro-question',
+        text: introductionQuestion,
+        sender: 'ai',
+        timestamp: new Date()
+      };
+      
+      // Set both messages at once
+      setMessages([introMessage, questionMsg]);
+      
+      // Set initial states first (loading false)
+      setIsLoading(false);
+      
+      // Sequence for speaking and recording
+      try {
+        // First speak the introduction
+        setIsSpeaking(true);
+        await speakResponse(interviewIntroduction);
+        setIsSpeaking(false);
+        
+        // Small pause between messages
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Then speak the first question
+        setIsSpeaking(true);
+        await speakResponse(introductionQuestion);
+        setIsSpeaking(false);
+        
+        // Set user's turn after speaking is done
+        setIsUserTurn(true);
+        setInterviewState('idle');
+        
+        // DO NOT automatically start recording - let user click the mic button
+        // This restores the original click-to-speak functionality
+      } catch (error) {
+        console.error('Error in interview sequence:', error);
+        setIsLoading(false);
+        setIsSpeaking(false);
+        setIsUserTurn(true);
+        setInterviewState('idle');
+      }
+    } catch (error) {
+      console.error('Error initializing interview:', error);
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchUserDetailsAndStartInterview();
-  }, [currentUser, navigate]);
+  }, []); // Remove fetchUserDetailsAndStartInterview from dependencies
 
   // Scroll to bottom of messages
   useEffect(() => {
@@ -842,12 +1022,17 @@ const Interview = () => {
   const toggleRecording = () => {
     if (interviewState === 'ai-speaking' || interviewState === 'ai-thinking') {
       // Can't record while AI is speaking or thinking
+      console.log("Cannot toggle recording while AI is speaking or thinking");
       return;
     }
 
+    console.log("Toggle recording, current state:", isRecording);
+    
     if (!isRecording) {
+      // Start recording
       startRecording();
     } else {
+      // Stop recording
       stopRecording();
     }
   };
@@ -1393,7 +1578,8 @@ const Interview = () => {
     return randomFeedback;
   };
 
-  const progress = ((currentQuestion + 1) / questions.length) * 100;
+  // Use the progress value from state
+  // const progress = ((currentQuestion + 1) / questions.length) * 100;
 
   // Determine if recording button should be disabled
   const isRecordingDisabled = interviewState === 'ai-speaking' || interviewState === 'ai-thinking';
@@ -1965,131 +2151,6 @@ const Interview = () => {
     }
   };
 
-  // Modify your handleEndInterview function to increment the interview count
-  const handleEndInterview = async () => {
-    setIsThinking(true);
-
-    try {
-      // Get all stored interview data
-      const interviewDataString = localStorage.getItem('interviewData') || '[]';
-      let interviewData: EmotionItem[] = [];
-
-      try {
-        interviewData = JSON.parse(interviewDataString);
-      } catch (e) {
-        console.error("Error parsing interview data:", e);
-      }
-
-      // Get all user messages for transcriptions
-      const userMessages = messages
-        .filter(msg => msg.sender === 'user');
-
-      // Create a map of question-answer pairs from messages
-      const questionAnswerMap = new Map<string, string>();
-      let currentQuestion = "";
-
-      messages.forEach((msg) => {
-        if (msg.sender === 'ai') {
-          // Check if this is a question (not AI feedback)
-          if (msg.text.trim().endsWith('?')) {
-            currentQuestion = msg.text;
-          }
-        } else if (msg.sender === 'user' && currentQuestion) {
-          // If we have a question and this is a user answer, store it
-          questionAnswerMap.set(currentQuestion, msg.text);
-        }
-      });
-
-      // Remove duplicate entries from interviewData
-      const uniqueQuestions = new Set<string>();
-      interviewData = interviewData.filter(item => {
-        if (uniqueQuestions.has(item.question)) {
-          return false; // Skip duplicate questions
-        }
-        uniqueQuestions.add(item.question);
-        return true;
-      });
-
-      // Make sure we have at least one item with emotions
-      if (interviewData.length === 0 && questionAnswerMap.size > 0) {
-        // Create emotion items from the map
-        Array.from(questionAnswerMap.entries()).forEach(([question, answer]) => {
-          interviewData.push({
-            question,
-            answer,
-            emotions: currentEmotions.length > 0 ? currentEmotions : [],
-            timestamp: new Date().toISOString()
-          });
-        });
-      }
-
-      // Get unique transcriptions from the interview data
-      const transcriptionsSet = new Set(interviewData.map(item => item.answer));
-      const transcriptions = Array.from(transcriptionsSet);
-
-      // Create interview result object with unique ID
-      const interviewId = Date.now().toString();
-      const interviewResults: InterviewResults = {
-        id: interviewId,
-        emotionsData: interviewData,
-        transcriptions,
-        timestamp: new Date().toISOString()
-      };
-
-      // Try to generate a summary if possible
-      try {
-        const summary = await generateInterviewSummary();
-        interviewResults.summary = summary;
-      } catch (summaryError) {
-        console.error("Error generating summary:", summaryError);
-        interviewResults.summary = "A summary could not be generated due to an error.";
-      }
-
-      // Store current interview results
-      localStorage.setItem('interviewResults', JSON.stringify(interviewResults));
-
-      // Also store current messages for backup
-      localStorage.setItem('interviewMessages', JSON.stringify(messages));
-
-      // Store in interview history
-      const interviewHistory = JSON.parse(localStorage.getItem('interviewHistory') || '[]');
-      interviewHistory.push(interviewResults);
-      localStorage.setItem('interviewHistory', JSON.stringify(interviewHistory));
-
-      // Update interview count in Firebase if user is logged in
-      if (currentUser) {
-        try {
-          const userDocRef = doc(db, 'users', currentUser.uid);
-
-          // Get current user data
-          const userDoc = await getDoc(userDocRef);
-          const userData = userDoc.exists() ? userDoc.data() : {};
-
-          // Increment interviews completed count
-          const currentCount = userData.interviewsCompleted || 0;
-
-          await updateDoc(userDocRef, {
-            interviewsCompleted: currentCount + 1,
-            lastInterviewDate: new Date().toISOString()
-          });
-
-          console.log("Updated interview count in database");
-        } catch (dbError) {
-          console.error("Error updating interview count:", dbError);
-          // Continue even if database update fails
-        }
-      }
-
-      // Navigate to results
-      navigate('/results');
-    } catch (error) {
-      console.error("Error ending interview:", error);
-      alert("There was an error generating your interview results. Please try again.");
-    } finally {
-      setIsThinking(false);
-    }
-  };
-
   // Add loading screen to the UI
   // In the return statement, wrap the main content with a loading check
   return (
@@ -2141,12 +2202,20 @@ const Interview = () => {
                   <div className="flex items-center gap-3 mt-0.5">
                     <div className="flex items-center">
                       <div className="w-1 h-1 rounded-full bg-green-400 mr-1.5 animate-pulse"></div>
-                      <p className="text-xs text-gray-400">Q{currentQuestion + 1}/{questions.length}</p>
+                      <span className="text-xs text-white/70">
+                        {timeRemaining > 0 && (
+                          <span className="text-xs">
+                            Time remaining: {Math.floor(timeRemaining / 60000)}:{String(Math.floor((timeRemaining % 60000) / 1000)).padStart(2, '0')}
+                          </span>
+                        )}
+                      </span>
                     </div>
-
-                    {/* Compact progress bar */}
-                    <div className="w-24 bg-black/50 rounded-full h-1 overflow-hidden">
-                      <div className="bg-white h-1 rounded-full"
+                    
+                    {/* Progress bar container with improved styling */}
+                    <div className="hidden md:block w-32 bg-white/10 h-1.5 rounded-full overflow-hidden mt-1">
+                      {/* This is the time-based progress */}
+                      <div 
+                        className="h-full bg-white rounded-full"
                         style={{ width: `${progress}%` }}>
                       </div>
                     </div>
