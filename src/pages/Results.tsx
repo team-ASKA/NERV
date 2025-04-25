@@ -7,9 +7,15 @@ import { FaVideo } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { InterviewRoundType } from '../types/interview';
 import { Bar } from 'react-chartjs-2';
 import 'chart.js/auto';
+
+// Define the interview type enum since the original file was deleted
+enum InterviewRoundType {
+  TECHNICAL = 'TECHNICAL',
+  BEHAVIORAL = 'BEHAVIORAL',
+  HR = 'HR'
+}
 
 interface EmotionData {
   name: string;
@@ -22,6 +28,8 @@ interface EmotionItem {
   emotions: EmotionData[];
   timestamp: string;
   roundType?: InterviewRoundType;
+  responseTime?: number;
+  isFollowUp: boolean;
 }
 
 interface InterviewResults {
@@ -118,10 +126,12 @@ const Results = () => {
   const [improvementPlan, setImprovementPlan] = useState<ImprovementPlan | null>(null);
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [currentTranscriptPage, setCurrentTranscriptPage] = useState(1);
-  const itemsPerPage = 5;
+  const [itemsPerPage, setItemsPerPage] = useState(5);
   const tabs = ["summary", "emotions", "transcript", "skills", "improvement"];
   const [selectedRound, setSelectedRound] = useState<InterviewRoundType | 'overall'>('overall');
   const [hasMultipleRounds, setHasMultipleRounds] = useState<boolean>(false);
+  // Add a state variable for expanded items
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     // Get results from localStorage
@@ -138,17 +148,8 @@ const Results = () => {
           
           // Ensure the emotionsData array contains the correct emotion values
           if (parsedResults.emotionsData && Array.isArray(parsedResults.emotionsData)) {
-            // Remove duplicate question-answer pairs
-            const uniqueQuestions = new Set<string>();
-            parsedResults.emotionsData = parsedResults.emotionsData.filter((item: any) => {
-              // If we've seen this question before, skip it
-              if (uniqueQuestions.has(item.question)) {
-                return false;
-              }
-              // Otherwise, add it to our set and keep it
-              uniqueQuestions.add(item.question);
-              return true;
-            });
+            // DO NOT filter out answers to the same question - we want to see all interactions
+            // Including follow-up questions and multiple responses
             
             // Make sure each emotion item has the correct structure
             parsedResults.emotionsData = parsedResults.emotionsData.map((item: any) => {
@@ -192,7 +193,9 @@ const Results = () => {
                 question: item.question || "Question not recorded",
                 answer: item.answer || "Answer not recorded",
                 emotions: item.emotions,
-                timestamp: item.timestamp || new Date().toISOString()
+                timestamp: item.timestamp || new Date().toISOString(),
+                responseTime: item.responseTime || 0,
+                isFollowUp: item.isFollowUp || false
               };
             });
           } else {
@@ -200,17 +203,13 @@ const Results = () => {
             parsedResults.emotionsData = [];
           }
           
-          // Ensure we have unique transcriptions
+          // Ensure we have unique transcriptions but preserve order
           if (parsedResults.transcriptions && Array.isArray(parsedResults.transcriptions)) {
-            // Remove duplicate transcriptions 
-            const uniqueTranscriptions = new Set<string>();
-            parsedResults.transcriptions = parsedResults.transcriptions.filter((text: string) => {
-              if (uniqueTranscriptions.has(text)) {
-                return false;
-              }
-              uniqueTranscriptions.add(text);
-              return true;
-            });
+            // We want to keep all transcriptions for full history  
+            // Just make sure they're valid strings
+            parsedResults.transcriptions = parsedResults.transcriptions.filter((text: any) => 
+              typeof text === 'string' && text.trim() !== ''
+            );
           }
           
           setResults(parsedResults);
@@ -231,20 +230,24 @@ const Results = () => {
               if (Array.isArray(messages) && messages.length > 0) {
                 console.log("Building results from messages:", messages.length, "messages found");
                 
-                // Extract questions and answers
+                // Extract questions and answers, including all follow-up questions
                 const questionAnswerPairs: EmotionItem[] = [];
                 let currentQuestion = "";
                 
                 messages.forEach((msg, index) => {
-                  if (msg.sender === 'ai' && messages[index + 1] && messages[index + 1].sender === 'user') {
+                  if (msg.sender === 'ai') {
                     currentQuestion = msg.text;
-                    const answer = messages[index + 1].text;
+                  } else if (msg.sender === 'user' && currentQuestion && index > 0) {
+                    const answer = msg.text;
                     
+                    // Add all interactions, including follow-up responses
                     questionAnswerPairs.push({
                       question: currentQuestion,
                       answer: answer,
                       emotions: [], // Will be populated from emotionsData if available
-                      timestamp: new Date(msg.timestamp).toISOString()
+                      timestamp: new Date(msg.timestamp).toISOString(),
+                      responseTime: msg.responseTime || 0,
+                      isFollowUp: index > 2 // Mark as follow-up if not the first interaction
                     });
                   }
                 });
@@ -1036,6 +1039,15 @@ ${skillGapText}
     return items.slice(indexOfFirstItem, indexOfLastItem);
   };
 
+  // Add a toggle function
+  const toggleExpandItem = (roundType: string, index: number) => {
+    const key = `${roundType}-${index}`;
+    setExpandedItems(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
   return (
     <div className="min-h-screen bg-black text-white relative overflow-hidden">
       {/* Background gradient effect similar to landing page */}
@@ -1167,54 +1179,75 @@ ${skillGapText}
                         
                         return (
                           <div key={roundType} className="bg-black/30 rounded-lg p-4 border border-gray-800">
-                            <h4 
-                              className="text-md font-medium mb-3 flex items-center gap-2"
-                              style={{ color: roundColor }}
-                            >
-                              <div className="h-3 w-3 rounded-full" style={{ backgroundColor: roundColor }}></div>
-                              {roundName}
-                            </h4>
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 
+                                className="text-md font-medium flex items-center gap-2"
+                                style={{ color: roundColor }}
+                              >
+                                <div className="h-3 w-3 rounded-full" style={{ backgroundColor: roundColor }}></div>
+                                {roundName}
+                              </h4>
+                              <span className="text-xs text-gray-400">{items.length} interactions</span>
+                            </div>
                             
                             <div className="space-y-3">
-                              {items.slice(0, 3).map((item: any, index: number) => (
-                                <div key={index} className="bg-black/40 p-3 rounded border border-gray-800">
-                                  <div className="mb-2">
-                                    <div className="text-sm text-gray-400 mb-1">Question:</div>
-                                    <div className="text-white">{item.question}</div>
-                                  </div>
-                                  <div className="mb-3">
-                                    <div className="text-sm text-gray-400 mb-1">Answer:</div>
-                                    <div className="text-white text-sm">{item.answer}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-sm text-gray-400 mb-1">Emotions:</div>
-                                    <div className="flex flex-wrap gap-2">
-                                      {item.emotions && item.emotions.slice(0, 3).map((emotion: any, idx: number) => (
-                                        <div 
-                                          key={idx} 
-                                          className="px-2 py-0.5 rounded text-xs flex items-center gap-1"
-                                          style={{ 
-                                            backgroundColor: `${roundColor}20`,
-                                            color: roundColor 
-                                          }}
-                                        >
-                                          {emotion.name}
-                                          <span className="font-mono">
-                                            {Math.round(emotion.score * 100)}%
+                              {items.map((item: any, index: number) => {
+                                const isExpanded = expandedItems[`${roundType}-${index}`] || false;
+                                
+                                return (
+                                  <div key={index} className="bg-black/40 p-3 rounded border border-gray-800">
+                                    <div className="mb-2">
+                                      <div className="text-sm text-gray-400 mb-1">Question:</div>
+                                      <div className="text-white">{item.question}</div>
+                                    </div>
+                                    <div className="mb-3">
+                                      <div className="text-sm text-gray-400 mb-1">Answer:</div>
+                                      <div className="text-white text-sm">{item.answer}</div>
+                                      {item.responseTime > 0 && (
+                                        <div className="flex items-center gap-2 mt-1">
+                                          <span className="text-xs text-gray-500">
+                                            Response time: {item.responseTime.toFixed(1)}s
                                           </span>
+                                          {item.isFollowUp && (
+                                            <span className="text-xs bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded">
+                                              Follow-up
+                                            </span>
+                                          )}
                                         </div>
-                                      ))}
+                                      )}
+                                    </div>
+                                    <div>
+                                      <div className="text-sm text-gray-400 mb-1">Emotions:</div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {item.emotions && (isExpanded ? item.emotions : item.emotions.slice(0, 3)).map((emotion: any, idx: number) => (
+                                          <div 
+                                            key={idx} 
+                                            className="px-2 py-0.5 rounded text-xs flex items-center gap-1"
+                                            style={{ 
+                                              backgroundColor: `${roundColor}20`,
+                                              color: roundColor 
+                                            }}
+                                          >
+                                            {emotion.name}
+                                            <span className="font-mono">
+                                              {Math.round(emotion.score * 100)}%
+                                            </span>
+                                          </div>
+                                        ))}
+                                        
+                                        {item.emotions && item.emotions.length > 3 && (
+                                          <button 
+                                            onClick={() => toggleExpandItem(roundType, index)}
+                                            className="text-xs text-blue-400 hover:underline"
+                                          >
+                                            {isExpanded ? "Show less" : `+${item.emotions.length - 3} more`}
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              ))}
-                              {items.length > 3 && (
-                                <div className="text-center">
-                                  <button className="text-blue-400 text-sm hover:underline">
-                                    Show {items.length - 3} more...
-                                  </button>
-                                </div>
-                              )}
+                                );
+                              })}
                             </div>
                           </div>
                         );
@@ -1281,31 +1314,99 @@ ${skillGapText}
             {/* Transcript Tab */}
             {activeTab === 'transcript' && (
               <div className="overflow-hidden rounded-xl border border-gray-800">
-                <div className="bg-black/40 border-b border-gray-800 px-4 py-3">
+                <div className="bg-black/40 border-b border-gray-800 px-4 py-3 flex justify-between items-center">
                   <h3 className="text-lg font-semibold text-white">
                     {hasMultipleRounds && selectedRound !== 'overall'
                       ? `${selectedRound} Transcript`
                       : 'Interview Transcript'
                     }
                   </h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-400">
+                      {getRoundData(selectedRound)?.transcriptions?.length || 0} responses
+                    </span>
+                    <select 
+                      className="ml-2 bg-black/50 border border-gray-700 rounded text-sm text-gray-300 px-2 py-1"
+                      value={itemsPerPage}
+                      onChange={e => setItemsPerPage(parseInt(e.target.value))}
+                    >
+                      <option value="5">5 per page</option>
+                      <option value="10">10 per page</option>
+                      <option value="20">20 per page</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="bg-black/20 divide-y divide-gray-800">
                   {(getRoundData(selectedRound)?.transcriptions || []).length > 0 ? (
-                    paginate(getRoundData(selectedRound)?.transcriptions || [], currentTranscriptPage).map((transcript: string, index: number) => (
-                      <div key={index} className="p-4">
-                        <div className="flex items-start mb-2">
-                          <div className="h-8 w-8 rounded-full bg-black/40 border border-gray-700 flex items-center justify-center mr-3 flex-shrink-0">
-                            <User className="h-4 w-4 text-gray-400" />
-                          </div>
-                          <div>
-                            <p className="text-white">{transcript}</p>
-                            <span className="text-xs text-gray-500">
-                              Response {(currentTranscriptPage - 1) * itemsPerPage + index + 1} of {getRoundData(selectedRound)?.transcriptions?.length || 0}
-                            </span>
+                    paginate(getRoundData(selectedRound)?.transcriptions || [], currentTranscriptPage).map((transcript: string, index: number) => {
+                      // Find the corresponding emotion data if possible
+                      const emotionItem = (getRoundData(selectedRound)?.emotionsData || []).find(
+                        item => item.answer === transcript
+                      );
+                      
+                      return (
+                        <div key={index} className="p-4">
+                          <div className="flex items-start">
+                            <div className="h-8 w-8 rounded-full bg-black/40 border border-gray-700 flex items-center justify-center mr-3 flex-shrink-0">
+                              <User className="h-4 w-4 text-gray-400" />
+                            </div>
+                            <div className="flex-1">
+                              {emotionItem?.question && (
+                                <div className="mb-3 -mt-1 flex items-start">
+                                  <div className="h-6 w-6 rounded-full bg-gray-800 flex items-center justify-center mr-2 mt-0.5 flex-shrink-0">
+                                    <Bot className="h-3 w-3 text-gray-400" />
+                                  </div>
+                                  <div className="text-sm text-gray-400 font-light italic">
+                                    {emotionItem.question}
+                                  </div>
+                                </div>
+                              )}
+                              <p className="text-white">{transcript}</p>
+                              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                <span className="text-xs text-gray-500">
+                                  {new Date(emotionItem?.timestamp || Date.now()).toLocaleString()}
+                                </span>
+                                
+                                {emotionItem?.responseTime && emotionItem?.responseTime > 0 && (
+                                  <span className="text-xs text-gray-500">
+                                    • Response time: {emotionItem?.responseTime.toFixed(1)}s
+                                  </span>
+                                )}
+                                
+                                {emotionItem?.isFollowUp && (
+                                  <span className="text-xs bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded">
+                                    Follow-up
+                                  </span>
+                                )}
+                                
+                                {emotionItem?.emotions && emotionItem.emotions.length > 0 && (
+                                  <div className="flex items-center gap-1 mt-2 w-full">
+                                    <span className="text-xs text-gray-500 mr-1">Emotion Analysis:</span>
+                                    <div className="flex flex-wrap gap-1">
+                                      {emotionItem.emotions.slice(0, 4).map((emotion, idx) => (
+                                        <span 
+                                          key={idx} 
+                                          className="px-1.5 py-0.5 rounded text-xs flex items-center gap-1"
+                                          style={{ 
+                                            backgroundColor: `${getEmotionColor(emotion.name)}20`,
+                                            color: getEmotionColor(emotion.name).replace('bg-', 'text-')
+                                          }}
+                                        >
+                                          {emotion.name}
+                                          <span className="font-mono text-[10px]">
+                                            {Math.round(emotion.score * 100)}%
+                                          </span>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="p-6 text-center text-gray-400">
                       No transcript available for this interview.

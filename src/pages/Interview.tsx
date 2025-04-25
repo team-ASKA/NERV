@@ -20,6 +20,7 @@ interface Message {
   text: string;
   sender: 'user' | 'ai';
   timestamp: Date;
+  responseTime?: number;
 }
 
 interface Question {
@@ -39,6 +40,8 @@ interface EmotionItem {
   answer: string;
   emotions: EmotionData[];
   timestamp: string;
+  responseTime?: number;
+  isFollowUp?: boolean;
 }
 
 // Add interview results interface to match the structure in Results.tsx
@@ -208,7 +211,7 @@ const Interview = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
-  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const [currentQuestion, setCurrentQuestion] = useState<string | null>(null);
   const [userInput, setUserInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([
@@ -263,7 +266,7 @@ const Interview = () => {
     portfolioURL: null
   });
   const [isInitialized, setIsInitialized] = useState(false);
-  const [currentEmotions, setCurrentEmotions] = useState<any[]>([]);
+  const [currentEmotions, setCurrentEmotions] = useState<EmotionData[]>([]);
   const [interviewIntroduction, setInterviewIntroduction] = useState<string>(
     "Hello! I'm your NERV interviewer today. Let's begin our technical interview."
   );
@@ -284,6 +287,9 @@ const Interview = () => {
   const [questionStartTimes, setQuestionStartTimes] = useState<number[]>([]);
   const [questionDurations, setQuestionDurations] = useState<number[]>([]);
   const [progress, setProgress] = useState<number>(0);
+  const [responseStartTime, setResponseStartTime] = useState<number | null>(null);
+  const [transcriptions, setTranscriptions] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   // Add interview duration constant based on localStorage or default
   const INTERVIEW_DURATION = (() => {
@@ -318,7 +324,7 @@ const Interview = () => {
     setIsThinking(true);
 
     try {
-      // Get all stored interview data
+      // Get all stored interview data from localStorage
       const interviewDataString = localStorage.getItem('interviewData') || '[]';
       let interviewData: EmotionItem[] = [];
 
@@ -330,50 +336,62 @@ const Interview = () => {
 
       // Get all user messages for transcriptions
       const userMessages = messages
-        .filter(msg => msg.sender === 'user');
-
+        .filter(msg => msg.sender === 'user')
+        .map(msg => msg.text);
+        
       // Create a map of question-answer pairs from messages
-      const questionAnswerMap = new Map<string, string>();
+      const questionAnswerPairs: EmotionItem[] = [];
       let currentQuestion = "";
 
-      messages.forEach((msg) => {
+      messages.forEach((msg, index) => {
         if (msg.sender === 'ai') {
-          // Check if this is a question (not AI feedback)
-          if (msg.text.trim().endsWith('?')) {
-            currentQuestion = msg.text;
-          }
-        } else if (msg.sender === 'user' && currentQuestion) {
-          // If we have a question and this is a user answer, store it
-          questionAnswerMap.set(currentQuestion, msg.text);
+          currentQuestion = msg.text;
+        } else if (msg.sender === 'user' && currentQuestion && index > 0) {
+          // If we have a question and this is a user answer
+          questionAnswerPairs.push({
+            question: currentQuestion,
+            answer: msg.text,
+            emotions: currentEmotions.length > 0 ? [...currentEmotions] : [],
+            timestamp: new Date(msg.timestamp).toISOString(),
+            responseTime: msg.responseTime || 0,
+            isFollowUp: index > 2 // Mark as follow-up if not the first interaction
+          });
+          
+          // Don't reset currentQuestion to allow for multiple answers to same question
         }
       });
 
-      // Remove duplicate entries from interviewData
+      // Merge data from localStorage with message-based pairs, preferring localStorage data for duplicates
       const uniqueQuestions = new Set<string>();
-      interviewData = interviewData.filter(item => {
-        if (uniqueQuestions.has(item.question)) {
-          return false; // Skip duplicate questions
-        }
+      
+      // First add interviewData items (they have emotions already)
+      interviewData.forEach(item => {
         uniqueQuestions.add(item.question);
+      });
+      
+      // Then add questionAnswerPairs if question is not already included
+      questionAnswerPairs.forEach(item => {
+        if (!uniqueQuestions.has(item.question)) {
+          interviewData.push(item);
+          uniqueQuestions.add(item.question);
+        }
+      });
+
+      // Get unique transcriptions from the interview data and user messages
+      const allTranscriptions = [
+        ...interviewData.map(item => item.answer),
+        ...userMessages
+      ];
+      
+      // Remove duplicates while preserving order
+      const transcriptionsSet = new Set<string>();
+      const transcriptions = allTranscriptions.filter(text => {
+        if (transcriptionsSet.has(text)) {
+          return false;
+        }
+        transcriptionsSet.add(text);
         return true;
       });
-
-      // Make sure we have at least one item with emotions
-      if (interviewData.length === 0 && questionAnswerMap.size > 0) {
-        // Create emotion items from the map
-        Array.from(questionAnswerMap.entries()).forEach(([question, answer]) => {
-          interviewData.push({
-            question,
-            answer,
-            emotions: currentEmotions.length > 0 ? currentEmotions : [],
-            timestamp: new Date().toISOString()
-          });
-        });
-      }
-
-      // Get unique transcriptions from the interview data
-      const transcriptionsSet = new Set(interviewData.map(item => item.answer));
-      const transcriptions = Array.from(transcriptionsSet);
 
       // Create interview result object with unique ID
       const interviewId = Date.now().toString();
@@ -403,6 +421,9 @@ const Interview = () => {
       const interviewHistory = JSON.parse(localStorage.getItem('interviewHistory') || '[]');
       interviewHistory.push(interviewResults);
       localStorage.setItem('interviewHistory', JSON.stringify(interviewHistory));
+
+      // Clear the interview data for next session
+      localStorage.removeItem('interviewData');
 
       // Update interview count in Firebase if user is logged in
       if (currentUser) {
@@ -1294,272 +1315,62 @@ const Interview = () => {
     };
   }, [videoStream, captureInterval]);
 
+  // Handle sending message
   const handleSendMessage = async () => {
-    if (!userInput.trim() || isThinking || isSpeaking) return;
+    if (!userInput.trim()) return;
 
-    // Capture emotions if camera is on before processing the message
-    if (isCameraOn && videoRef.current) {
-      await captureAndAnalyzeFrame();
-    }
+    const currentTime = Date.now();
+    const responseTime = responseStartTime ? (currentTime - responseStartTime) / 1000 : 0;
 
-    // Add user message
-    const userMessage: Message = {
-      id: Date.now().toString() + '-user',
+    const newMessage: Message = {
+      id: Date.now().toString(),
       text: userInput,
       sender: 'user',
-      timestamp: new Date()
+      timestamp: new Date(),
+      responseTime
     };
 
-    setMessages(prev => [...prev, userMessage]);
-
-    // Update conversation history with user's message
-    setConversationHistory(prev => [
-      ...prev,
-      { role: "user", content: userInput }
-    ]);
-
-    // Mark that the user has answered the current question
-    setUserHasAnswered(true);
-
-    // Check if user wants to move to next question
-    const userWantsNextQuestion = shouldMoveToNextQuestion(userInput);
-
+    setMessages(prev => [...prev, newMessage]);
     setUserInput('');
     setIsThinking(true);
-    setInterviewState('ai-thinking');
-    setIsUserTurn(false);
 
     try {
-      // If user wants to move to next question and we're not at the last question
-      if (userWantsNextQuestion && currentQuestion < questions.length - 1) {
-        const nextQuestionIndex = currentQuestion + 1;
-        setCurrentQuestion(nextQuestionIndex);
-        setFollowUpCount(0);
+      // Store the answer with emotions
+      const isFollowUp = messages.length > 2; // If there are already 2+ messages, this is a follow-up
+      
+      // Store the answer with emotions data, response time, and follow-up status
+      storeAnswerWithEmotions(
+        currentQuestion || messages[messages.length - 1]?.text || '',
+        userInput,
+        currentEmotions,
+        responseTime,
+        isFollowUp
+      );
+      
+      setTranscriptions(prev => [...prev, userInput]);
 
-        // Mark the next question as asked
-        setQuestions(prevQuestions =>
-          prevQuestions.map((q, idx) =>
-            idx === nextQuestionIndex ? { ...q, isAsked: true } : q
-          )
-        );
+      // Process the answer
+      const response = await processAnswer(
+        currentQuestion || '',
+        userInput,
+        currentEmotions
+      );
 
-        setIsThinking(false);
-        setIsSpeaking(true);
-        setInterviewState('ai-speaking');
-
-        const transitionMessage = "Let's move on to the next question.";
-        const nextQuestionText = questions[nextQuestionIndex].text;
-
-        // Add transition and question messages
-        const transitionMsg: Message = {
-          id: Date.now().toString() + '-transition',
-          text: transitionMessage,
-          sender: 'ai',
-          timestamp: new Date()
-        };
-
-        const questionMsg: Message = {
-          id: Date.now().toString() + '-question',
-          text: nextQuestionText,
-          sender: 'ai',
-          timestamp: new Date(Date.now() + 100)
-        };
-
-        setMessages(prev => [...prev, transitionMsg, questionMsg]);
-
-        // Update conversation history
-        setConversationHistory(prev => [
-          ...prev,
-          { role: "assistant", content: transitionMessage },
-          { role: "assistant", content: nextQuestionText }
-        ]);
-
-        // Speak the transition and question
-        await speakResponse(transitionMessage);
-        await speakResponse(nextQuestionText);
-
-        setIsSpeaking(false);
-        setInterviewState('idle');
-        setIsUserTurn(true);
-
-        return;
-      }
-
-      // Process the user's answer with GPT to get a contextual response
-      const feedback = await processUserAnswer(userInput);
-
-      // Short delay before AI response
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      setIsThinking(false);
-      setIsSpeaking(true);
-      setInterviewState('ai-speaking');
-
-      // Add feedback message
-      const feedbackMessage: Message = {
-        id: Date.now().toString() + '-feedback',
-        text: feedback,
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: response,
         sender: 'ai',
         timestamp: new Date()
       };
 
-      setMessages(prev => [...prev, feedbackMessage]);
-
-      // Update conversation history with AI's response
-      setConversationHistory(prev => [
-        ...prev,
-        { role: "assistant", content: feedback }
-      ]);
-
-      // Check if AI wants to move to next question
-      const aiWantsNextQuestion = shouldMoveToNextQuestion(feedback);
-
-      // Speak the feedback first
-      await speakResponse(feedback);
-
-      // If AI wants to move to next question and we're not at the last question
-      if (aiWantsNextQuestion && currentQuestion < questions.length - 1) {
-        const nextQuestionIndex = currentQuestion + 1;
-        setCurrentQuestion(nextQuestionIndex);
-        setFollowUpCount(0);
-
-        // Mark the next question as asked
-        setQuestions(prevQuestions =>
-          prevQuestions.map((q, idx) =>
-            idx === nextQuestionIndex ? { ...q, isAsked: true } : q
-          )
-        );
-
-        const nextQuestionText = questions[nextQuestionIndex].text;
-
-        // Add next question message
-        const questionMsg: Message = {
-          id: Date.now().toString() + '-question',
-          text: nextQuestionText,
-          sender: 'ai',
-          timestamp: new Date()
-        };
-
-        setMessages(prev => [...prev, questionMsg]);
-
-        // Update conversation history
-        setConversationHistory(prev => [
-          ...prev,
-          { role: "assistant", content: nextQuestionText }
-        ]);
-
-        // Speak the next question
-        await speakResponse(nextQuestionText);
-
-        setIsSpeaking(false);
-        setInterviewState('idle');
-        setIsUserTurn(true);
-
-        return;
-      }
-
-      // If not moving to next question, generate a follow-up or next question
-      const nextQuestion = await generateNextQuestion();
-
-      // Add question message
-      const questionMessage: Message = {
-        id: Date.now().toString() + '-question',
-        text: nextQuestion,
-        sender: 'ai',
-        timestamp: new Date()
-      };
-
-      setMessages(prev => [...prev, questionMessage]);
-
-      // Update conversation history with the new question
-      setConversationHistory(prev => [
-        ...prev,
-        { role: "assistant", content: nextQuestion }
-      ]);
-
-      // Check if this new question indicates moving to next topic
-      if (shouldMoveToNextQuestion(nextQuestion) && currentQuestion < questions.length - 1) {
-        // Update to next question in the list
-        const nextQuestionIndex = currentQuestion + 1;
-        setCurrentQuestion(nextQuestionIndex);
-        setFollowUpCount(0);
-
-        // Mark the next question as asked
-        setQuestions(prevQuestions =>
-          prevQuestions.map((q, idx) =>
-            idx === nextQuestionIndex ? { ...q, isAsked: true } : q
-          )
-        );
-
-        // Add the actual next question
-        const nextQuestionText = questions[nextQuestionIndex].text;
-        const actualQuestionMsg: Message = {
-          id: Date.now().toString() + '-actual-question',
-          text: nextQuestionText,
-          sender: 'ai',
-          timestamp: new Date()
-        };
-
-        setMessages(prev => [...prev, actualQuestionMsg]);
-
-        // Update conversation history with the actual next question
-        setConversationHistory(prev => [
-          ...prev,
-          { role: "assistant", content: nextQuestionText }
-        ]);
-
-        // Speak the next question
-        await speakResponse(nextQuestionText);
-      } else {
-        // Speak the follow-up question
-        await speakResponse(nextQuestion);
-      }
-
-      // After both messages are spoken, set the interview state back to idle
-      setInterviewState('idle');
-      setIsUserTurn(true);
-
-      // Get interview configuration from localStorage or use defaults
-      const interviewConfig = JSON.parse(localStorage.getItem('interviewConfig') || '{ "questionCount": 7, "difficultyLevel": "medium" }');
-      const configuredQuestionCount = interviewConfig.questionCount || 7;
-
-      // Check if we've asked enough questions based on configured question count
-      if (questions.length >= configuredQuestionCount && currentQuestion >= questions.length - 1) {
-        // Interview complete
-        const completionMessage = "That concludes our interview. Thank you for your responses! I've gathered comprehensive insights from our discussion and will now generate your detailed feedback report.";
-
-        // Add completion message
-        const completionMsg: Message = {
-          id: Date.now().toString() + '-complete',
-          text: completionMessage,
-          sender: 'ai',
-          timestamp: new Date()
-        };
-
-        setMessages(prev => [...prev, completionMsg]);
-
-        // Update conversation history
-        setConversationHistory(prev => [
-          ...prev,
-          { role: "assistant", content: completionMessage }
-        ]);
-
-        // Speak the completion message
-        await speakResponse(completionMessage);
-
-        // After speaking, navigate to results
-        setInterviewState('idle');
-
-        // Navigate to results after a delay
-        setTimeout(() => {
-          handleEndInterview();
-        }, 1000);
-      }
+      setMessages(prev => [...prev, aiMessage]);
+      setResponseStartTime(Date.now()); // Start timing for next response
+      setCurrentQuestion(response); // Update current question to the AI's response
     } catch (error) {
-      console.error('Error processing message:', error);
+      console.error('Error processing answer:', error);
+      setError('Failed to process your answer. Please try again.');
+    } finally {
       setIsThinking(false);
-      setInterviewState('idle');
-      setIsUserTurn(true);
     }
   };
 
@@ -1903,7 +1714,7 @@ const Interview = () => {
   };
 
   // Function to store answer with emotions for results page
-  const storeAnswerWithEmotions = (question: string, answer: string, emotions: any[] = []) => {
+  const storeAnswerWithEmotions = (question: string, answer: string, emotions: any[] = [], responseTime: number = 0, isFollowUp: boolean = false) => {
     // Get existing data or initialize new array
     const existingData = localStorage.getItem('interviewData') || '[]';
     let interviewData = [];
@@ -1923,13 +1734,15 @@ const Interview = () => {
       question,
       answer,
       emotions: emotionsToStore,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      responseTime,
+      isFollowUp
     });
 
     // Store updated data
     localStorage.setItem('interviewData', JSON.stringify(interviewData));
 
-    console.log("Stored answer with emotions:", { question, answer, emotions: emotionsToStore.length });
+    console.log("Stored answer with emotions:", { question, answer, emotions: emotionsToStore.length, responseTime, isFollowUp });
   };
 
   // Update the generateNextQuestion function to include emotions
