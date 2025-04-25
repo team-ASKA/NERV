@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowLeft, Download, Brain, MessageSquare, Bot, User, ChevronLeft, ChevronRight, ArrowRight, BarChart2, AlertTriangle, CheckCircle2, ArrowUpRight, List, FileText, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Download, Brain, MessageSquare, Bot, User, ChevronLeft, ChevronRight, ArrowRight, BarChart2, AlertTriangle, CheckCircle2, ArrowUpRight, List, FileText, ExternalLink, Smile } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { FaVideo } from 'react-icons/fa';
 import { motion } from 'framer-motion';
@@ -116,6 +116,20 @@ const Results = () => {
     missingSkills: string[];
     recommendedSkills: string[];
     overallScore: number;
+    detailedSkillScores?: Record<string, {
+      mentioned: boolean,
+      confidenceScore: number,
+      depthScore: number,
+      overallScore: number,
+      examples: boolean,
+      technicalDetail: boolean
+    }>;
+    communicationMetrics?: {
+      clarity: number;
+      conciseness: number;
+      complexity: number;
+      structure: number;
+    };
   }>({
     matchedSkills: [],
     missingSkills: [],
@@ -355,57 +369,299 @@ const Results = () => {
   
   // Function to analyze skill gaps
   const analyzeSkillGaps = () => {
-    if (!results || !results.emotionsData) return;
+    if (!results || !results.emotionsData || !userSkills.skills.length) return;
     
     // Extract all text from answers for analysis
     const allAnswersText = results.emotionsData
-      .map(item => item.answer)
-      .join(' ')
-      .toLowerCase();
+      .map(item => item.answer?.toLowerCase() || '')
+      .join(' ');
     
-    // Check which skills from the user's profile were demonstrated in the interview
+    // Analyze the depth of knowledge, not just mentions
+    const skillAnalysisResults: Record<string, {
+      mentioned: boolean,
+      confidenceScore: number,
+      depthScore: number,
+      overallScore: number,
+      examples: boolean,
+      technicalDetail: boolean
+    }> = {};
+    
+    // Keywords that indicate deeper knowledge
+    const depthIndicators = [
+      'architecture', 'implemented', 'designed', 'optimized', 'improved',
+      'developed', 'built', 'created', 'managed', 'led', 'researched',
+      'analyzed', 'debugged', 'solved', 'integrated', 'deployed',
+      'maintained', 'tested', 'documented'
+    ];
+    
+    // Technical detail indicators
+    const technicalDetailIndicators = [
+      'algorithm', 'efficiency', 'performance', 'complexity', 'approach',
+      'pattern', 'framework', 'library', 'module', 'component', 'function',
+      'method', 'class', 'interface', 'api', 'database', 'schema', 'query',
+      'index', 'cache', 'asynchronous', 'concurrent', 'parallel', 'event',
+      'callback', 'promise', 'stream', 'buffer', 'middleware', 'authentication',
+      'authorization', 'encryption', 'security', 'validation', 'sanitization'
+    ];
+    
+    // Example indicators
+    const exampleIndicators = [
+      'for example', 'such as', 'specifically', 'instance', 'case study', 
+      'scenario', 'implementation', 'project', 'experience with', 'worked on'
+    ];
+    
+    // Check each skill for depth of knowledge
+    userSkills.skills.forEach(skill => {
+      const skillLower = skill.toLowerCase();
+      
+      // Check if skill is mentioned
+      const isMentioned = allAnswersText.includes(skillLower) || 
+                        (skillLower.split(' ').length > 1 && 
+                          skillLower.split(' ').every(word => 
+                            word.length > 3 && allAnswersText.includes(word)
+                          ));
+      
+      // Find answers that mention this skill
+      const relevantAnswers = results.emotionsData.filter(item => 
+        item.answer?.toLowerCase().includes(skillLower) ||
+        (skillLower.split(' ').length > 1 && 
+          skillLower.split(' ').every(word => 
+            word.length > 3 && item.answer?.toLowerCase().includes(word)
+          ))
+      );
+      
+      // Calculate confidence score based on emotions
+      let confidenceScore = 0;
+      const confidenceEmotions = ['confidence', 'joy', 'satisfaction', 'concentration'];
+      const uncertaintyEmotions = ['confusion', 'fear', 'nervousness', 'anxiety'];
+      
+      if (relevantAnswers.length > 0) {
+        let confidenceCount = 0;
+        let uncertaintyCount = 0;
+        
+        relevantAnswers.forEach(answer => {
+          if (answer.emotions && answer.emotions.length > 0) {
+            // Check for confidence-related emotions
+            answer.emotions.forEach(emotion => {
+              if (confidenceEmotions.includes(emotion.name.toLowerCase())) {
+                confidenceCount += emotion.score;
+              }
+              if (uncertaintyEmotions.includes(emotion.name.toLowerCase())) {
+                uncertaintyCount += emotion.score;
+              }
+            });
+          }
+        });
+        
+        // Calculate confidence score (0-100)
+        confidenceScore = confidenceCount > 0 ? 
+          Math.min(100, Math.round((confidenceCount / (confidenceCount + uncertaintyCount + 0.1)) * 100)) : 40;
+      }
+      
+      // Calculate depth score
+      let depthScore = 0;
+      if (isMentioned) {
+        // Base score for mentioning
+        depthScore = 30;
+        
+        // Check for depth indicators
+        depthIndicators.forEach(indicator => {
+          const pattern = new RegExp(`\\b${indicator}\\b.{0,50}\\b${skillLower}\\b|\\b${skillLower}\\b.{0,50}\\b${indicator}\\b`, 'i');
+          if (pattern.test(allAnswersText)) {
+            depthScore += 10;
+          }
+        });
+        
+        // Check for technical details
+        let technicalDetailCount = 0;
+        technicalDetailIndicators.forEach(indicator => {
+          const pattern = new RegExp(`\\b${indicator}\\b.{0,70}\\b${skillLower}\\b|\\b${skillLower}\\b.{0,70}\\b${indicator}\\b`, 'i');
+          if (pattern.test(allAnswersText)) {
+            technicalDetailCount++;
+          }
+        });
+        
+        depthScore += Math.min(30, technicalDetailCount * 5);
+        
+        // Check for examples
+        let hasExamples = false;
+        exampleIndicators.forEach(indicator => {
+          const pattern = new RegExp(`\\b${indicator}\\b.{0,100}\\b${skillLower}\\b|\\b${skillLower}\\b.{0,100}\\b${indicator}\\b`, 'i');
+          if (pattern.test(allAnswersText)) {
+            hasExamples = true;
+          }
+        });
+        
+        if (hasExamples) {
+          depthScore += 20;
+        }
+        
+        // Cap the score at 100
+        depthScore = Math.min(100, depthScore);
+      }
+      
+      // Calculate overall score using weighted components
+      const overallScore = isMentioned ? 
+        Math.round((depthScore * 0.6) + (confidenceScore * 0.4)) : 0;
+      
+      // Store the analysis
+      skillAnalysisResults[skill] = {
+        mentioned: isMentioned,
+        confidenceScore,
+        depthScore,
+        overallScore,
+        examples: exampleIndicators.some(indicator => 
+          new RegExp(`\\b${indicator}\\b.{0,100}\\b${skillLower}\\b|\\b${skillLower}\\b.{0,100}\\b${indicator}\\b`, 'i').test(allAnswersText)
+        ),
+        technicalDetail: technicalDetailIndicators.some(indicator => 
+          new RegExp(`\\b${indicator}\\b.{0,70}\\b${skillLower}\\b|\\b${skillLower}\\b.{0,70}\\b${indicator}\\b`, 'i').test(allAnswersText)
+        )
+      };
+    });
+    
+    console.log("Detailed skill analysis:", skillAnalysisResults);
+    
+    // Determine matched and missing skills based on threshold
     const matchedSkills = userSkills.skills.filter(skill => 
-      allAnswersText.includes(skill.toLowerCase())
+      skillAnalysisResults[skill]?.overallScore >= 40
     );
     
-    // Skills that were not demonstrated
     const missingSkills = userSkills.skills.filter(skill => 
-      !allAnswersText.includes(skill.toLowerCase())
+      !skillAnalysisResults[skill] || skillAnalysisResults[skill].overallScore < 40
     );
     
     // Get common technical skills to recommend
-    const commonTechSkills = [
+    const commonTechSkills: string[] = [
       'javascript', 'react', 'typescript', 'node.js', 'python', 
       'java', 'sql', 'aws', 'git', 'css', 'html', 'docker',
       'kubernetes', 'c#', 'c++', 'ruby', 'php', 'golang', 'swift',
-      'vue.js', 'angular', 'devops', 'graphql', 'rest api'
+      'vue.js', 'angular', 'devops', 'graphql', 'rest api',
+      'machine learning', 'data analysis', 'cloud computing', 
+      'system design', 'agile methodology', 'test-driven development'
     ];
     
-    // Check which common skills were mentioned in the interview but not in user profile
-    const mentionedCommonSkills = commonTechSkills.filter(skill => 
-      allAnswersText.includes(skill) && 
-      !userSkills.skills.some(userSkill => userSkill.toLowerCase() === skill)
+    // Analyze communication quality
+    const analyseCommunication = () => {
+      // Count words in answers
+      const totalWords = allAnswersText.split(/\s+/).filter(word => word.length > 1).length;
+      const averageWordsPerAnswer = totalWords / Math.max(1, results.emotionsData.length);
+      
+      // Check for filler words
+      const fillerWords = ['um', 'uh', 'like', 'you know', 'actually', 'basically', 'literally'];
+      let fillerCount = 0;
+      fillerWords.forEach(word => {
+        const regex = new RegExp(`\\b${word}\\b`, 'gi');
+        const matches = allAnswersText.match(regex);
+        if (matches) fillerCount += matches.length;
+      });
+      
+      // Check for complexity of language
+      const complexityIndicators = ['therefore', 'however', 'consequently', 'furthermore', 'nevertheless', 
+                                   'although', 'whereas', 'despite', 'while', 'moreover', 'specifically'];
+      let complexityScore = 0;
+      complexityIndicators.forEach(word => {
+        const regex = new RegExp(`\\b${word}\\b`, 'gi');
+        const matches = allAnswersText.match(regex);
+        if (matches) complexityScore += matches.length;
+      });
+      
+      // Analyze sentence structure
+      const sentences = allAnswersText.split(/[.!?]+/).filter(s => s.trim().length > 0);
+      const averageSentenceLength = totalWords / Math.max(1, sentences.length);
+      
+      return {
+        clarity: Math.min(100, Math.max(0, 100 - (fillerCount / totalWords * 200))),
+        conciseness: Math.min(100, Math.max(0, 100 - Math.abs(averageWordsPerAnswer - 50) * 1.5)),
+        complexity: Math.min(100, Math.max(0, 40 + (complexityScore / sentences.length * 200))),
+        structure: Math.min(100, Math.max(0, 100 - Math.abs(averageSentenceLength - 15) * 3))
+      };
+    };
+    
+    const communicationMetrics = analyseCommunication();
+    
+    // Create an overall communication score
+    const communicationScore = Math.round(
+      (communicationMetrics.clarity * 0.3) +
+      (communicationMetrics.conciseness * 0.2) +
+      (communicationMetrics.complexity * 0.3) +
+      (communicationMetrics.structure * 0.2)
     );
     
-    // Recommend skills based on what was mentioned but not in profile
-    // and some important skills that weren't mentioned
-    const recommendedSkills = [
-      ...mentionedCommonSkills,
-      ...commonTechSkills
-        .filter(skill => !allAnswersText.includes(skill))
-        .slice(0, 3)
-    ].slice(0, 5); // Limit to 5 recommendations
+    // Check for technical terms mentioned in answers
+    const techTermsInAnswers: string[] = [];
+    commonTechSkills.forEach(skill => {
+      if (allAnswersText.includes(skill.toLowerCase())) {
+        techTermsInAnswers.push(skill);
+      }
+    });
     
-    // Calculate an overall score (percentage of skills demonstrated)
-    const overallScore = userSkills.skills.length > 0 
-      ? Math.round((matchedSkills.length / userSkills.skills.length) * 100) 
+    // Create recommendations by prioritizing:
+    // 1. Skills mentioned but not in profile
+    // 2. Related skills to the user's existing skills
+    const mentionedButNotInProfile = techTermsInAnswers.filter(
+      skill => !userSkills.skills.some(userSkill => 
+        userSkill.toLowerCase() === skill.toLowerCase()
+      )
+    );
+    
+    // Add related skills based on what's in the profile
+    const relatedSkillsMap: Record<string, string[]> = {
+      'javascript': ['typescript', 'react', 'node.js', 'vue.js'],
+      'react': ['javascript', 'redux', 'typescript', 'nextjs'],
+      'python': ['django', 'flask', 'machine learning', 'data analysis'],
+      'java': ['spring', 'hibernate', 'microservices'],
+      'c#': ['.net', 'asp.net', 'xamarin'],
+      'aws': ['cloud computing', 'devops', 'terraform'],
+      'sql': ['postgres', 'mysql', 'database design'],
+      'html': ['css', 'javascript', 'web development'],
+      'css': ['html', 'sass', 'tailwind']
+    };
+    
+    const relatedRecommendations: string[] = [];
+    userSkills.skills.forEach(skill => {
+      const skillLower = skill.toLowerCase();
+      const related = relatedSkillsMap[skillLower];
+      if (related) {
+        relatedRecommendations.push(...related.filter(
+          (relSkill: string) => !userSkills.skills.some(userSkill => 
+            userSkill.toLowerCase() === relSkill.toLowerCase()
+          )
+        ));
+      }
+    });
+    
+    // Combine recommendations and remove duplicates
+    const recommendedSkills = [...new Set([
+      ...mentionedButNotInProfile,
+      ...relatedRecommendations
+    ])].slice(0, 5); // Limit to 5 recommendations
+    
+    // Calculate an adjusted overall score based on both skill coverage and communication
+    // This provides a more accurate assessment that goes beyond just mentioning technologies
+    const overallSkillScore = userSkills.skills.length > 0 
+      ? Math.round(userSkills.skills.reduce((sum, skill) => 
+          sum + (skillAnalysisResults[skill]?.overallScore || 0), 0) / userSkills.skills.length)
       : 0;
+    
+    // Combine skill and communication scores for a more complete assessment
+    const finalScore = Math.round((overallSkillScore * 0.7) + (communicationScore * 0.3));
     
     setSkillAnalysis({
       matchedSkills,
       missingSkills,
       recommendedSkills,
-      overallScore
+      overallScore: finalScore,
+      detailedSkillScores: skillAnalysisResults,
+      communicationMetrics
+    });
+    
+    console.log("Skills analysis:", {
+      userSkills: userSkills.skills,
+      matched: matchedSkills,
+      missing: missingSkills,
+      recommendations: recommendedSkills,
+      communicationMetrics,
+      finalScore
     });
   };
 
@@ -1013,29 +1269,61 @@ ${skillGapText}
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6);
 
+    // Create color mapping for emotions
+    const emotionColorMap: Record<string, string> = {
+      // Positive emotions
+      happy: 'rgba(16, 185, 129, 0.7)',
+      happiness: 'rgba(16, 185, 129, 0.7)',
+      joy: 'rgba(5, 150, 105, 0.7)',
+      contentment: 'rgba(52, 211, 153, 0.7)',
+      
+      // Negative emotions
+      sad: 'rgba(37, 99, 235, 0.7)',
+      sadness: 'rgba(37, 99, 235, 0.7)',
+      angry: 'rgba(220, 38, 38, 0.7)',
+      anger: 'rgba(220, 38, 38, 0.7)',
+      fear: 'rgba(124, 58, 237, 0.7)',
+      fearful: 'rgba(124, 58, 237, 0.7)',
+      disgust: 'rgba(217, 119, 6, 0.7)',
+      disgusted: 'rgba(217, 119, 6, 0.7)',
+      
+      // Neutral/cognitive
+      neutral: 'rgba(107, 114, 128, 0.7)',
+      concentration: 'rgba(6, 182, 212, 0.7)',
+      confusion: 'rgba(79, 70, 229, 0.7)',
+      interest: 'rgba(8, 145, 178, 0.7)',
+      
+      // Surprise emotions
+      surprise: 'rgba(245, 158, 11, 0.7)',
+      surprised: 'rgba(245, 158, 11, 0.7)',
+    };
+
+    // Get color for each emotion, falling back to a default color palette if not found
+    const defaultColors = [
+      'rgba(54, 162, 235, 0.7)',
+      'rgba(255, 99, 132, 0.7)',
+      'rgba(75, 192, 192, 0.7)',
+      'rgba(255, 206, 86, 0.7)',
+      'rgba(153, 102, 255, 0.7)',
+      'rgba(255, 159, 64, 0.7)',
+    ];
+
+    const backgroundColors = sortedEmotions.map(([name], index) => 
+      emotionColorMap[name.toLowerCase()] || defaultColors[index % defaultColors.length]
+    );
+
+    const borderColors = backgroundColors.map(color => color.replace('0.7', '1'));
+
     return {
       labels: sortedEmotions.map(([name]) => name),
       datasets: [
         {
           label: 'Emotion Score',
           data: sortedEmotions.map(([, count]) => (count / emotionsData.length).toFixed(2)),
-          backgroundColor: [
-            'rgba(54, 162, 235, 0.6)',
-            'rgba(255, 99, 132, 0.6)',
-            'rgba(75, 192, 192, 0.6)',
-            'rgba(255, 206, 86, 0.6)',
-            'rgba(153, 102, 255, 0.6)',
-            'rgba(255, 159, 64, 0.6)',
-          ],
-          borderColor: [
-            'rgba(54, 162, 235, 1)',
-            'rgba(255, 99, 132, 1)',
-            'rgba(75, 192, 192, 1)',
-            'rgba(255, 206, 86, 1)',
-            'rgba(153, 102, 255, 1)',
-            'rgba(255, 159, 64, 1)',
-          ],
+          backgroundColor: backgroundColors,
+          borderColor: borderColors,
           borderWidth: 1,
+          borderRadius: 6,
         },
       ],
     };
@@ -1077,8 +1365,9 @@ ${skillGapText}
 
   return (
     <div className="min-h-screen bg-black text-white relative overflow-hidden">
-      {/* Background gradient effect similar to landing page */}
+      {/* Background gradient effect */}
       <div className="absolute inset-0 bg-gradient-to-b from-black via-black/90 to-black/80 z-0"></div>
+      <div className="absolute inset-0 bg-[url('/images/grid.svg')] bg-center opacity-10 z-0"></div>
       
       <div className="container mx-auto px-4 py-8 max-w-6xl relative z-10">
         <motion.div
@@ -1093,14 +1382,19 @@ ${skillGapText}
           >
             <ArrowLeft className="h-6 w-6" />
           </button>
-          <h1 className="font-montserrat font-bold text-3xl bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-            Interview Results
-          </h1>
+          <div>
+            <h1 className="font-montserrat font-bold text-3xl bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+              Interview Results
+            </h1>
+            <p className="text-gray-400 text-sm mt-1">
+              {results?.timestamp ? new Date(results.timestamp).toLocaleString() : 'Recent interview'}
+            </p>
+          </div>
         </motion.div>
         
         {isLoading ? (
-          <div className="flex flex-col justify-center items-center h-64 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white mb-4"></div>
+          <div className="flex flex-col justify-center items-center h-64 text-center backdrop-blur-sm bg-black/30 border border-white/5 rounded-xl p-8">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
             <h3 className="text-xl font-semibold mb-2">Generating Interview Analysis</h3>
             <p className="text-gray-400 max-w-md">
               We're analyzing your responses and emotional cues to create a comprehensive interview summary with critical feedback.
@@ -1111,14 +1405,14 @@ ${skillGapText}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="p-8 rounded-xl bg-black/80 backdrop-blur-sm border border-white/10 mb-6"
+            className="p-8 rounded-xl bg-gradient-to-br from-black/80 to-gray-900/50 backdrop-blur-sm border border-white/10 mb-6"
           >
             <p className="text-red-300">{error}</p>
             <motion.button 
               whileHover={{ scale: 1.05 }}
               transition={{ duration: 0.2 }}
               onClick={() => navigate('/interview')} 
-              className="mt-4 bg-white text-black px-6 py-3 rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all font-semibold"
+              className="mt-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all font-semibold shadow-lg shadow-blue-900/20"
             >
               Start New Interview
             </motion.button>
@@ -1128,69 +1422,267 @@ ${skillGapText}
             <RoundSelector />
             
             {/* Tabs for different sections */}
-            <div className="border-b border-gray-800 mb-6">
-              <div className="flex space-x-6 overflow-x-auto pb-1 scrollbar-hide">
-                <button
-                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    activeTab === 'summary' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
-                  }`}
-                  onClick={() => setActiveTab('summary')}
-                >
-                  Summary
-                </button>
-                <button
-                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    activeTab === 'emotions' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
-                  }`}
-                  onClick={() => setActiveTab('emotions')}
-                >
-                  Emotional Analysis
-                </button>
-                <button
-                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    activeTab === 'transcript' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
-                  }`}
-                  onClick={() => setActiveTab('transcript')}
-                >
-                  Transcript
-                </button>
-                <button
-                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    activeTab === 'skills' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
-                  }`}
-                  onClick={() => setActiveTab('skills')}
-                >
-                  Skills Gap
-                </button>
-                <button
-                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    activeTab === 'improvement' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
-                  }`}
-                  onClick={() => setActiveTab('improvement')}
-                >
-                  Improvement Plan
-                </button>
+            <div className="border-b border-gray-800 mb-6 rounded-lg bg-black/20 backdrop-blur-sm p-1">
+              <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-hide">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab}
+                    className={`px-4 py-2 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
+                      activeTab === tab 
+                        ? 'bg-blue-600/80 text-white shadow-lg shadow-blue-900/20' 
+                        : 'bg-transparent text-gray-400 hover:text-gray-300 hover:bg-white/5'
+                    }`}
+                    onClick={() => setActiveTab(tab)}
+                  >
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  </button>
+                ))}
               </div>
             </div>
             
             {/* Summary Tab */}
             {activeTab === 'summary' && (
-              <div className="bg-black/30 border border-gray-800 rounded-xl p-6 mb-8">
-                <div className="mb-4 flex items-center">
-                  <div className="h-10 w-10 rounded-full bg-blue-500/20 flex items-center justify-center mr-3">
-                    <Brain className="h-5 w-5 text-blue-400" />
+              <div className="space-y-8">
+                <div className="bg-gradient-to-b from-black/40 to-black/20 backdrop-blur-sm border border-gray-800 rounded-xl p-6 mb-8 shadow-xl">
+                  <div className="mb-6 flex items-center justify-between">
+                    <div className="flex items-center">
+                      <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-500/30 to-purple-500/30 flex items-center justify-center mr-4 shadow-md border border-blue-500/20">
+                        <Brain className="h-6 w-6 text-blue-400" />
+                      </div>
+                      <div>
+                        <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-300">
+                          {hasMultipleRounds && selectedRound !== 'overall'
+                            ? `${selectedRound} Summary`
+                            : 'Interview Analysis'
+                          }
+                        </h2>
+                        <p className="text-gray-400 text-sm mt-1">
+                          AI-generated feedback based on your performance and emotional responses
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center bg-black/20 border border-gray-800 backdrop-blur-sm shadow-inner rounded-lg px-3 py-2">
+                      <div className="text-xs text-gray-500 mr-2">Date:</div>
+                      <div className="text-sm text-white">
+                        {results?.timestamp ? new Date(results.timestamp).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric'
+                        }) : 'Recent interview'}
+                      </div>
+                    </div>
                   </div>
-                  <h2 className="text-xl font-bold">
-                    {hasMultipleRounds && selectedRound !== 'overall'
-                      ? `${selectedRound} Summary`
-                      : 'AI Generated Summary'
-                    }
-                  </h2>
-                </div>
-                <div className="prose prose-invert max-w-none">
-                  <ReactMarkdown>
-                    {getRoundData(selectedRound)?.summary || 'No summary was generated for this interview.'}
-                  </ReactMarkdown>
+                  
+                  {/* Key metrics */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                    <div className="bg-gradient-to-br from-black/40 to-black/30 border border-gray-800 rounded-lg p-4 flex flex-col items-center text-center">
+                      <div className="text-3xl font-bold text-white mb-1">{skillAnalysis.overallScore}%</div>
+                      <div className="flex items-center">
+                        <Brain className="h-4 w-4 text-blue-400 mr-1" />
+                        <p className="text-xs text-gray-400">Overall Rating</p>
+                      </div>
+                      <div className="mt-2 w-full bg-gray-800/60 h-1.5 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full ${
+                            skillAnalysis.overallScore >= 80 ? 'bg-green-500' :
+                            skillAnalysis.overallScore >= 60 ? 'bg-blue-500' :
+                            skillAnalysis.overallScore >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${skillAnalysis.overallScore}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-gradient-to-br from-black/40 to-black/30 border border-gray-800 rounded-lg p-4 flex flex-col items-center text-center">
+                      <div className="text-3xl font-bold text-white mb-1">
+                        {results?.emotionsData && results.emotionsData.length > 0 ? 
+                          Math.round(results.emotionsData.filter(item => 
+                            item.emotions?.some(e => ['confidence', 'joy', 'satisfaction'].includes(e.name.toLowerCase()))
+                          ).length / results.emotionsData.length * 100) : 0}%
+                      </div>
+                      <div className="flex items-center">
+                        <Smile className="h-4 w-4 text-green-400 mr-1" />
+                        <p className="text-xs text-gray-400">Confidence Level</p>
+                      </div>
+                      <div className="mt-2 w-full">
+                        {results?.emotionsData && results.emotionsData.length > 0 &&
+                          results.emotionsData.flatMap(item => item.emotions || [])
+                            .sort((a, b) => b.score - a.score)
+                            .slice(0, 3)
+                            .map((emotion, idx) => (
+                              <div 
+                                key={idx} 
+                                className="inline-flex items-center m-0.5 px-1.5 py-0.5 rounded-full text-xs"
+                                style={{ 
+                                  backgroundColor: `${getEmotionColor(emotion.name)}20`,
+                                  color: getTextColorFromBg(getEmotionColor(emotion.name))
+                                }}
+                              >
+                                {emotion.name}
+                              </div>
+                            ))
+                        }
+                      </div>
+                    </div>
+                    
+                    <div className="bg-gradient-to-br from-black/40 to-black/30 border border-gray-800 rounded-lg p-4 flex flex-col items-center text-center">
+                      <div className="text-3xl font-bold text-white mb-1">
+                        {skillAnalysis.matchedSkills.length}/{userSkills.skills.length}
+                      </div>
+                      <div className="flex items-center">
+                        <CheckCircle2 className="h-4 w-4 text-green-400 mr-1" />
+                        <p className="text-xs text-gray-400">Skills Demonstrated</p>
+                      </div>
+                      <div className="mt-2 w-full">
+                        {skillAnalysis.matchedSkills.slice(0, 3).map((skill, idx) => (
+                          <div key={idx} className="inline-flex items-center m-0.5 px-1.5 py-0.5 bg-green-950/30 text-green-400 rounded-full text-xs">
+                            {skill}
+                          </div>
+                        ))}
+                        {skillAnalysis.matchedSkills.length > 3 && (
+                          <div className="inline-flex items-center m-0.5 px-1.5 py-0.5 bg-blue-950/30 text-blue-400 rounded-full text-xs">
+                            +{skillAnalysis.matchedSkills.length - 3} more
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="bg-gradient-to-br from-black/40 to-black/30 border border-gray-800 rounded-lg p-4 flex flex-col items-center text-center">
+                      <div className="text-3xl font-bold text-white mb-1">
+                        {Math.round(skillAnalysis.communicationMetrics?.clarity || 0)}%
+                      </div>
+                      <div className="flex items-center">
+                        <MessageSquare className="h-4 w-4 text-blue-400 mr-1" />
+                        <p className="text-xs text-gray-400">Communication Clarity</p>
+                      </div>
+                      <div className="mt-2 w-full bg-gray-800/60 h-1.5 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500"
+                          style={{ width: `${skillAnalysis.communicationMetrics?.clarity || 0}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Summary content with better formatting */}
+                  <div className="bg-black/30 border border-gray-800 rounded-lg p-6 mb-6">
+                    <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                      <FileText className="h-5 w-5 text-blue-400 mr-2" />
+                      Performance Summary
+                    </h3>
+                    
+                    <div className="text-gray-200 text-lg leading-relaxed whitespace-pre-line">
+                      <div className="prose prose-invert max-w-none prose-headings:text-blue-400 prose-strong:text-white prose-em:text-gray-300 prose-li:text-gray-200">
+                        <ReactMarkdown>
+                          {getRoundData(selectedRound)?.summary || 'No summary was generated for this interview.'}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Key strengths and improvement areas */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div className="bg-black/30 border border-gray-800 rounded-lg p-5">
+                      <h3 className="text-md font-semibold text-white mb-4 flex items-center">
+                        <CheckCircle2 className="h-4 w-4 text-green-500 mr-2" />
+                        Key Strengths
+                      </h3>
+                      <ul className="space-y-2">
+                        {skillAnalysis.matchedSkills.length > 0 ? (
+                          skillAnalysis.matchedSkills.slice(0, 3).map((skill, idx) => (
+                            <li key={idx} className="flex items-start">
+                              <div className="h-5 w-5 rounded-full bg-green-950/50 border border-green-800/50 flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
+                                <span className="text-xs text-green-500">{idx + 1}</span>
+                              </div>
+                              <div>
+                                <span className="text-white">{skill}</span>
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                  {skillAnalysis.detailedSkillScores?.[skill]?.technicalDetail ? 
+                                    `Demonstrated strong technical understanding with ${skillAnalysis.detailedSkillScores[skill].confidenceScore}% confidence` : 
+                                    'Mentioned during the interview'}
+                                </p>
+                              </div>
+                            </li>
+                          ))
+                        ) : (
+                          <li className="text-gray-400 text-sm">No significant strengths identified</li>
+                        )}
+                        
+                        <li className="flex items-start">
+                          <div className="h-5 w-5 rounded-full bg-blue-950/50 border border-blue-800/50 flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
+                            <span className="text-xs text-blue-500">+</span>
+                          </div>
+                          <div>
+                            <span className="text-white">Communication {skillAnalysis.communicationMetrics?.complexity ? 
+                              skillAnalysis.communicationMetrics.complexity > 70 ? 'Excellence' : 'Skills' : 'Skills'}</span>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {skillAnalysis.communicationMetrics?.clarity && skillAnalysis.communicationMetrics.clarity > 70 ? 
+                                'Clear and articulate responses with good structure' : 
+                                'Responded to interview questions appropriately'}
+                            </p>
+                          </div>
+                        </li>
+                      </ul>
+                    </div>
+                    
+                    <div className="bg-black/30 border border-gray-800 rounded-lg p-5">
+                      <h3 className="text-md font-semibold text-white mb-4 flex items-center">
+                        <ArrowUpRight className="h-4 w-4 text-amber-500 mr-2" />
+                        Areas for Improvement
+                      </h3>
+                      <ul className="space-y-2">
+                        {skillAnalysis.missingSkills.length > 0 ? (
+                          skillAnalysis.missingSkills.slice(0, 3).map((skill, idx) => (
+                            <li key={idx} className="flex items-start">
+                              <div className="h-5 w-5 rounded-full bg-amber-950/50 border border-amber-800/50 flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
+                                <span className="text-xs text-amber-500">{idx + 1}</span>
+                              </div>
+                              <div>
+                                <span className="text-white">{skill}</span>
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                  Listed on your profile but not demonstrated effectively during interview
+                                </p>
+                              </div>
+                            </li>
+                          ))
+                        ) : (
+                          <li className="text-gray-400 text-sm">No significant gaps identified</li>
+                        )}
+                        
+                        {skillAnalysis.communicationMetrics?.conciseness && skillAnalysis.communicationMetrics.conciseness < 70 && (
+                          <li className="flex items-start">
+                            <div className="h-5 w-5 rounded-full bg-amber-950/50 border border-amber-800/50 flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
+                              <span className="text-xs text-amber-500">+</span>
+                            </div>
+                            <div>
+                              <span className="text-white">Response Conciseness</span>
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                Responses could be more focused and to the point
+                              </p>
+                            </div>
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  </div>
+                  
+                  {/* Download & Share Actions */}
+                  <div className="flex items-center justify-end space-x-4">
+                    <button 
+                      onClick={() => setActiveTab('improvement')}
+                      className="px-4 py-2 bg-gradient-to-r from-purple-600/80 to-purple-500/80 hover:from-purple-600 hover:to-purple-500 text-white rounded-lg flex items-center transition-colors shadow-lg shadow-purple-900/20"
+                    >
+                      <ArrowUpRight className="h-4 w-4 mr-2" />
+                      View Improvement Plan
+                    </button>
+                    <button 
+                      onClick={handleDownloadResults}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600/80 to-blue-500/80 hover:from-blue-600 hover:to-blue-500 text-white rounded-lg flex items-center transition-colors shadow-lg shadow-blue-900/20"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download Report
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1358,150 +1850,270 @@ ${skillGapText}
             {/* Skills Gap Tab */}
             {activeTab === 'skills' && (
               <div className="space-y-6">
-                <div className="bg-black/30 border border-gray-800 rounded-xl p-6 mb-8">
-                  <div className="mb-6 flex items-center">
-                    <div className="h-10 w-10 rounded-full bg-purple-500/20 flex items-center justify-center mr-3">
-                      <BarChart2 className="h-5 w-5 text-purple-400" />
+                <div className="bg-gradient-to-b from-black/40 to-black/20 backdrop-blur-sm border border-gray-800 rounded-xl p-6 mb-8 shadow-xl">
+                  <div className="mb-6 flex items-center justify-between">
+                    <div className="flex items-center">
+                      <div className="h-12 w-12 rounded-full bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center mr-4 shadow-md border border-purple-500/20">
+                        <BarChart2 className="h-6 w-6 text-purple-400" />
+                      </div>
+                      <div>
+                        <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-300">Skills Assessment</h2>
+                        <p className="text-gray-400 text-sm mt-1">Comprehensive analysis of technical and communication skills</p>
+                      </div>
                     </div>
-                    <div>
-                      <h2 className="text-xl font-bold">Skills Assessment</h2>
-                      <p className="text-gray-400 text-sm mt-1">Analysis of your demonstrated skills during the interview</p>
+                    <div className="flex flex-col items-center bg-black/50 backdrop-blur-sm rounded-xl px-5 py-3 border border-gray-800 shadow-inner">
+                      <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">{skillAnalysis.overallScore}%</div>
+                      <span className="text-xs text-gray-400">Overall Score</span>
                     </div>
-                    <div className="ml-auto bg-black/50 rounded-full px-4 py-2 border border-gray-800">
-                      <span className="text-2xl font-bold text-white">{skillAnalysis.overallScore}%</span>
-                      <span className="text-xs text-gray-400 ml-1">Skills Utilized</span>
+                  </div>
+                  
+                  {/* Communication Metrics */}
+                  <div className="mb-8">
+                    <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                      <MessageSquare className="h-5 w-5 text-blue-400 mr-2" />
+                      Communication Assessment
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="bg-black/40 border border-gray-800 rounded-lg p-5">
+                        <div className="flex justify-between items-center mb-4">
+                          <h4 className="text-md font-medium text-white">Language Quality</h4>
+                          <div className="flex items-center gap-2">
+                            <div className="px-2 py-1 rounded-md bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-blue-800/50">
+                              <span className="text-sm font-medium text-blue-300">
+                                {Math.round(((skillAnalysis.communicationMetrics?.clarity || 0) + 
+                                (skillAnalysis.communicationMetrics?.complexity || 0)) / 2)}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <div>
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-sm text-gray-300">Clarity</span>
+                              <span className="text-xs text-gray-400">{Math.round(skillAnalysis.communicationMetrics?.clarity || 0)}%</span>
+                            </div>
+                            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-blue-500 to-blue-400" 
+                                style={{ width: `${skillAnalysis.communicationMetrics?.clarity || 0}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {skillAnalysis.communicationMetrics?.clarity || 0 >= 70 ? 
+                                'Excellent clarity in responses, easy to understand' : 
+                                skillAnalysis.communicationMetrics?.clarity || 0 >= 50 ?
+                                'Good clarity, some points could be explained better' :
+                                'Responses could benefit from improved clarity'
+                              }
+                            </p>
+                          </div>
+                          
+                          <div>
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-sm text-gray-300">Language Complexity</span>
+                              <span className="text-xs text-gray-400">{Math.round(skillAnalysis.communicationMetrics?.complexity || 0)}%</span>
+                            </div>
+                            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-purple-500 to-purple-400" 
+                                style={{ width: `${skillAnalysis.communicationMetrics?.complexity || 0}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {skillAnalysis.communicationMetrics?.complexity || 0 >= 70 ? 
+                                'Advanced vocabulary and technical language used effectively' : 
+                                skillAnalysis.communicationMetrics?.complexity || 0 >= 50 ?
+                                'Good use of technical terms and concepts' :
+                                'Consider using more industry-specific terminology'
+                              }
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-black/40 border border-gray-800 rounded-lg p-5">
+                        <div className="flex justify-between items-center mb-4">
+                          <h4 className="text-md font-medium text-white">Structure & Delivery</h4>
+                          <div className="flex items-center gap-2">
+                            <div className="px-2 py-1 rounded-md bg-gradient-to-r from-green-900/50 to-teal-900/50 border border-green-800/50">
+                              <span className="text-sm font-medium text-green-300">
+                                {Math.round(((skillAnalysis.communicationMetrics?.conciseness || 0) + 
+                                (skillAnalysis.communicationMetrics?.structure || 0)) / 2)}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <div>
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-sm text-gray-300">Conciseness</span>
+                              <span className="text-xs text-gray-400">{Math.round(skillAnalysis.communicationMetrics?.conciseness || 0)}%</span>
+                            </div>
+                            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-green-500 to-green-400" 
+                                style={{ width: `${skillAnalysis.communicationMetrics?.conciseness || 0}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {skillAnalysis.communicationMetrics?.conciseness || 0 >= 70 ? 
+                                'Excellent: Concise responses that stay on point' : 
+                                skillAnalysis.communicationMetrics?.conciseness || 0 >= 50 ?
+                                'Good: Mostly direct responses with some tangents' :
+                                'Areas to improve: Responses could be more focused'
+                              }
+                            </p>
+                          </div>
+                          
+                          <div>
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-sm text-gray-300">Response Structure</span>
+                              <span className="text-xs text-gray-400">{Math.round(skillAnalysis.communicationMetrics?.structure || 0)}%</span>
+                            </div>
+                            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-teal-500 to-teal-400" 
+                                style={{ width: `${skillAnalysis.communicationMetrics?.structure || 0}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {skillAnalysis.communicationMetrics?.structure || 0 >= 70 ? 
+                                'Well-structured responses with clear beginning, middle, and end' : 
+                                skillAnalysis.communicationMetrics?.structure || 0 >= 50 ?
+                                'Good structure, sometimes lacks logical flow' :
+                                'Responses could benefit from improved organization'
+                              }
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   
                   {/* Skills Score Card */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                    <div className="bg-black/40 border border-gray-800 rounded-lg p-4">
-                      <h3 className="text-md font-semibold text-white mb-4 flex items-center">
-                        <CheckCircle2 className="h-4 w-4 text-green-500 mr-2" />
-                        Demonstrated Skills
-                      </h3>
-                      <div className="space-y-3">
-                        {skillAnalysis.matchedSkills.length > 0 ? (
-                          skillAnalysis.matchedSkills.map((skill, index) => (
-                            <div key={index} className="flex items-center bg-green-950/30 rounded-lg px-3 py-2">
-                              <div className="h-2 w-2 rounded-full bg-green-500 mr-2"></div>
-                              <span className="text-green-200">{skill}</span>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-gray-400 text-sm italic">No skills were clearly demonstrated during the interview.</p>
-                        )}
-                      </div>
-                    </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                      <Brain className="h-5 w-5 text-purple-400 mr-2" />
+                      Technical Skills Analysis
+                    </h3>
                     
-                    <div className="bg-black/40 border border-gray-800 rounded-lg p-4">
-                      <h3 className="text-md font-semibold text-white mb-4 flex items-center">
-                        <AlertTriangle className="h-4 w-4 text-amber-500 mr-2" />
-                        Missing Skills
-                      </h3>
-                      <div className="space-y-3">
-                        {skillAnalysis.missingSkills.length > 0 ? (
-                          skillAnalysis.missingSkills.map((skill, index) => (
-                            <div key={index} className="flex items-center bg-amber-950/30 rounded-lg px-3 py-2">
-                              <div className="h-2 w-2 rounded-full bg-amber-500 mr-2"></div>
-                              <span className="text-amber-200">{skill}</span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                      {userSkills.skills.map((skill, index) => {
+                        const skillData = skillAnalysis.detailedSkillScores?.[skill];
+                        if (!skillData) return null;
+                        
+                        // Determine color based on score
+                        const getColorClass = (score: number) => {
+                          if (score >= 80) return 'from-green-500 to-emerald-400';
+                          if (score >= 60) return 'from-teal-500 to-cyan-400';
+                          if (score >= 40) return 'from-blue-500 to-indigo-400';
+                          if (score >= 20) return 'from-yellow-500 to-amber-400';
+                          return 'from-red-500 to-rose-400';
+                        };
+
+                        // Get score level text
+                        const getScoreLevel = (score: number) => {
+                          if (score >= 80) return 'Expert';
+                          if (score >= 60) return 'Advanced';
+                          if (score >= 40) return 'Intermediate';
+                          if (score >= 20) return 'Basic';
+                          return 'Limited';
+                        };
+                        
+                        return (
+                          <div key={index} className="bg-black/40 border border-gray-800 rounded-lg p-5 relative overflow-hidden">
+                            {/* Background Pattern */}
+                            <div className="absolute inset-0 opacity-5 bg-pattern-grid">
+                              {/* This is a design element */}
                             </div>
-                          ))
-                        ) : (
-                          <p className="text-gray-400 text-sm italic">All skills from your profile were demonstrated!</p>
-                        )}
-                      </div>
+                            
+                            <div className="relative">
+                              <div className="flex justify-between items-center mb-4">
+                                <div className="flex items-center">
+                                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-900/40 to-purple-900/40 flex items-center justify-center mr-2 border border-blue-900/20">
+                                    <span className="text-sm font-semibold text-blue-300">{index + 1}</span>
+                                  </div>
+                                  <h4 className="text-md font-medium text-white">{skill}</h4>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className={`px-2 py-1 rounded-md ${
+                                    skillData.overallScore >= 70 ? 'bg-green-900/30 text-green-400 border border-green-800/50' :
+                                    skillData.overallScore >= 40 ? 'bg-blue-900/30 text-blue-400 border border-blue-800/50' :
+                                    'bg-red-900/30 text-red-400 border border-red-800/50'
+                                  }`}>
+                                    <span className="text-sm font-medium">
+                                      {getScoreLevel(skillData.overallScore)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="space-y-3">
+                                <div>
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="text-sm text-gray-300">Knowledge Depth</span>
+                                    <span className="text-xs text-gray-400">{skillData.depthScore}%</span>
+                                  </div>
+                                  <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                                    <div 
+                                      className={`h-full bg-gradient-to-r ${getColorClass(skillData.depthScore)}`}
+                                      style={{ width: `${skillData.depthScore}%` }}
+                                    />
+                                  </div>
+                                </div>
+                                
+                                <div>
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="text-sm text-gray-300">Confidence Level</span>
+                                    <span className="text-xs text-gray-400">{skillData.confidenceScore}%</span>
+                                  </div>
+                                  <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                                    <div 
+                                      className={`h-full bg-gradient-to-r ${getColorClass(skillData.confidenceScore)}`}
+                                      style={{ width: `${skillData.confidenceScore}%` }}
+                                    />
+                                  </div>
+                                </div>
+                                
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  {skillData.overallScore >= 70 && (
+                                    <span className="px-2 py-1 text-xs rounded-full bg-green-950/30 text-green-400 border border-green-900/50">
+                                      Strong Demonstration
+                                    </span>
+                                  )}
+                                  {skillData.examples && (
+                                    <span className="px-2 py-1 text-xs rounded-full bg-blue-950/30 text-blue-400 border border-blue-900/50">
+                                      Provided Examples
+                                    </span>
+                                  )}
+                                  {skillData.technicalDetail && (
+                                    <span className="px-2 py-1 text-xs rounded-full bg-purple-950/30 text-purple-400 border border-purple-900/50">
+                                      Technical Detail
+                                    </span>
+                                  )}
+                                  {!skillData.examples && !skillData.technicalDetail && (
+                                    <span className="px-2 py-1 text-xs rounded-full bg-amber-950/30 text-amber-400 border border-amber-900/50">
+                                      Mentioned Only
+                                    </span>
+                                  )}
+                                  {skillData.overallScore < 40 && (
+                                    <span className="px-2 py-1 text-xs rounded-full bg-red-950/30 text-red-400 border border-red-900/50">
+                                      Needs Development
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
                   
-                  {/* Skills Performance Ratings */}
-                  <div className="bg-black/40 border border-gray-800 rounded-lg p-4 mb-8">
-                    <h3 className="text-md font-semibold text-white mb-4">Performance Ratings</h3>
-                    
-                    <div className="space-y-4">
-                      {/* Calculate ratings based on emotions and skill coverage */}
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-300">Technical Knowledge</span>
-                          <div className="flex items-center">
-                            <div className="w-28 bg-gray-800 h-1.5 rounded-full mr-2">
-                              <div className="bg-blue-500 h-full rounded-full" style={{ 
-                                width: `${skillAnalysis.matchedSkills.length > 0 ? 
-                                  Math.min(100, (skillAnalysis.matchedSkills.length / (skillAnalysis.matchedSkills.length + skillAnalysis.missingSkills.length) * 100)) : 30}%` 
-                              }}></div>
-                            </div>
-                            <span className="text-xs text-gray-400">
-                              {skillAnalysis.matchedSkills.length > 0 ? 
-                                Math.min(100, Math.round(skillAnalysis.matchedSkills.length / (skillAnalysis.matchedSkills.length + skillAnalysis.missingSkills.length) * 100)) : 30}%
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-300">Communication Skills</span>
-                          <div className="flex items-center">
-                            <div className="w-28 bg-gray-800 h-1.5 rounded-full mr-2">
-                              <div className="bg-green-500 h-full rounded-full" style={{ 
-                                width: `${results?.emotionsData && results.emotionsData
-                                  .filter(item => item.emotions?.some(e => ['confidence', 'joy', 'satisfaction'].includes(e.name.toLowerCase())))
-                                  .length > results.emotionsData.length / 3 ? 75 : 50}%` 
-                              }}></div>
-                            </div>
-                            <span className="text-xs text-gray-400">
-                              {results?.emotionsData && results.emotionsData
-                                .filter(item => item.emotions?.some(e => ['confidence', 'joy', 'satisfaction'].includes(e.name.toLowerCase())))
-                                .length > results.emotionsData.length / 3 ? 75 : 50}%
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-300">Problem-Solving Approach</span>
-                          <div className="flex items-center">
-                            <div className="w-28 bg-gray-800 h-1.5 rounded-full mr-2">
-                              <div className="bg-purple-500 h-full rounded-full" style={{ 
-                                width: `${results?.emotionsData && results.emotionsData
-                                  .filter(item => item.emotions?.some(e => ['concentration', 'focus', 'thoughtful'].includes(e.name.toLowerCase())))
-                                  .length > results.emotionsData.length / 4 ? 80 : 60}%` 
-                              }}></div>
-                            </div>
-                            <span className="text-xs text-gray-400">
-                              {results?.emotionsData && results.emotionsData
-                                .filter(item => item.emotions?.some(e => ['concentration', 'focus', 'thoughtful'].includes(e.name.toLowerCase())))
-                                .length > results.emotionsData.length / 4 ? 80 : 60}%
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-300">Emotional Intelligence</span>
-                          <div className="flex items-center">
-                            <div className="w-28 bg-gray-800 h-1.5 rounded-full mr-2">
-                              <div className="bg-yellow-500 h-full rounded-full" style={{ 
-                                width: `${results?.emotionsData && results.emotionsData
-                                  .filter(item => !item.emotions?.some(e => ['fear', 'anxiety', 'nervousness'].includes(e.name.toLowerCase())))
-                                  .length > results.emotionsData.length / 2 ? 85 : 65}%` 
-                              }}></div>
-                            </div>
-                            <span className="text-xs text-gray-400">
-                              {results?.emotionsData && results.emotionsData
-                                .filter(item => !item.emotions?.some(e => ['fear', 'anxiety', 'nervousness'].includes(e.name.toLowerCase())))
-                                .length > results.emotionsData.length / 2 ? 85 : 65}%
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Recommended Skills */}
-                  <div className="bg-black/40 border border-gray-800 rounded-lg p-4">
+                  {/* Recommended Skills Section */}
+                  <div className="mt-8 bg-black/40 border border-gray-800 rounded-lg p-5">
                     <h3 className="text-md font-semibold text-white mb-4 flex items-center">
                       <ArrowUpRight className="h-4 w-4 text-blue-400 mr-2" />
                       Recommended Skills to Develop
@@ -1509,7 +2121,7 @@ ${skillGapText}
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                       {skillAnalysis.recommendedSkills.length > 0 ? (
                         skillAnalysis.recommendedSkills.map((skill, index) => (
-                          <div key={index} className="flex items-center bg-blue-950/30 rounded-lg px-3 py-2">
+                          <div key={index} className="flex items-center bg-blue-950/30 rounded-lg px-3 py-2 border border-blue-900/30">
                             <div className="h-2 w-2 rounded-full bg-blue-500 mr-2"></div>
                             <span className="text-blue-200">{skill}</span>
                           </div>
@@ -1518,9 +2130,20 @@ ${skillGapText}
                         <p className="text-gray-400 text-sm italic col-span-full">No additional skills recommended at this time.</p>
                       )}
                     </div>
+                    
+                    <div className="mt-5 p-4 bg-black/30 border border-gray-700/50 rounded-lg">
+                      <h4 className="text-sm font-medium text-white mb-2 flex items-center">
+                        <ArrowRight className="h-3.5 w-3.5 text-purple-400 mr-1.5" />
+                        Next Steps
+                      </h4>
+                      <p className="text-sm text-gray-400">
+                        Visit the <span className="text-purple-400 cursor-pointer" onClick={() => setActiveTab('improvement' as 'summary' | 'emotions' | 'transcript' | 'skills' | 'improvement')}>Improvement Plan</span> tab to see a detailed roadmap for enhancing your skills with resources and timeline.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
+            </div>
             )}
             
             {/* Transcript Tab */}
