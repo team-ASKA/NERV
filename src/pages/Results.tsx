@@ -876,29 +876,56 @@ ${skillGapText}
   // Helper function to get emotion color
   const getEmotionColor = (name: string) => {
     const emotionColors: {[key: string]: string} = {
-      happy: 'bg-green-500',
-      happiness: 'bg-green-500',
+      // Positive emotions - shades of green/teal
+      happy: 'bg-emerald-500',
+      happiness: 'bg-emerald-500',
       joy: 'bg-green-500',
-      sad: 'bg-blue-500',
-      sadness: 'bg-blue-500',
-      angry: 'bg-red-500',
-      anger: 'bg-red-500',
-      surprised: 'bg-yellow-500',
-      surprise: 'bg-yellow-500',
-      fearful: 'bg-purple-500',
-      fear: 'bg-purple-500',
-      disgusted: 'bg-orange-500',
-      disgust: 'bg-orange-500',
+      satisfaction: 'bg-teal-500',
+      contentment: 'bg-teal-400',
+      
+      // Negative emotions - reds and purples
+      sad: 'bg-blue-600',
+      sadness: 'bg-blue-600',
+      angry: 'bg-red-600',
+      anger: 'bg-red-600',
+      fearful: 'bg-purple-600',
+      fear: 'bg-purple-600',
+      disgusted: 'bg-orange-600',
+      disgust: 'bg-orange-600',
+      contempt: 'bg-pink-600',
+      
+      // Neutral emotions
       neutral: 'bg-gray-500',
-      contempt: 'bg-pink-500',
+      
+      // Cognitive states - blues and cyans
       confusion: 'bg-indigo-500',
       interest: 'bg-cyan-500',
-      concentration: 'bg-teal-500',
-      default: 'bg-white/50'
+      concentration: 'bg-sky-500',
+      focus: 'bg-sky-600',
+      thoughtful: 'bg-blue-500',
+      
+      // Surprise emotions - yellows
+      surprised: 'bg-amber-500',
+      surprise: 'bg-amber-500',
+      amazed: 'bg-yellow-500',
+      
+      // Confidence related
+      confidence: 'bg-violet-500',
+      pride: 'bg-fuchsia-500',
+      uncertainty: 'bg-slate-500',
+      nervousness: 'bg-red-400',
+      anxiety: 'bg-rose-400',
+      
+      default: 'bg-slate-400'
     };
     
     const lowerName = name.toLowerCase();
     return emotionColors[lowerName] || emotionColors.default;
+  };
+  
+  // Helper function to get text color from bg color
+  const getTextColorFromBg = (bgColor: string) => {
+    return bgColor.replace('bg-', 'text-');
   };
 
   const getRoundData = (roundType: InterviewRoundType | 'overall') => {
@@ -1102,9 +1129,9 @@ ${skillGapText}
             
             {/* Tabs for different sections */}
             <div className="border-b border-gray-800 mb-6">
-              <div className="flex space-x-6">
+              <div className="flex space-x-6 overflow-x-auto pb-1 scrollbar-hide">
                 <button
-                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeTab === 'summary' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
                   }`}
                   onClick={() => setActiveTab('summary')}
@@ -1112,7 +1139,7 @@ ${skillGapText}
                   Summary
                 </button>
                 <button
-                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeTab === 'emotions' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
                   }`}
                   onClick={() => setActiveTab('emotions')}
@@ -1120,12 +1147,28 @@ ${skillGapText}
                   Emotional Analysis
                 </button>
                 <button
-                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeTab === 'transcript' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
                   }`}
                   onClick={() => setActiveTab('transcript')}
                 >
                   Transcript
+                </button>
+                <button
+                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    activeTab === 'skills' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
+                  }`}
+                  onClick={() => setActiveTab('skills')}
+                >
+                  Skills Gap
+                </button>
+                <button
+                  className={`px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    activeTab === 'improvement' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'
+                  }`}
+                  onClick={() => setActiveTab('improvement')}
+                >
+                  Improvement Plan
                 </button>
               </div>
             </div>
@@ -1222,14 +1265,15 @@ ${skillGapText}
                                         {item.emotions && (isExpanded ? item.emotions : item.emotions.slice(0, 3)).map((emotion: any, idx: number) => (
                                           <div 
                                             key={idx} 
-                                            className="px-2 py-0.5 rounded text-xs flex items-center gap-1"
+                                            className="px-2 py-1 rounded-md text-xs flex items-center gap-1.5 transition-colors"
                                             style={{ 
-                                              backgroundColor: `${roundColor}20`,
-                                              color: roundColor 
+                                              backgroundColor: `${getEmotionColor(emotion.name)}30`,
+                                              color: getTextColorFromBg(getEmotionColor(emotion.name))
                                             }}
                                           >
-                                            {emotion.name}
-                                            <span className="font-mono">
+                                            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: getTextColorFromBg(getEmotionColor(emotion.name))}}></div>
+                                            <span className="font-medium capitalize">{emotion.name}</span>
+                                            <span className="font-mono bg-black/30 px-1.5 rounded">
                                               {Math.round(emotion.score * 100)}%
                                             </span>
                                           </div>
@@ -1311,6 +1355,174 @@ ${skillGapText}
               </div>
             )}
             
+            {/* Skills Gap Tab */}
+            {activeTab === 'skills' && (
+              <div className="space-y-6">
+                <div className="bg-black/30 border border-gray-800 rounded-xl p-6 mb-8">
+                  <div className="mb-6 flex items-center">
+                    <div className="h-10 w-10 rounded-full bg-purple-500/20 flex items-center justify-center mr-3">
+                      <BarChart2 className="h-5 w-5 text-purple-400" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold">Skills Assessment</h2>
+                      <p className="text-gray-400 text-sm mt-1">Analysis of your demonstrated skills during the interview</p>
+                    </div>
+                    <div className="ml-auto bg-black/50 rounded-full px-4 py-2 border border-gray-800">
+                      <span className="text-2xl font-bold text-white">{skillAnalysis.overallScore}%</span>
+                      <span className="text-xs text-gray-400 ml-1">Skills Utilized</span>
+                    </div>
+                  </div>
+                  
+                  {/* Skills Score Card */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    <div className="bg-black/40 border border-gray-800 rounded-lg p-4">
+                      <h3 className="text-md font-semibold text-white mb-4 flex items-center">
+                        <CheckCircle2 className="h-4 w-4 text-green-500 mr-2" />
+                        Demonstrated Skills
+                      </h3>
+                      <div className="space-y-3">
+                        {skillAnalysis.matchedSkills.length > 0 ? (
+                          skillAnalysis.matchedSkills.map((skill, index) => (
+                            <div key={index} className="flex items-center bg-green-950/30 rounded-lg px-3 py-2">
+                              <div className="h-2 w-2 rounded-full bg-green-500 mr-2"></div>
+                              <span className="text-green-200">{skill}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-gray-400 text-sm italic">No skills were clearly demonstrated during the interview.</p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="bg-black/40 border border-gray-800 rounded-lg p-4">
+                      <h3 className="text-md font-semibold text-white mb-4 flex items-center">
+                        <AlertTriangle className="h-4 w-4 text-amber-500 mr-2" />
+                        Missing Skills
+                      </h3>
+                      <div className="space-y-3">
+                        {skillAnalysis.missingSkills.length > 0 ? (
+                          skillAnalysis.missingSkills.map((skill, index) => (
+                            <div key={index} className="flex items-center bg-amber-950/30 rounded-lg px-3 py-2">
+                              <div className="h-2 w-2 rounded-full bg-amber-500 mr-2"></div>
+                              <span className="text-amber-200">{skill}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-gray-400 text-sm italic">All skills from your profile were demonstrated!</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Skills Performance Ratings */}
+                  <div className="bg-black/40 border border-gray-800 rounded-lg p-4 mb-8">
+                    <h3 className="text-md font-semibold text-white mb-4">Performance Ratings</h3>
+                    
+                    <div className="space-y-4">
+                      {/* Calculate ratings based on emotions and skill coverage */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-300">Technical Knowledge</span>
+                          <div className="flex items-center">
+                            <div className="w-28 bg-gray-800 h-1.5 rounded-full mr-2">
+                              <div className="bg-blue-500 h-full rounded-full" style={{ 
+                                width: `${skillAnalysis.matchedSkills.length > 0 ? 
+                                  Math.min(100, (skillAnalysis.matchedSkills.length / (skillAnalysis.matchedSkills.length + skillAnalysis.missingSkills.length) * 100)) : 30}%` 
+                              }}></div>
+                            </div>
+                            <span className="text-xs text-gray-400">
+                              {skillAnalysis.matchedSkills.length > 0 ? 
+                                Math.min(100, Math.round(skillAnalysis.matchedSkills.length / (skillAnalysis.matchedSkills.length + skillAnalysis.missingSkills.length) * 100)) : 30}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-300">Communication Skills</span>
+                          <div className="flex items-center">
+                            <div className="w-28 bg-gray-800 h-1.5 rounded-full mr-2">
+                              <div className="bg-green-500 h-full rounded-full" style={{ 
+                                width: `${results?.emotionsData && results.emotionsData
+                                  .filter(item => item.emotions?.some(e => ['confidence', 'joy', 'satisfaction'].includes(e.name.toLowerCase())))
+                                  .length > results.emotionsData.length / 3 ? 75 : 50}%` 
+                              }}></div>
+                            </div>
+                            <span className="text-xs text-gray-400">
+                              {results?.emotionsData && results.emotionsData
+                                .filter(item => item.emotions?.some(e => ['confidence', 'joy', 'satisfaction'].includes(e.name.toLowerCase())))
+                                .length > results.emotionsData.length / 3 ? 75 : 50}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-300">Problem-Solving Approach</span>
+                          <div className="flex items-center">
+                            <div className="w-28 bg-gray-800 h-1.5 rounded-full mr-2">
+                              <div className="bg-purple-500 h-full rounded-full" style={{ 
+                                width: `${results?.emotionsData && results.emotionsData
+                                  .filter(item => item.emotions?.some(e => ['concentration', 'focus', 'thoughtful'].includes(e.name.toLowerCase())))
+                                  .length > results.emotionsData.length / 4 ? 80 : 60}%` 
+                              }}></div>
+                            </div>
+                            <span className="text-xs text-gray-400">
+                              {results?.emotionsData && results.emotionsData
+                                .filter(item => item.emotions?.some(e => ['concentration', 'focus', 'thoughtful'].includes(e.name.toLowerCase())))
+                                .length > results.emotionsData.length / 4 ? 80 : 60}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-300">Emotional Intelligence</span>
+                          <div className="flex items-center">
+                            <div className="w-28 bg-gray-800 h-1.5 rounded-full mr-2">
+                              <div className="bg-yellow-500 h-full rounded-full" style={{ 
+                                width: `${results?.emotionsData && results.emotionsData
+                                  .filter(item => !item.emotions?.some(e => ['fear', 'anxiety', 'nervousness'].includes(e.name.toLowerCase())))
+                                  .length > results.emotionsData.length / 2 ? 85 : 65}%` 
+                              }}></div>
+                            </div>
+                            <span className="text-xs text-gray-400">
+                              {results?.emotionsData && results.emotionsData
+                                .filter(item => !item.emotions?.some(e => ['fear', 'anxiety', 'nervousness'].includes(e.name.toLowerCase())))
+                                .length > results.emotionsData.length / 2 ? 85 : 65}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Recommended Skills */}
+                  <div className="bg-black/40 border border-gray-800 rounded-lg p-4">
+                    <h3 className="text-md font-semibold text-white mb-4 flex items-center">
+                      <ArrowUpRight className="h-4 w-4 text-blue-400 mr-2" />
+                      Recommended Skills to Develop
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                      {skillAnalysis.recommendedSkills.length > 0 ? (
+                        skillAnalysis.recommendedSkills.map((skill, index) => (
+                          <div key={index} className="flex items-center bg-blue-950/30 rounded-lg px-3 py-2">
+                            <div className="h-2 w-2 rounded-full bg-blue-500 mr-2"></div>
+                            <span className="text-blue-200">{skill}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-gray-400 text-sm italic col-span-full">No additional skills recommended at this time.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {/* Transcript Tab */}
             {activeTab === 'transcript' && (
               <div className="overflow-hidden rounded-xl border border-gray-800">
@@ -1384,19 +1596,20 @@ ${skillGapText}
                                     <span className="text-xs text-gray-500 mr-1">Emotion Analysis:</span>
                                     <div className="flex flex-wrap gap-1">
                                       {emotionItem.emotions.slice(0, 4).map((emotion, idx) => (
-                                        <span 
+                                        <div 
                                           key={idx} 
-                                          className="px-1.5 py-0.5 rounded text-xs flex items-center gap-1"
+                                          className="px-2 py-1 rounded-md text-xs flex items-center gap-1.5 transition-colors"
                                           style={{ 
-                                            backgroundColor: `${getEmotionColor(emotion.name)}20`,
-                                            color: getEmotionColor(emotion.name).replace('bg-', 'text-')
+                                            backgroundColor: `${getEmotionColor(emotion.name)}30`,
+                                            color: getTextColorFromBg(getEmotionColor(emotion.name))
                                           }}
                                         >
-                                          {emotion.name}
-                                          <span className="font-mono text-[10px]">
+                                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: getTextColorFromBg(getEmotionColor(emotion.name))}}></div>
+                                          <span className="font-medium capitalize">{emotion.name}</span>
+                                          <span className="font-mono bg-black/30 px-1.5 rounded">
                                             {Math.round(emotion.score * 100)}%
                                           </span>
-                                        </span>
+                                        </div>
                                       ))}
                                     </div>
                                   </div>
@@ -1435,6 +1648,208 @@ ${skillGapText}
                     >
                       Next
                       <ChevronRight className="h-4 w-4 ml-1" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Improvement Plan Tab */}
+            {activeTab === 'improvement' && (
+              <div className="space-y-6">
+                {isGeneratingPlan ? (
+                  <div className="flex flex-col justify-center items-center h-64 text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white mb-4"></div>
+                    <h3 className="text-xl font-semibold mb-2">Generating Your Improvement Plan</h3>
+                    <p className="text-gray-400 max-w-md">
+                      We're analyzing your skills and interview performance to create a personalized improvement roadmap.
+                    </p>
+                  </div>
+                ) : improvementPlan ? (
+                  <div>
+                    {/* Summary Card */}
+                    <div className="bg-black/30 border border-gray-800 rounded-xl p-6 mb-8">
+                      <div className="mb-6 flex items-center">
+                        <div className="h-10 w-10 rounded-full bg-blue-500/20 flex items-center justify-center mr-3">
+                          <FileText className="h-5 w-5 text-blue-400" />
+                        </div>
+                        <div>
+                          <h2 className="text-xl font-bold">Your Improvement Plan</h2>
+                          <p className="text-gray-400 text-sm mt-1">
+                            Generated on {new Date(improvementPlan.generatedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <button 
+                          onClick={handleDownloadResults}
+                          className="ml-auto px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg flex items-center transition-colors"
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Download
+                        </button>
+                      </div>
+                      
+                      <div className="prose prose-invert max-w-none mb-6">
+                        <p className="text-gray-200">{improvementPlan.summary}</p>
+                      </div>
+                      
+                      {/* Skill Gaps Summary */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div className="bg-black/40 rounded-lg border border-gray-800 p-4">
+                          <h3 className="font-semibold text-white mb-3 flex items-center">
+                            <AlertTriangle className="h-4 w-4 text-amber-500 mr-2" />
+                            Identified Skill Gaps
+                          </h3>
+                          <div className="space-y-2">
+                            {improvementPlan.skillGaps.length > 0 ? (
+                              improvementPlan.skillGaps.map((skill, index) => (
+                                <div key={index} className="flex items-center">
+                                  <div className="h-1.5 w-1.5 rounded-full bg-amber-500 mr-2"></div>
+                                  <span className="text-gray-300 text-sm">{skill}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-gray-400 text-sm italic">No significant skill gaps identified.</p>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Career Path Suggestions */}
+                        <div className="bg-black/40 rounded-lg border border-gray-800 p-4">
+                          <h3 className="font-semibold text-white mb-3 flex items-center">
+                            <ArrowUpRight className="h-4 w-4 text-blue-400 mr-2" />
+                            Suggested Career Paths
+                          </h3>
+                          <div className="space-y-2">
+                            {improvementPlan.careerPaths.length > 0 ? (
+                              improvementPlan.careerPaths.slice(0, 2).map((path, index) => (
+                                <div key={index} className="flex items-center justify-between py-1">
+                                  <div className="flex items-center">
+                                    <div className="h-1.5 w-1.5 rounded-full bg-blue-500 mr-2"></div>
+                                    <span className="text-gray-300 text-sm">{path.role}</span>
+                                    <span className="text-xs ml-2 px-1.5 py-0.5 rounded bg-black/50 text-gray-400 border border-gray-700">
+                                      {path.level}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center">
+                                    <div className="w-16 bg-gray-800 h-1.5 rounded-full mr-2">
+                                      <div className="bg-blue-500 h-full rounded-full" style={{ width: `${path.matchPercentage}%` }}></div>
+                                    </div>
+                                    <span className="text-xs text-gray-400">{path.matchPercentage}%</span>
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-gray-400 text-sm italic">No career paths available.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Timeline Roadmap */}
+                    <div className="bg-black/30 border border-gray-800 rounded-xl p-6 mb-8">
+                      <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                        <List className="h-5 w-5 text-indigo-400 mr-2" />
+                        Skill Development Timeline
+                      </h3>
+                      
+                      <div className="space-y-6 relative">
+                        {/* Timeline line */}
+                        <div className="absolute top-0 bottom-0 left-6 w-0.5 bg-gray-800 z-0"></div>
+                        
+                        {improvementPlan.timeline.map((item, index) => (
+                          <div key={index} className="relative flex items-start z-10">
+                            <div className={`h-12 w-12 rounded-full flex-shrink-0 flex items-center justify-center -ml-1.5 ${
+                              item.priority === 'high' ? 'bg-red-950/50 text-red-500 border-red-800' : 
+                              item.priority === 'medium' ? 'bg-amber-950/50 text-amber-500 border-amber-800' : 
+                              'bg-blue-950/50 text-blue-500 border-blue-800'
+                            } border-2`}>
+                              {index + 1}
+                            </div>
+                            <div className="ml-4 -mt-1 bg-black/40 border border-gray-800 rounded-lg p-4 w-full">
+                              <div className="flex justify-between items-start mb-2">
+                                <h4 className="font-medium text-white">{item.task}</h4>
+                                <span className={`text-xs ${
+                                  item.priority === 'high' ? 'bg-red-900/50 text-red-300 border-red-800' : 
+                                  item.priority === 'medium' ? 'bg-amber-900/50 text-amber-300 border-amber-800' : 
+                                  'bg-blue-900/50 text-blue-300 border-blue-800'
+                                } px-2 py-1 rounded border`}>
+                                  {item.priority.toUpperCase()}
+                                </span>
+                              </div>
+                              <p className="text-gray-400 text-sm">{item.duration}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Learning Resources */}
+                    <div className="bg-black/30 border border-gray-800 rounded-xl p-6 mb-8">
+                      <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                        <FileText className="h-5 w-5 text-green-400 mr-2" />
+                        Recommended Resources
+                      </h3>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {improvementPlan.resources.map((resource, index) => (
+                          <div key={index} className="bg-black/40 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors">
+                            <div className="flex items-start mb-2">
+                              <div className={`h-8 w-8 rounded-full flex-shrink-0 flex items-center justify-center mr-2 ${
+                                resource.type === 'course' ? 'bg-purple-950/50 text-purple-500' : 
+                                resource.type === 'book' ? 'bg-blue-950/50 text-blue-500' : 
+                                resource.type === 'project' ? 'bg-green-950/50 text-green-500' : 
+                                resource.type === 'video' ? 'bg-red-950/50 text-red-500' : 
+                                'bg-amber-950/50 text-amber-500'
+                              }`}>
+                                {resource.type === 'course' && "C"}
+                                {resource.type === 'book' && "B"}
+                                {resource.type === 'project' && "P"}
+                                {resource.type === 'video' && "V"}
+                                {resource.type === 'article' && "A"}
+                              </div>
+                              <div>
+                                <div className="flex items-center">
+                                  <h4 className="font-medium text-white">{resource.title}</h4>
+                                  <span className={`text-xs ml-2 ${
+                                    resource.type === 'course' ? 'bg-purple-900/30 text-purple-300 border-purple-800' : 
+                                    resource.type === 'book' ? 'bg-blue-900/30 text-blue-300 border-blue-800' : 
+                                    resource.type === 'project' ? 'bg-green-900/30 text-green-300 border-green-800' : 
+                                    resource.type === 'video' ? 'bg-red-900/30 text-red-300 border-red-800' : 
+                                    'bg-amber-900/30 text-amber-300 border-amber-800'
+                                  } px-1.5 py-0.5 rounded-sm border uppercase`}>
+                                    {resource.type}
+                                  </span>
+                                </div>
+                                <p className="text-gray-400 text-sm mt-1">{resource.description}</p>
+                              </div>
+                            </div>
+                            {resource.url && (
+                              <a 
+                                href={resource.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="flex items-center text-sm text-blue-400 hover:text-blue-300 mt-3 transition-colors"
+                              >
+                                <ExternalLink className="h-3 w-3 mr-1" />
+                                View Resource
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col justify-center items-center h-64 text-center">
+                    <p className="text-gray-400 max-w-md">
+                      No improvement plan available. Please complete an interview first.
+                    </p>
+                    <button 
+                      onClick={generateImprovementPlan}
+                      className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    >
+                      Generate Plan
                     </button>
                   </div>
                 )}
