@@ -35,7 +35,7 @@ const SignUp = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [step, setStep] = useState(1); // Track form step
+  const [step, setStep] = useState(1); 
 
   const {
     register,
@@ -73,14 +73,13 @@ const SignUp = () => {
         createdAt: new Date().toISOString(),
       };
       
-      // Save user profile data to Firestore
+      
       await setDoc(doc(db, 'users', userCredential.user.uid), userProfileData);
       
       navigate('/dashboard');
     } catch (err: any) {
       console.error('Signup error:', err);
       
-      // Handle specific Firebase auth errors
       if (err.code === 'auth/email-already-in-use') {
         setError('This email is already registered. Please use a different email or try logging in.');
       } else if (err.code === 'auth/weak-password') {
@@ -102,7 +101,6 @@ const SignUp = () => {
   };
 
   const nextStep = async () => {
-    // Validate current step fields before proceeding
     const fieldsToValidate = step === 1 
       ? ['fullName', 'email', 'password'] 
       : ['expertise'];

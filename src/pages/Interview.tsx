@@ -123,12 +123,9 @@ if (typeof window !== 'undefined') {
 
 // Update the speakResponse function to handle sequential TTS and prevent duplicate speech
 const speakResponse = async (text: string) => {
-  // Add debug logging to track speech requests
-  console.log("Speech requested for text:", text.substring(0, 30) + "...");
-
+  // Add debug logging to track speech request
   // Global variable to track if audio is currently playing
   if (window.audioPlaying) {
-    console.log("Another audio is already playing, skipping this request");
     return;
   }
 
@@ -141,11 +138,8 @@ const speakResponse = async (text: string) => {
     const endpoint = "https://kusha-m8t3pks8-swedencentral.cognitiveservices.azure.com";
     const deploymentName = "tts";
 
-    console.log("Converting text to speech...");
-
     // Ensure we have text to convert
     if (!text || text.trim() === '') {
-      console.error("Empty text provided for TTS");
       window.audioPlaying = false;
       return;
     }
@@ -189,7 +183,6 @@ const speakResponse = async (text: string) => {
       audio.onended = () => {
         URL.revokeObjectURL(audioUrl);
         window.audioPlaying = false;
-        console.log("Audio playback completed");
         resolve();
       };
       audio.play().catch(error => {
@@ -441,8 +434,6 @@ const Interview = () => {
             interviewsCompleted: currentCount + 1,
             lastInterviewDate: new Date().toISOString()
           });
-
-          console.log("Updated interview count in database");
         } catch (dbError) {
           console.error("Error updating interview count:", dbError);
           // Continue even if database update fails
@@ -477,9 +468,6 @@ const Interview = () => {
     
     // Make sure we have a valid start time
     if (!startTime) return;
-    
-    console.log("Starting interview timer with duration:", INTERVIEW_DURATION, "ms, limit per question:", QUESTION_TIME_LIMIT, "seconds");
-    
     // Initialize progress tracking
     const initialProgress = 0;
     setProgress(initialProgress);
@@ -509,7 +497,6 @@ const Interview = () => {
       }
       
       if (remaining === 0 && !isTimeUp) {
-        console.log("Interview time is up, ending interview");
         setIsTimeUp(true);
         handleEndInterview();
         return;
@@ -578,8 +565,6 @@ const Interview = () => {
       } else {
         interviewQuestions = getMockQuestions();
       }
-      
-      console.log("Generated interview questions:", interviewQuestions);
       
       // Format questions into Question objects - make the first question explicitly ask for an introduction
       const introductionQuestion = "Could you please introduce yourself and tell me about your background?";
@@ -726,8 +711,6 @@ const Interview = () => {
           const endpoint = "https://kusha-m8fgqe1k-eastus2.cognitiveservices.azure.com";
           const deploymentName = "whisper";
 
-          console.log("Sending transcription request to Azure Whisper API...");
-
           // Send to Azure for transcription
           const response = await fetch(
             `${endpoint}/openai/deployments/${deploymentName}/audio/transcriptions?api-version=2023-09-01-preview`,
@@ -747,7 +730,7 @@ const Interview = () => {
           }
 
           const result = await response.json();
-          console.log("Transcription result:", result);
+
 
           // Azure Whisper returns text in the 'text' field
           if (result.text) {
@@ -1043,11 +1026,9 @@ const Interview = () => {
   const toggleRecording = () => {
     if (interviewState === 'ai-speaking' || interviewState === 'ai-thinking') {
       // Can't record while AI is speaking or thinking
-      console.log("Cannot toggle recording while AI is speaking or thinking");
+   
       return;
     }
-
-    console.log("Toggle recording, current state:", isRecording);
     
     if (!isRecording) {
       // Start recording
@@ -1083,8 +1064,6 @@ const Interview = () => {
 
     try {
       setIsAnalyzing(true);
-      console.log("Starting facial analysis...");
-
       // Capture frame from video
       const video = videoRef.current;
       const canvas = canvasRef.current;
@@ -1102,13 +1081,10 @@ const Interview = () => {
       });
 
       if (!blob) return;
-      console.log("Image captured, size:", blob.size, "bytes");
-
       // Create a File object from the blob
       const file = new File([blob], "frame.jpg", { type: "image/jpeg" });
 
-      // Start inference job
-      console.log("Starting inference job...");
+      // Start inference job for facial analyis
       const formData = new FormData();
       formData.append('file', file);
       formData.append('json', JSON.stringify({
@@ -1156,7 +1132,6 @@ const Interview = () => {
         console.log(`Job status (attempt ${attempts}): ${jobStatus}`);
 
         if (jobStatus === 'COMPLETED') {
-          console.log("Job completed, waiting before fetching predictions...");
           // Add a small delay to ensure predictions are ready
           await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -1186,8 +1161,6 @@ const Interview = () => {
             console.log(`Predictions response (attempt ${predAttempt}):`, predictions);
 
             if (predictions && Array.isArray(predictions) && predictions.length > 0) {
-              console.log("Processing predictions structure...");
-
               // Check if we have predictions array in the results
               if (predictions[0].results?.predictions &&
                 Array.isArray(predictions[0].results.predictions) &&
@@ -1227,7 +1200,6 @@ const Interview = () => {
             }
 
             if (predAttempt < 3 && !predictionsFound) {
-              console.log("Waiting before retrying predictions...");
               await new Promise(resolve => setTimeout(resolve, 2000));
             }
           }
@@ -1531,9 +1503,6 @@ const Interview = () => {
       const questionCount = interviewConfig.questionCount || 7;
       const difficultyLevel = interviewConfig.difficultyLevel || 'medium';
 
-      // Log the resume text length to verify it's being passed correctly
-      console.log("Resume text for question generation, length:", resumeText?.length);
-
       // Create a system prompt that focuses on serious technical questions with configured options
       const systemPrompt = `
         You are a technical interviewer with high standards and a critical, direct personality.
@@ -1599,7 +1568,6 @@ const Interview = () => {
         const questions = JSON.parse(jsonString);
 
         if (Array.isArray(questions) && questions.length > 0) {
-          console.log("Successfully generated questions:", questions.length);
           return questions;
         } else {
           throw new Error("Invalid questions format");
@@ -1741,8 +1709,6 @@ const Interview = () => {
 
     // Store updated data
     localStorage.setItem('interviewData', JSON.stringify(interviewData));
-
-    console.log("Stored answer with emotions:", { question, answer, emotions: emotionsToStore.length, responseTime, isFollowUp });
   };
 
   // Update the generateNextQuestion function to include emotions

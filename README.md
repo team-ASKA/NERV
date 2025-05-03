@@ -66,10 +66,6 @@ This project uses environment variables to store sensitive information like API 
    VITE_APP_AZURE_TTS_API_KEY=your_azure_tts_api_key
    VITE_APP_AZURE_TTS_REGION=your_azure_region
 
-   # Hume AI (for emotion analysis)
-   VITE_HUME_API_KEY=your_hume_api_key
-   VITE_HUME_SECRET_KEY=your_hume_secret_key
-
    # Firebase (for authentication and storage)
    VITE_FIREBASE_API_KEY=your_firebase_api_key
    VITE_FIREBASE_AUTH_DOMAIN=your_firebase_auth_domain
@@ -311,7 +307,6 @@ nerv-ai-interview/
   - Azure OpenAI (GPT-4o for question generation)
   - Azure Speech Services (Text-to-Speech)
   - Azure Embeddings (text-embedding-ada-002)
-  - Hume AI (emotion recognition)
 - **Vector Database**: FAISS (Facebook AI Similarity Search)
 - **Authentication**: Firebase Authentication
 - **Storage**: Firebase Storage
@@ -332,6 +327,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Acknowledgments
 
 - Azure OpenAI for providing the language model capabilities
-- Hume AI for emotion recognition technology
 - Firebase for authentication and storage solutions
 - LangChain for RAG implementation framework
