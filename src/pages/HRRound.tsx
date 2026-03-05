@@ -3,11 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiService } from '../services/apiService';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
 import {
-  Mic, MicOff, Camera, CameraOff, Volume2, VolumeX,
-  Loader2, ArrowLeft, Clock, Users, X
+  Mic, MicOff, Camera, CameraOff,
+  Loader2, Clock, Users, X
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -16,7 +14,6 @@ import { sarvamTTS as azureTTS } from '../services/sarvamTTSService';
 import { sarvamSTT as whisperService } from '../services/sarvamSTTService';
 // import { humeAI } from '../services/humeAIService'; // Using direct API instead
 import { openAI, QuestionContext } from '../services/openAIService';
-import { resumeService } from '../services/resumeService';
 import { getResumeData } from '../services/firebaseResumeService';
 
 interface Message {
@@ -880,318 +877,325 @@ const HRRound: React.FC = (): JSX.Element => {
   }
 
   return (
-    <div className="min-h-screen bg-primary text-white">
+    <div className="h-screen bg-black text-white flex flex-col overflow-hidden relative">
+      {/* Anti-cheat Warning Banner could go here if added */}
+
       {/* Header */}
-      <div className="bg-black/20 backdrop-blur-sm border-b border-white/10 p-4">
+      <div className="flex-shrink-0 bg-black/60 backdrop-blur-md border-b border-white/10 px-6 py-3 relative z-40">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <Users className="h-6 w-6 text-purple-400" />
-              <h1 className="text-xl font-semibold">HR Round - Behavioral Interview</h1>
+            <div className="p-2 bg-purple-500/20 rounded-lg border border-purple-500/30">
+              <Users className="h-5 w-5 text-purple-400" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-3">
+                <h1 className="text-base font-semibold leading-tight">HR Round</h1>
+                <span className="flex items-center space-x-1.5 bg-green-500/10 border border-green-500/20 rounded px-2 py-0.5 text-[10px] uppercase tracking-wider text-green-400 font-medium">
+                  {/* <Shield className="h-3 w-3" /> */}
+                  <span>Proctoring Active</span>
+                </span>
+              </div>
+              <p className="text-xs text-gray-400">Behavioral & Soft Skills</p>
             </div>
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <Clock className="h-5 w-5" />
-              <span className="font-mono text-lg">{formatTime(timeRemaining)}</span>
+            <div className="flex items-center space-x-2 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10">
+              <Clock className="h-4 w-4 text-gray-400" />
+              <span className="font-mono text-sm font-medium">{formatTime(timeRemaining)}</span>
             </div>
+            <button
+              onClick={() => setIsInterviewComplete(true)}
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm transition-colors"
+            >
+              <X className="h-4 w-4" />
+              <span>End Round</span>
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Video Feed */}
-          <div className="lg:col-span-1">
-            <div className="bg-black/20 backdrop-blur-sm rounded-2xl p-6">
-              <h3 className="text-lg font-semibold mb-4 flex items-center">
-                <Camera className="h-5 w-5 mr-2" />
-                Video Feed
-              </h3>
+      {/* Main Content Area */}
+      <div className="flex-1 min-h-0 p-4">
+        <div className="max-w-7xl mx-auto h-full grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-              <div className="relative bg-black rounded-lg overflow-hidden mb-4">
+          {/* LEFT PANEL: Chat (Takes up 2/3 width) */}
+          <div className="lg:col-span-2 flex flex-col min-h-0 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden relative">
+            
+            {/* Panel Tabs */}
+            <div className="flex-shrink-0 flex items-center border-b border-white/10 bg-black/20">
+              <div
+                className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 border-purple-500 text-purple-400 bg-purple-500/5`}
+              >
+                <Users className="h-4 w-4" />
+                <span>Interview Chat</span>
+                {isLoading && (
+                  <div className="w-2 h-2 rounded-full bg-purple-500 animate-pulse ml-2" />
+                )}
+              </div>
+            </div>
+
+            {/* Panel Body */}
+            <div className="flex-1 overflow-hidden relative flex flex-col">
+                {/* Scrollable Messages */}
+                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+                  {messages.length === 0 && !isLoading && (
+                    <div className="h-full flex flex-col items-center justify-center text-gray-500">
+                      <Users className="h-12 w-12 mb-4 opacity-20" />
+                      <p>Your HR interview connects shortly...</p>
+                    </div>
+                  )}
+                  
+                  <AnimatePresence>
+                    {messages.map((message) => (
+                      <motion.div
+                        key={message.id}
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -16 }}
+                        transition={{ duration: 0.25 }}
+                        className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-[85%] px-5 py-4 rounded-2xl text-[15px] leading-relaxed shadow-sm ${
+                            message.sender === 'user'
+                              ? 'bg-purple-600 text-white rounded-br-sm'
+                              : 'bg-white/10 text-gray-100 border border-white/10 rounded-bl-sm'
+                          }`}
+                        >
+                          <div className="prose prose-invert prose-sm max-w-none">
+                            <ReactMarkdown>{message.text}</ReactMarkdown>
+                          </div>
+                          <div className="text-xs opacity-40 mt-2 flex justify-end">
+                            {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                  
+                  {isLoading && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
+                      <div className="bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm px-5 py-4 flex items-center space-x-3">
+                        <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                        <span className="text-sm text-gray-400 font-medium">HR AI is typing...</span>
+                      </div>
+                    </motion.div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Chat Input Bar */}
+                <div className="flex-shrink-0 px-6 py-4 border-t border-white/10 bg-black/20 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      {!isRecording ? (
+                        <button
+                          onClick={startRecording}
+                          disabled={isLoading}
+                          className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-purple-500/20 border border-white/10 hover:border-purple-500/40 rounded-xl text-sm transition-all disabled:opacity-50"
+                        >
+                          <Mic className="h-4 w-4" />
+                          <span>Voice Answer</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={stopRecording}
+                          className="flex items-center space-x-2 px-4 py-2 bg-red-600/30 hover:bg-red-600/50 border border-red-500/50 rounded-xl text-sm text-red-300 transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse"
+                        >
+                          <MicOff className="h-4 w-4" />
+                          <span>Stop Recording</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleChatSubmit} className="flex space-x-3">
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      placeholder={isRecording ? "Listening..." : "Type your answer..."}
+                      disabled={isRecording || isLoading}
+                      className="flex-1 px-5 py-3 bg-white/5 border border-white/15 rounded-xl text-white text-[15px] placeholder-gray-500 focus:outline-none focus:border-purple-500/60 focus:bg-white/10 transition-all disabled:opacity-50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isRecording || !chatInput.trim() || isLoading}
+                      className="px-6 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-white/10 disabled:text-gray-500 text-white text-[15px] rounded-xl transition-all font-medium flex items-center shadow-lg shadow-purple-500/20"
+                    >
+                      Send
+                    </button>
+                  </form>
+                </div>
+            </div>
+          </div>
+
+          {/* RIGHT PANEL: AI Avatar & Camera Stack (Takes up 1/3 width) */}
+          <div className="lg:col-span-1 flex flex-col gap-6 min-h-0">
+            
+            {/* Top: AI Avatar Frame */}
+            <div className="flex-1 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex flex-col">
+              <div className="px-4 py-3 border-b border-white/10 bg-black/20 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                  <h3 className="text-sm font-medium text-gray-200">HR AI</h3>
+                </div>
+                {isLoading && (
+                  <span className="text-[10px] uppercase tracking-wider text-purple-400 border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 rounded">Analyzing</span>
+                )}
+              </div>
+              <div className="flex-1 relative bg-black/40 flex items-center justify-center p-4 min-h-[200px]">
+                {/* Placeholder for future 3D Avatar */}
+                <div className={`relative w-40 h-40 rounded-full bg-gradient-to-br from-purple-900 to-fuchsia-900 border-4 border-white/10 flex items-center justify-center shadow-2xl transition-all duration-300 ${isLoading ? 'scale-105 shadow-purple-500/40 border-purple-400/30' : ''}`}>
+                  <Users className={`h-16 w-16 ${isLoading ? 'text-white animate-pulse' : 'text-purple-300'}`} />
+                  
+                  {/* Outer sound rings when speaking/thinking */}
+                  {isLoading && (
+                    <>
+                      <div className="absolute inset-[-12px] border border-purple-400/20 rounded-full animate-[ping_2s_ease-out_infinite]" />
+                      <div className="absolute inset-[-24px] border border-purple-400/10 rounded-full animate-[ping_2.5s_ease-out_infinite]" />
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom: Camera & Emotion Analysis */}
+            <div className="flex-1 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex flex-col">
+              <div className="relative bg-black h-full flex items-center justify-center">
                 <video
                   ref={videoRef}
-                  className="w-full h-64 object-cover"
+                  className="w-full h-full object-cover"
+                  style={{ transform: 'scaleX(-1)' }}
                   autoPlay
                   muted
                   playsInline
                 />
-                <canvas
-                  ref={canvasRef}
-                  className="hidden"
-                />
+                <canvas ref={canvasRef} className="hidden" />
+
                 {!isCameraOn && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
-                    <div className="text-center">
-                      <CameraOff className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                      <p className="text-gray-400">Camera Off</p>
-                      <button
-                        onClick={startCamera}
-                        className="mt-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
-                      >
-                        Start Camera
-                      </button>
-                    </div>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
+                    <CameraOff className="h-10 w-10 text-gray-500 mb-3" />
+                    <p className="text-gray-400 text-sm mb-3">Camera is off</p>
+                    <button
+                      onClick={startCamera}
+                      className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-sm transition-colors"
+                    >
+                      <Camera className="h-4 w-4" />
+                      <span>Enable Camera</span>
+                    </button>
                   </div>
                 )}
-              </div>
 
-              <div className="flex space-x-2">
-                {!isCameraOn ? (
-                  <button
-                    onClick={startCamera}
-                    className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
-                  >
-                    <Camera className="h-4 w-4" />
-                    <span>Start Camera</span>
-                  </button>
-                ) : (
+                {isCameraOn && (
+                  <div className="absolute top-3 left-3 flex items-center space-x-1.5 px-2 py-1 bg-black/60 backdrop-blur-sm rounded-full border border-white/10">
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    <span className="text-xs text-gray-300 font-medium">LIVE</span>
+                  </div>
+                )}
+
+                {isCameraOn && (
                   <button
                     onClick={stopCamera}
-                    className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                    className="absolute top-3 right-3 p-1.5 bg-black/60 backdrop-blur-sm hover:bg-red-500/30 border border-white/10 rounded-full transition-colors"
+                    title="Turn off camera"
                   >
-                    <CameraOff className="h-4 w-4" />
-                    <span>Stop Camera</span>
+                    <CameraOff className="h-3.5 w-3.5 text-gray-300" />
                   </button>
                 )}
               </div>
 
-              {/* Emotion Analysis */}
-              <div className="mt-4 p-4 bg-white/5 rounded-lg">
-                <h4 className="text-sm font-medium mb-2">Emotion Analysis</h4>
-                {isCameraOn ? (
-                  userExpression ? (
-                    <div className="space-y-3">
-                      {/* Detailed Emotion Breakdown */}
-                      {userExpression.emotionBreakdown && (
-                        <div className="space-y-2">
-                          <h4 className="text-sm font-medium text-gray-300 mb-2">Emotions:</h4>
-                          {userExpression.emotionBreakdown?.slice(0, 5).map((emotion, index) => (
-                            <div key={index} className="space-y-1">
-                              <div className="flex justify-between text-xs">
-                                <span className="text-gray-300">{emotion.name}:</span>
-                                <span className="text-white font-medium">{(emotion.score * 100).toFixed(0)}%</span>
-                              </div>
-                              <div className="w-full bg-gray-700 rounded-full h-1.5">
-                                <div
-                                  className="bg-gradient-to-r from-purple-500 to-pink-500 h-1.5 rounded-full transition-all duration-300"
-                                  style={{ width: `${emotion.score * 100}%` }}
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Summary Status */}
-                      <div className="space-y-2 text-sm border-t border-gray-600 pt-2">
-                        <div className="flex justify-between">
-                          <span>Confidence:</span>
-                          <span className={userExpression.isConfident ? 'text-green-400' : 'text-red-400'}>
-                            {userExpression.isConfident ? 'High' : 'Low'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Status:</span>
-                          <span className={userExpression.isStruggling ? 'text-yellow-400' : 'text-green-400'}>
-                            {userExpression.isStruggling ? 'Struggling' : 'Doing Well'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Data Source:</span>
-                          <span className="text-blue-400 text-xs">
-                            {userExpression.emotionBreakdown && userExpression.emotionBreakdown.length && userExpression.emotionBreakdown.length > 0 ? 'Real Face Detected' : 'Fallback Data'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-gray-400 text-sm">
-                      {isCapturingExpression ? 'Analyzing emotions...' : 'Turn on camera for emotion analysis'}
-                    </p>
-                  )
-                ) : (
-                  <p className="text-gray-400 text-sm">Turn on camera for emotion analysis</p>
-                )}
-              </div>
             </div>
+
+            {error && (
+              <div className="flex-shrink-0 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-start space-x-2">
+                <span className="flex-1">{error}</span>
+                <button onClick={() => setError(null)} className="text-red-500 hover:text-red-300 flex-shrink-0">✕</button>
+              </div>
+            )}
           </div>
 
-          {/* Chat Interface */}
-          <div className="lg:col-span-2">
-            <div className="bg-black/20 backdrop-blur-sm rounded-2xl p-6 h-full flex flex-col">
-              <h3 className="text-lg font-semibold mb-4">Interview Chat</h3>
-
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto space-y-4 min-h-0 mb-4 max-h-96">
-                <AnimatePresence>
-                  {messages.map((message) => (
-                    <motion.div
-                      key={message.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-[80%] p-4 rounded-lg ${message.sender === 'user'
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-white/10 text-gray-100'
-                          }`}
-                      >
-                        <div className="prose prose-invert max-w-none">
-                          <ReactMarkdown>{message.text}</ReactMarkdown>
-                        </div>
-                        <div className="text-xs opacity-70 mt-2">
-                          {message.timestamp.toLocaleTimeString()}
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Recording Controls - Sticky at bottom */}
-              <div className="sticky bottom-0 space-y-4 bg-black/20 backdrop-blur-sm rounded-lg p-4 -mx-2 -mb-2">
-                <div className="flex items-center space-x-4">
-                  {!isRecording ? (
-                    <button
-                      onClick={startRecording}
-                      className="flex items-center space-x-2 px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-                    >
-                      <Mic className="h-5 w-5" />
-                      <span>Start Recording</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={stopRecording}
-                      className="flex items-center space-x-2 px-6 py-3 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors"
-                    >
-                      <MicOff className="h-5 w-5" />
-                      <span>Stop Recording</span>
-                    </button>
-                  )}
-
-                  {isLoading && (
-                    <div className="flex items-center space-x-2 text-sm text-gray-400">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Generating question...</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Chat Input */}
-                <form onSubmit={handleChatSubmit} className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Type your response here..."
-                    className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-500"
-                  />
-                  <button
-                    type="submit"
-                    className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                  >
-                    Send
-                  </button>
-                </form>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Interview Complete Summary */}
+      {/* Completion Modal */}
       {isInterviewComplete && showSummary && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-gray-900 rounded-2xl p-8 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-white mb-2">HR Round Complete!</h2>
-              <p className="text-gray-400">Round Duration: {roundDuration} minutes</p>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-[#111] border border-white/10 rounded-2xl p-8 max-w-xl w-full mx-4 shadow-2xl relative overflow-hidden"
+          >
+            {/* Background decoration */}
+            <div className="absolute -top-32 -right-32 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="text-center mb-8 relative z-10">
+              <div className="w-16 h-16 bg-purple-500/20 border border-purple-500/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Users className="h-8 w-8 text-purple-400" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">HR Round Complete</h2>
+              <p className="text-gray-400 text-sm">Time spent: {roundDuration} minutes</p>
             </div>
 
-            <div className="space-y-4 mb-6">
-              <div className="bg-blue-600/20 border border-blue-500/50 rounded-lg p-4">
-                <h3 className="text-lg font-semibold text-blue-300 mb-2">Round Statistics</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-400">Questions Asked:</span>
-                    <span className="text-white ml-2">{messages.filter(m => m.sender === 'ai').length}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Your Responses:</span>
-                    <span className="text-white ml-2">{messages.filter(m => m.sender === 'user').length}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Emotion Captures:</span>
-                    <span className="text-white ml-2">{questionExpressions.size}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Confident Moments:</span>
-                    <span className="text-white ml-2">{Array.from(questionExpressions.values()).filter(expr => expr.isConfident).length}</span>
-                  </div>
+            <div className="bg-white/5 border border-white/10 rounded-xl p-5 mb-8 relative z-10">
+              <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">Round Statistics</h3>
+              <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                  <span className="text-gray-500">Total Questions</span>
+                  <span className="text-white font-medium">{messages.filter(m => m.sender === 'ai').length}</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                  <span className="text-gray-500">Your Responses</span>
+                  <span className="text-white font-medium">{messages.filter(m => m.sender === 'user').length}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500">Emotion Captures</span>
+                  <span className="text-white font-medium">{questionExpressions.size}</span>
                 </div>
               </div>
-
-              {questionExpressions.size > 0 && (
-                <div className="bg-green-600/20 border border-green-500/50 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold text-green-300 mb-2">Emotion Analysis</h3>
-                  <div className="space-y-2">
-                    {Array.from(questionExpressions.entries()).map(([questionId, expression], index) => (
-                      <div key={questionId} className="flex justify-between items-center text-sm">
-                        <span className="text-gray-300">Question {index + 1}:</span>
-                        <div className="flex items-center space-x-2">
-                          <span className={`px-2 py-1 rounded text-xs ${expression.isConfident ? 'bg-green-600/30 text-green-300' :
-                            expression.isNervous ? 'bg-red-600/30 text-red-300' :
-                              'bg-yellow-600/30 text-yellow-300'
-                            }`}>
-                            {expression.dominantEmotion} ({Math.round(expression.confidenceScore * 100)}%)
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
-            <div className="flex justify-end space-x-4">
+            <div className="flex justify-between items-center relative z-10">
               <button
                 onClick={() => navigate('/dashboard')}
-                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                className="px-5 py-2.5 text-gray-400 hover:text-white transition-colors text-sm font-medium"
               >
-                Back to Dashboard
+                Exit to Dashboard
               </button>
-              <button
-                onClick={() => {
-                  console.log('[HRRound] Navigating to summary with data:', {
-                    messagesCount: messages.length,
-                    questionExpressionsSize: questionExpressions.size,
-                    questionExpressionsData: Array.from(questionExpressions.entries())
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    navigate('/nerv-summary', {
+                      state: {
+                        summary: 'HR Round completed successfully',
+                        messages,
+                        questionExpressions: Array.from(questionExpressions.entries()),
+                        resumeData,
+                        roundDuration,
+                        conversationId,
+                        roundType: 'hr'
+                      }
                   });
-
-                  navigate('/nerv-summary', {
-                    state: {
-                      summary: 'HR Round completed successfully',
-                      messages,
-                      questionExpressions: Array.from(questionExpressions.entries()), // Convert Map to Array
-                      resumeData,
-                      roundDuration,
-                      conversationId,
-                      roundType: 'hr'
-                    }
-                  });
-                }}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                View Summary
-              </button>
+                  }}
+                  className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 shadow-lg shadow-black/50 text-white rounded-lg transition-all text-sm font-medium"
+                >
+                  View Report
+                </button>
+                <button
+                  onClick={generateInterviewSummary}
+                  className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-lg transition-all text-sm font-medium shadow-lg shadow-purple-500/20 block w-full"
+                >
+                  Generate Complete Summary →
+                </button>
+              </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
     </div>
@@ -1199,7 +1203,3 @@ const HRRound: React.FC = (): JSX.Element => {
 };
 
 export default HRRound;
-
-
-
-
