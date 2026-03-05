@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { ArrowRight, Mic, Brain, BarChart as ChartBar, CheckCircle, Zap, BookOpen, Award } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import Spline from '../components/Spline'
+import SplineComponent from '../components/Spline'
 
 const features = [
   {
@@ -69,7 +69,7 @@ const LandingPage = () => {
       {/* Spline component as the main interactive element with responsive handling */}
       <div className="h-screen w-full overflow-hidden">
         <div className="scale-[1.30] md:block hidden">
-          <Spline />
+          <SplineComponent />
         </div>
         <div className="md:hidden flex flex-col items-center justify-center h-full px-4 bg-black">
           <h1 className="font-montserrat font-bold text-4xl text-center mb-8">

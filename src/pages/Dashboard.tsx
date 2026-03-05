@@ -8,6 +8,7 @@ import { db } from '../lib/firebase';
 import { collection, getDocs, query, where, setDoc, Timestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { extractTextFromPDF } from '../services/pdfService';
+import { extractAndSaveResume } from '../services/resumeService';
 
 // Add proper type for user details
 type UserDetails = {
@@ -35,9 +36,6 @@ const Dashboard = () => {
   const [resumeLinkError, setResumeLinkError] = useState('');
   const [updatingResumeLink, setUpdatingResumeLink] = useState(false);
   
-  // Interview configuration options
-  const [interviewDuration, setInterviewDuration] = useState<number>(15); // Default 15 minutes
-  const [difficultyLevel, setDifficultyLevel] = useState<string>('medium');
   
   // Form state for profile editing
   const [editForm, setEditForm] = useState({
@@ -56,8 +54,8 @@ const Dashboard = () => {
   // Inside the Dashboard component, add these new state variables
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState('');
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
   // Add this new state for the alert
   const [showResumeAlert, setShowResumeAlert] = useState(false);
@@ -273,14 +271,8 @@ const Dashboard = () => {
     }));
   };
 
-  // Start interview with configuration options
+  // Start interview
   const startInterview = () => {
-    // Store interview configuration in localStorage
-    localStorage.setItem('interviewConfig', JSON.stringify({
-      interviewDuration,
-      difficultyLevel
-    }));
-    
     // During development, we'll allow starting interviews without a resume
     navigate('/interview');
     
@@ -301,11 +293,15 @@ const Dashboard = () => {
 
   // Add this new function to handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('File input changed:', e.target.files);
     const selectedFile = e.target.files?.[0];
     
     if (selectedFile) {
+      console.log('Selected file:', selectedFile.name, selectedFile.type, selectedFile.size);
+      
       // Check if file is a PDF
       if (selectedFile.type !== 'application/pdf') {
+        console.log('File is not a PDF:', selectedFile.type);
         setUploadError('Please upload a PDF file');
         setFile(null);
         return;
@@ -313,23 +309,30 @@ const Dashboard = () => {
       
       // Check file size (limit to 5MB)
       if (selectedFile.size > 5 * 1024 * 1024) {
+        console.log('File too large:', selectedFile.size);
         setUploadError('File size should be less than 5MB');
         setFile(null);
         return;
       }
       
+      console.log('File accepted, setting file state');
       setFile(selectedFile);
       setUploadError('');
+    } else {
+      console.log('No file selected');
     }
   };
 
   // Add this function to handle resume upload
   const handleResumeFileUpload = async () => {
+    console.log('Upload button clicked, file:', file);
     if (!file) {
+      console.log('No file selected for upload');
       setUploadError('Please select a file first');
       return;
     }
     
+    console.log('Starting upload process...');
     setUploading(true);
     setUploadError('');
     
@@ -351,6 +354,35 @@ const Dashboard = () => {
       // Store the extracted text in localStorage for use in the interview
       localStorage.setItem('resumeText', extractedText);
       console.log("Stored resume text in localStorage");
+
+      // Extract and parse resume data using backend API
+      if (currentUser) {
+        try {
+          const { resumeId, resumeData } = await extractAndSaveResume(currentUser.uid, file);
+          console.log('Extracted resume data from backend:', resumeData);
+          console.log('Resume data structure:', {
+            skills: resumeData?.skills?.length || 0,
+            projects: resumeData?.projects?.length || 0,
+            achievements: resumeData?.achievements?.length || 0,
+            experience: resumeData?.experience?.length || 0,
+            education: resumeData?.education?.length || 0
+          });
+          
+          // Store resume data in localStorage as backup for use in interviews
+          localStorage.setItem('resumeData', JSON.stringify(resumeData));
+          console.log('Resume data stored in localStorage as backup');
+          
+          // Show success message
+          setUploadSuccess(true);
+          setUploadError('');
+          console.log('✅ Resume uploaded and saved to Firebase successfully!');
+        } catch (e) {
+          console.warn('Resume parsing via backend API failed:', e);
+          setUploadError('Failed to parse resume via backend API. Please try a different PDF.');
+          setUploading(false);
+          return;
+        }
+      }
       
       // Update user metadata with file name (but not URL, since we're processing locally)
       if (currentUser) {
@@ -783,6 +815,8 @@ const Dashboard = () => {
                                   <button 
                                     onClick={() => setFile(null)}
                                     className="text-gray-400 hover:text-white"
+                                    aria-label="Remove selected file"
+                                    title="Remove selected file"
                                   >
                                     <X className="h-4 w-4" />
                                   </button>
@@ -809,7 +843,7 @@ const Dashboard = () => {
                               {uploadSuccess && (
                                 <div className="mt-2 flex items-center text-green-500 text-xs">
                                   <CheckCircle className="h-3 w-3 mr-1 flex-shrink-0" />
-                                  Resume uploaded successfully
+                                  Resume uploaded and saved to Firebase successfully!
                                 </div>
                               )}
                             </div>
@@ -1002,6 +1036,8 @@ const Dashboard = () => {
                         <button 
                           onClick={() => setFile(null)}
                           className="text-gray-400 hover:text-white"
+                          aria-label="Remove selected file"
+                          title="Remove selected file"
                         >
                           <X className="h-3 w-3" />
                         </button>
@@ -1028,7 +1064,7 @@ const Dashboard = () => {
                     {uploadSuccess && (
                       <div className="mt-1 flex items-center text-green-500 text-xs">
                         <CheckCircle className="h-3 w-3 mr-1 flex-shrink-0" />
-                        Resume uploaded successfully
+                        Resume uploaded and saved to Firebase successfully!
                       </div>
                     )}
                   </div>
@@ -1077,7 +1113,7 @@ const Dashboard = () => {
               </div>
             </motion.div>
 
-            {/* Interview Prep Card */}
+            {/* Quick Actions */}
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1086,92 +1122,27 @@ const Dashboard = () => {
             >
               <div className="flex items-center mb-2">
                 <Briefcase className="h-4 w-4 text-white mr-2" />
-                <h2 className="text-lg font-semibold">Start Interview</h2>
+                <h2 className="text-lg font-semibold">Quick Actions</h2>
               </div>
-              <p className="text-gray-400 text-xs mb-3">
-                Ready to practice? Start a simulated technical interview with our AI interviewer.
+              <p className="text-gray-400 text-xs mb-4">
+                Start your AI-powered interview experience.
               </p>
-
-              <div className="space-y-2 mb-3">
-                <div className="flex items-center">
-                  <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center mr-2 flex-shrink-0">
-                    <span className="text-white text-xs font-medium">1</span>
-                  </div>
-                  <span className="text-gray-300 text-xs">Answer technical questions in real-time</span>
-                </div>
-                <div className="flex items-center">
-                  <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center mr-2 flex-shrink-0">
-                    <span className="text-white text-xs font-medium">2</span>
-                  </div>
-                  <span className="text-gray-300 text-xs">Receive instant feedback on your responses</span>
-                </div>
-                <div className="flex items-center">
-                  <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center mr-2 flex-shrink-0">
-                    <span className="text-white text-xs font-medium">3</span>
-                  </div>
-                  <span className="text-gray-300 text-xs">Review detailed performance analysis</span>
-                </div>
+              <div className="space-y-2">
+                <button
+                  onClick={startInterview}
+                  className="w-full py-1.5 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all flex items-center justify-center text-xs"
+                >
+                  Start Standard Interview
+                  <ArrowRight className="ml-1 h-3 w-3" />
+                </button>
+                <button
+                  onClick={() => navigate('/multi-round-interview')}
+                  className="w-full py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center text-xs"
+                >
+                  Start Multi-Round Interview
+                  <ArrowRight className="ml-1 h-3 w-3" />
+                </button>
               </div>
-              
-              {/* Interview Configuration */}
-              <div className="border-t border-white/10 pt-3 mb-3">
-                <h3 className="text-sm font-medium mb-2">Interview Configuration</h3>
-                
-                {/* Interview Duration */}
-                <div className="mb-2">
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs text-gray-400">Interview Duration</label>
-                    <span className="text-xs text-white/70">{interviewDuration} minutes</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="5"
-                    max="45"
-                    step="5"
-                    value={interviewDuration}
-                    onChange={(e) => setInterviewDuration(Number(e.target.value))}
-                    className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    <span>5 min</span>
-                    <span>45 min</span>
-                  </div>
-                </div>
-                
-                {/* Difficulty Level */}
-                <div className="mb-2">
-                  <label className="block text-xs text-gray-400 mb-1">Difficulty Level</label>
-                  <select
-                    value={difficultyLevel}
-                    onChange={(e) => setDifficultyLevel(e.target.value)}
-                    className="w-full px-2 py-1 text-sm bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                  >
-                    <option value="easy">Easy (Entry Level)</option>
-                    <option value="medium">Medium (Intermediate)</option>
-                    <option value="hard">Hard (Advanced)</option>
-                    <option value="expert">Expert (Senior Level)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Removed for development
-                {showResumeAlert && (
-                  <div className="mb-2 p-1 bg-amber-500/10 border border-amber-500/50 rounded-lg flex items-center gap-1 text-amber-500">
-                    <AlertCircle className="h-3 w-3 flex-shrink-0" />
-                    <div className="text-xs">
-                      Please upload your resume first to get a personalized interview experience.
-                    </div>
-                  </div>
-                )}
-              */}
-
-              <button
-                onClick={startInterview}
-                className="w-full py-1.5 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all flex items-center justify-center text-xs"
-              >
-                Start Interview
-                <ArrowRight className="ml-1 h-3 w-3" />
-              </button>
             </motion.div>
 
             {/* After the "Quick Actions" section, add the "Improvement Plan" section if available */}
@@ -1308,6 +1279,8 @@ const Dashboard = () => {
                         onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                         disabled={currentPage === 1}
                         className="p-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="Previous page"
+                        title="Previous page"
                       >
                         <ChevronLeft className="h-5 w-5" />
                       </button>
@@ -1320,6 +1293,8 @@ const Dashboard = () => {
                         onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                         disabled={currentPage === totalPages}
                         className="p-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="Next page"
+                        title="Next page"
                       >
                         <ChevronRight className="h-5 w-5" />
                       </button>

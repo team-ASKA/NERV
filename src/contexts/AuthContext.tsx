@@ -38,6 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     try {
+      console.log("Attempting to save user data to Firestore for user:", user.uid);
       const userRef = doc(db, "users", user.uid);
       
       // Check if user document already exists
@@ -53,11 +54,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           interviewsCompleted: 0
         };
         
+        console.log("Creating new user document with data:", userData);
         await setDoc(userRef, userData);
-        console.log("User document created with ID:", user.uid);
+        console.log("✅ User document created with ID:", user.uid);
+      } else {
+        console.log("User document already exists for:", user.uid);
       }
     } catch (error) {
-      console.error("Error saving user data:", error);
+      console.error("❌ Error saving user data to Firestore:", error);
+      console.error("Error details:", {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        code: (error as any)?.code || 'Unknown code',
+        stack: error instanceof Error ? error.stack : 'No stack trace'
+      });
     }
   };
 

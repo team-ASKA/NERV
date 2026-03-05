@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, User, BriefcaseIcon, AlertCircle, Code, Server, Database, Cloud, Smartphone, Palette, Eye, EyeOff, MapPin, GraduationCap, DollarSign, Linkedin, Globe } from 'lucide-react';
+import { Mail, Lock, User, BriefcaseIcon, AlertCircle, Code, Server, Database, Cloud, Smartphone, Palette, Eye, EyeOff, DollarSign, Linkedin, Globe } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -12,12 +12,10 @@ type SignUpFormData = {
   password: string;
   expertise: string[];
   experience: string;
-  location: string;
-  education: string;
+  targetCompanyType: 'Service-based' | 'Product-based' | '';
   expectedSalary: string;
   linkedin: string;
   portfolio: string;
-  skills: string;
 };
 
 const expertise = [
@@ -54,19 +52,16 @@ const SignUp = () => {
       const userCredential = await signup(data.email, data.password);
       
       // Prepare user profile data
-      const skillsArray = data.skills ? data.skills.split(',').map(skill => skill.trim()) : [];
       
       const userProfileData = {
         displayName: data.fullName,
         email: data.email,
         expertise: data.expertise || [],
         experience: data.experience || '',
-        location: data.location || '',
-        education: data.education || '',
+        targetCompanyType: data.targetCompanyType || '',
         expectedSalary: data.expectedSalary || '',
         linkedin: data.linkedin || '',
         portfolio: data.portfolio || '',
-        skills: skillsArray,
         photoURL: '',
         resumeURL: '',
         interviewsCompleted: 0,
@@ -224,46 +219,19 @@ const SignUp = () => {
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1">Location</label>
+                    <label className="block text-sm font-medium mb-1">Target Company Type</label>
                     <div className="relative">
-                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        {...register('location')}
-                        type="text"
-                        className="w-full pl-10 pr-4 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                        placeholder="New York, USA"
-                      />
+                      <BriefcaseIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                      <select
+                        {...register('targetCompanyType')}
+                        className="w-full pl-10 pr-4 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors appearance-none"
+                      >
+                        <option value="">Select target company type</option>
+                        <option value="Service-based">Service-based</option>
+                        <option value="Product-based">Product-based</option>
+                      </select>
                     </div>
                   </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Education</label>
-                    <div className="relative">
-                      <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        {...register('education')}
-                        type="text"
-                        className="w-full pl-10 pr-4 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                        placeholder="B.S. Computer Science"
-                      />
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Skills (comma separated)</label>
-                    <div className="relative">
-                      <Code className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        {...register('skills')}
-                        type="text"
-                        className="w-full pl-10 pr-4 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                        placeholder="JavaScript, React, Node.js"
-                      />
-                    </div>
-                  </div>
-                  
                   <div>
                     <label className="block text-sm font-medium mb-1">Expected Salary</label>
                     <div className="relative">
@@ -277,6 +245,8 @@ const SignUp = () => {
                     </div>
                   </div>
                 </div>
+                
+                
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
