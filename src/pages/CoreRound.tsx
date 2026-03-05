@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { InterviewerAvatar } from '../components/InterviewerAvatar';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -366,6 +367,7 @@ const CoreRound: React.FC = (): JSX.Element => {
 
   const startCamera = async () => {
     try {
+      setError(null);
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: 'user' }
       });
@@ -373,6 +375,11 @@ const CoreRound: React.FC = (): JSX.Element => {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
         setIsCameraOn(true);
+
+        setTimeout(() => {
+          setIsCapturingExpression(true);
+          captureFrame();
+        }, 1000);
       }
     } catch (error) {
       console.error('Error starting camera:', error);
@@ -389,9 +396,10 @@ const CoreRound: React.FC = (): JSX.Element => {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach(track => track.stop());
       videoRef.current.srcObject = null;
-      setIsCameraOn(false);
-      setUserExpression(null);
     }
+    setIsCameraOn(false);
+    setUserExpression(null);
+    setCurrentEmotions([]);
   };
 
   const captureFrame = async (questionId?: string) => {
@@ -612,11 +620,11 @@ const CoreRound: React.FC = (): JSX.Element => {
 
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 p-4">
-        <div className="max-w-7xl mx-auto h-full grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="max-w-7xl mx-auto h-full grid grid-cols-1 lg:grid-cols-5 gap-6">
 
-          {/* LEFT PANEL: Chat (Takes up 2/3 width) */}
-          <div className="lg:col-span-2 flex flex-col min-h-0 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden relative">
-            
+          {/* LEFT PANEL: Chat (Takes up 3/5 width) */}
+          <div className="lg:col-span-3 flex flex-col min-h-0 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden relative">
+
             {/* Panel Tabs */}
             <div className="flex-shrink-0 flex items-center border-b border-white/10 bg-black/20">
               <div
@@ -632,107 +640,106 @@ const CoreRound: React.FC = (): JSX.Element => {
 
             {/* Panel Body */}
             <div className="flex-1 overflow-hidden relative flex flex-col">
-                {/* Scrollable Messages */}
-                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-                  {messages.length === 0 && !isLoading && (
-                    <div className="h-full flex flex-col items-center justify-center text-gray-500">
-                      <Briefcase className="h-12 w-12 mb-4 opacity-20" />
-                      <p>Your core interview connects shortly...</p>
-                    </div>
-                  )}
-                  
-                  <AnimatePresence>
-                    {messages.map((message) => (
-                      <motion.div
-                        key={message.id}
-                        initial={{ opacity: 0, y: 16 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -16 }}
-                        transition={{ duration: 0.25 }}
-                        className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div
-                          className={`max-w-[85%] px-5 py-4 rounded-2xl text-[15px] leading-relaxed shadow-sm ${
-                            message.sender === 'user'
-                              ? 'bg-green-600 text-white rounded-br-sm'
-                              : 'bg-white/10 text-gray-100 border border-white/10 rounded-bl-sm'
+              {/* Scrollable Messages */}
+              <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+                {messages.length === 0 && !isLoading && (
+                  <div className="h-full flex flex-col items-center justify-center text-gray-500">
+                    <Briefcase className="h-12 w-12 mb-4 opacity-20" />
+                    <p>Your core interview connects shortly...</p>
+                  </div>
+                )}
+
+                <AnimatePresence>
+                  {messages.map((message) => (
+                    <motion.div
+                      key={message.id}
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -16 }}
+                      transition={{ duration: 0.25 }}
+                      className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[85%] px-5 py-4 rounded-2xl text-[15px] leading-relaxed shadow-sm ${message.sender === 'user'
+                          ? 'bg-green-600 text-white rounded-br-sm'
+                          : 'bg-white/10 text-gray-100 border border-white/10 rounded-bl-sm'
                           }`}
-                        >
-                          <div className="prose prose-invert prose-sm max-w-none">
-                            <ReactMarkdown>{message.text}</ReactMarkdown>
-                          </div>
-                          <div className="text-xs opacity-40 mt-2 flex justify-end">
-                            {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </div>
+                      >
+                        <div className="prose prose-invert prose-sm max-w-none">
+                          <ReactMarkdown>{message.text}</ReactMarkdown>
                         </div>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                  
-                  {isLoading && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-                      <div className="bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm px-5 py-4 flex items-center space-x-3">
-                        <div className="flex space-x-1">
-                          <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                          <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                          <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        <div className="text-xs opacity-40 mt-2 flex justify-end">
+                          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
-                        <span className="text-sm text-gray-400 font-medium">Interviewer AI is typing...</span>
                       </div>
                     </motion.div>
-                  )}
-                  <div ref={messagesEndRef} />
-                </div>
+                  ))}
+                </AnimatePresence>
 
-                {/* Chat Input Bar */}
-                <div className="flex-shrink-0 px-6 py-4 border-t border-white/10 bg-black/20 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      {!isRecording ? (
-                        <button
-                          onClick={startRecording}
-                          disabled={isLoading}
-                          className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-green-500/20 border border-white/10 hover:border-green-500/40 rounded-xl text-sm transition-all disabled:opacity-50"
-                        >
-                          <Mic className="h-4 w-4" />
-                          <span>Voice Answer</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={stopRecording}
-                          className="flex items-center space-x-2 px-4 py-2 bg-red-600/30 hover:bg-red-600/50 border border-red-500/50 rounded-xl text-sm text-red-300 transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse"
-                        >
-                          <MicOff className="h-4 w-4" />
-                          <span>Stop Recording</span>
-                        </button>
-                      )}
+                {isLoading && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
+                    <div className="bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm px-5 py-4 flex items-center space-x-3">
+                      <div className="flex space-x-1">
+                        <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </div>
+                      <span className="text-sm text-gray-400 font-medium">Interviewer AI is typing...</span>
                     </div>
-                  </div>
+                  </motion.div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
 
-                  <form onSubmit={handleChatSubmit} className="flex space-x-3">
-                    <input
-                      type="text"
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      placeholder={isRecording ? "Listening..." : "Type your answer..."}
-                      disabled={isRecording || isLoading}
-                      className="flex-1 px-5 py-3 bg-white/5 border border-white/15 rounded-xl text-white text-[15px] placeholder-gray-500 focus:outline-none focus:border-green-500/60 focus:bg-white/10 transition-all disabled:opacity-50"
-                    />
-                    <button
-                      type="submit"
-                      disabled={isRecording || !chatInput.trim() || isLoading}
-                      className="px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/10 disabled:text-gray-500 text-white text-[15px] rounded-xl transition-all font-medium flex items-center shadow-lg shadow-green-500/20"
-                    >
-                      Send
-                    </button>
-                  </form>
+              {/* Chat Input Bar */}
+              <div className="flex-shrink-0 px-6 py-4 border-t border-white/10 bg-black/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    {!isRecording ? (
+                      <button
+                        onClick={startRecording}
+                        disabled={isLoading}
+                        className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-green-500/20 border border-white/10 hover:border-green-500/40 rounded-xl text-sm transition-all disabled:opacity-50"
+                      >
+                        <Mic className="h-4 w-4" />
+                        <span>Voice Answer</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={stopRecording}
+                        className="flex items-center space-x-2 px-4 py-2 bg-red-600/30 hover:bg-red-600/50 border border-red-500/50 rounded-xl text-sm text-red-300 transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse"
+                      >
+                        <MicOff className="h-4 w-4" />
+                        <span>Stop Recording</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
+
+                <form onSubmit={handleChatSubmit} className="flex space-x-3">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder={isRecording ? "Listening..." : "Type your answer..."}
+                    disabled={isRecording || isLoading}
+                    className="flex-1 px-5 py-3 bg-white/5 border border-white/15 rounded-xl text-white text-[15px] placeholder-gray-500 focus:outline-none focus:border-green-500/60 focus:bg-white/10 transition-all disabled:opacity-50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isRecording || !chatInput.trim() || isLoading}
+                    className="px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/10 disabled:text-gray-500 text-white text-[15px] rounded-xl transition-all font-medium flex items-center shadow-lg shadow-green-500/20"
+                  >
+                    Send
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
 
-          {/* RIGHT PANEL: AI Avatar & Camera Stack (Takes up 1/3 width) */}
-          <div className="lg:col-span-1 flex flex-col gap-6 min-h-0">
-            
+          {/* RIGHT PANEL: AI Avatar & Camera Stack (Takes up 2/5 width) */}
+          <div className="lg:col-span-2 flex flex-col gap-6 min-h-0">
+
             {/* Top: AI Avatar Frame */}
             <div className="flex-1 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex flex-col">
               <div className="px-4 py-3 border-b border-white/10 bg-black/20 flex items-center justify-between">
@@ -744,19 +751,8 @@ const CoreRound: React.FC = (): JSX.Element => {
                   <span className="text-[10px] uppercase tracking-wider text-green-400 border border-green-500/30 bg-green-500/10 px-2 py-0.5 rounded">Analyzing</span>
                 )}
               </div>
-              <div className="flex-1 relative bg-black/40 flex items-center justify-center p-4 min-h-[200px]">
-                {/* Placeholder for future 3D Avatar */}
-                <div className={`relative w-40 h-40 rounded-full bg-gradient-to-br from-green-900 to-emerald-900 border-4 border-white/10 flex items-center justify-center shadow-2xl transition-all duration-300 ${isLoading ? 'scale-105 shadow-green-500/40 border-green-400/30' : ''}`}>
-                  <Briefcase className={`h-16 w-16 ${isLoading ? 'text-white animate-pulse' : 'text-green-300'}`} />
-                  
-                  {/* Outer sound rings when speaking/thinking */}
-                  {isLoading && (
-                    <>
-                      <div className="absolute inset-[-12px] border border-green-400/20 rounded-full animate-[ping_2s_ease-out_infinite]" />
-                      <div className="absolute inset-[-24px] border border-green-400/10 rounded-full animate-[ping_2.5s_ease-out_infinite]" />
-                    </>
-                  )}
-                </div>
+              <div className="flex-1 relative bg-black/40 min-h-[200px]">
+                <InterviewerAvatar isSpeaking={isLoading} accentColor="green" />
               </div>
             </div>
 
@@ -797,15 +793,63 @@ const CoreRound: React.FC = (): JSX.Element => {
                 {isCameraOn && (
                   <button
                     onClick={stopCamera}
-                    className="absolute top-3 right-3 p-1.5 bg-black/60 backdrop-blur-sm hover:bg-red-500/30 border border-white/10 rounded-full transition-colors"
+                    className="absolute top-3 right-3 p-1.5 bg-black/60 backdrop-blur-sm hover:bg-red-500/30 border border-white/10 rounded-full transition-colors z-10"
                     title="Turn off camera"
                   >
                     <CameraOff className="h-3.5 w-3.5 text-gray-300" />
                   </button>
                 )}
-              </div>
 
-              {/* Emotion Analysis overlay disabled to give identical camera and avatar container */}
+                {/* Top 5 Emotions Overlay */}
+                {isCameraOn && currentEmotions && currentEmotions.length > 0 && (
+                  <div className="absolute top-12 right-3 pointer-events-none z-20">
+                    <motion.div
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="bg-black/40 backdrop-blur-md border border-white/10 rounded-xl p-2.5 shadow-2xl w-40"
+                    >
+                      <div className="flex items-center justify-between mb-2 px-1">
+                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Sentiment</span>
+                        <div className="flex items-center space-x-1">
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                          <span className="text-[8px] text-gray-500 uppercase">Live</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        {[...currentEmotions]
+                          .sort((a, b) => b.score - a.score)
+                          .slice(0, 5)
+                          .map((emotion) => (
+                            <div key={emotion.name} className="flex flex-col space-y-0.5">
+                              <div className="flex justify-between text-[10px] px-0.5">
+                                <span className="text-gray-300 font-medium truncate mr-2">{emotion.name}</span>
+                                <span className="text-gray-400 font-mono">{(emotion.score * 100).toFixed(0)}%</span>
+                              </div>
+                              <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                                <motion.div
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${emotion.score * 100}%` }}
+                                  transition={{ duration: 0.5 }}
+                                  className="h-full bg-gradient-to-r from-blue-500/50 to-purple-500/80"
+                                />
+                              </div>
+                            </div>
+                          ))
+                        }
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+
+                {/* AI Sentiment Status Indicator */}
+                {isCameraOn && (
+                  <div className="absolute bottom-3 left-3 p-1 rounded-lg pointer-events-none">
+                    <div className="flex items-center bg-black/40 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/5 text-[10px] text-gray-400 font-medium italic">
+                      AI sentiment analysis active
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {error && (
@@ -822,14 +866,14 @@ const CoreRound: React.FC = (): JSX.Element => {
       {/* Completion Modal */}
       {isInterviewComplete && showSummary && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="bg-[#111] border border-white/10 rounded-2xl p-8 max-w-xl w-full mx-4 shadow-2xl relative overflow-hidden"
           >
             {/* Background decoration */}
             <div className="absolute -top-32 -right-32 w-64 h-64 bg-green-500/10 rounded-full blur-3xl pointer-events-none" />
-            
+
             <div className="text-center mb-8 relative z-10">
               <div className="w-16 h-16 bg-green-500/20 border border-green-500/30 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Briefcase className="h-8 w-8 text-green-400" />
@@ -863,7 +907,7 @@ const CoreRound: React.FC = (): JSX.Element => {
               >
                 Exit to Dashboard
               </button>
-              
+
               <div className="flex space-x-3">
                 <button
                   onClick={() => {
