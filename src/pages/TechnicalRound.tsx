@@ -1052,16 +1052,15 @@ const TechnicalRound: React.FC = () => {
 
           {/* LEFT PANEL: Chat / Code Editor (Takes up 2/3 width) */}
           <div className="lg:col-span-2 flex flex-col min-h-0 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden relative">
-            
+
             {/* Panel Tabs */}
             <div className="flex-shrink-0 flex items-center border-b border-white/10 bg-black/20">
               <button
                 onClick={() => setActivePanel('chat')}
-                className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 ${
-                  activePanel === 'chat' 
-                    ? 'border-blue-500 text-blue-400 bg-blue-500/5' 
+                className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 ${activePanel === 'chat'
+                    ? 'border-blue-500 text-blue-400 bg-blue-500/5'
                     : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-white/5'
-                }`}
+                  }`}
               >
                 <MessageSquare className="h-4 w-4" />
                 <span>Interview Chat</span>
@@ -1069,14 +1068,13 @@ const TechnicalRound: React.FC = () => {
                   <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse ml-2" />
                 )}
               </button>
-              
+
               <button
                 onClick={() => setActivePanel('code')}
-                className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 ${
-                  activePanel === 'code' 
-                    ? 'border-blue-500 text-blue-400 bg-blue-500/5' 
+                className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 ${activePanel === 'code'
+                    ? 'border-blue-500 text-blue-400 bg-blue-500/5'
                     : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-white/5'
-                }`}
+                  }`}
               >
                 <Code2 className="h-4 w-4" />
                 <span>Code Editor</span>
@@ -1098,7 +1096,7 @@ const TechnicalRound: React.FC = () => {
                       <p>Your technical interview connects shortly...</p>
                     </div>
                   )}
-                  
+
                   <AnimatePresence>
                     {messages.map((message) => (
                       <motion.div
@@ -1110,11 +1108,10 @@ const TechnicalRound: React.FC = () => {
                         className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                       >
                         <div
-                          className={`max-w-[85%] px-5 py-4 rounded-2xl text-[15px] leading-relaxed shadow-sm ${
-                            message.sender === 'user'
+                          className={`max-w-[85%] px-5 py-4 rounded-2xl text-[15px] leading-relaxed shadow-sm ${message.sender === 'user'
                               ? 'bg-blue-600 text-white rounded-br-sm'
                               : 'bg-white/10 text-gray-100 border border-white/10 rounded-bl-sm'
-                          }`}
+                            }`}
                         >
                           <div className="prose prose-invert prose-sm max-w-none">
                             <ReactMarkdown>{message.text}</ReactMarkdown>
@@ -1126,7 +1123,7 @@ const TechnicalRound: React.FC = () => {
                       </motion.div>
                     ))}
                   </AnimatePresence>
-                  
+
                   {isLoading && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
                       <div className="bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm px-5 py-4 flex items-center space-x-3">
@@ -1166,7 +1163,7 @@ const TechnicalRound: React.FC = () => {
                       )}
                     </div>
                     {isCodingQuestion && (
-                      <button 
+                      <button
                         onClick={() => setActivePanel('code')}
                         className="text-xs text-blue-400 flex items-center hover:text-blue-300 transition-colors"
                       >
@@ -1202,7 +1199,7 @@ const TechnicalRound: React.FC = () => {
                 <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 border-b border-white/5 bg-black/40">
                   <div className="flex items-center space-x-3">
                     <div className="relative">
-                      <select 
+                      <select
                         value={codeLanguage}
                         onChange={(e) => setCodeLanguage(e.target.value)}
                         className="appearance-none bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs px-3 py-1.5 pr-8 rounded transition-colors focus:outline-none focus:border-blue-500 cursor-pointer"
@@ -1214,9 +1211,9 @@ const TechnicalRound: React.FC = () => {
                       <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center space-x-2">
-                    <button 
+                    <button
                       onClick={() => navigator.clipboard.writeText(codeContent)}
                       className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded transition-colors"
                       title="Copy code"
@@ -1266,7 +1263,7 @@ const TechnicalRound: React.FC = () => {
 
                 {/* Editor Footer Actions */}
                 <div className="flex-shrink-0 p-4 border-t border-white/5 bg-black/40 flex justify-end space-x-3">
-                  <button 
+                  <button
                     onClick={async () => {
                       if (!codeContent.trim() || isLoading) return;
                       await handleUserResponse(`I have written the following ${codeLanguage} code:\n\n\`\`\`${codeLanguage}\n${codeContent}\n\`\`\``);
@@ -1285,7 +1282,7 @@ const TechnicalRound: React.FC = () => {
 
           {/* RIGHT PANEL: AI Avatar & Camera Stack (Takes up 1/3 width) */}
           <div className="lg:col-span-1 flex flex-col gap-6 min-h-0">
-            
+
             {/* Top: AI Avatar Frame */}
             <div className="flex-1 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex flex-col">
               <div className="px-4 py-3 border-b border-white/10 bg-black/20 flex items-center justify-between">
@@ -1301,7 +1298,7 @@ const TechnicalRound: React.FC = () => {
                 {/* Placeholder for future 3D Avatar */}
                 <div className={`relative w-40 h-40 rounded-full bg-gradient-to-br from-blue-900 to-indigo-900 border-4 border-white/10 flex items-center justify-center shadow-2xl transition-all duration-300 ${isLoading ? 'scale-105 shadow-blue-500/40 border-blue-400/30' : ''}`}>
                   <Brain className={`h-16 w-16 ${isLoading ? 'text-white animate-pulse' : 'text-blue-300'}`} />
-                  
+
                   {/* Outer sound rings when speaking/thinking */}
                   {isLoading && (
                     <>
@@ -1314,8 +1311,8 @@ const TechnicalRound: React.FC = () => {
             </div>
 
             {/* Bottom: Camera & Emotion Analysis */}
-            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
-              <div className="relative bg-black aspect-video flex-shrink-0">
+            <div className="flex-1 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex flex-col">
+              <div className="relative bg-black flex-1 min-h-0">
                 <video
                   ref={videoRef}
                   className="w-full h-full object-cover"
@@ -1412,14 +1409,14 @@ const TechnicalRound: React.FC = () => {
       {/* Completion Modal */}
       {isInterviewComplete && showSummary && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="bg-[#111] border border-white/10 rounded-2xl p-8 max-w-xl w-full mx-4 shadow-2xl relative overflow-hidden"
           >
             {/* Background decoration */}
             <div className="absolute -top-32 -right-32 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
-            
+
             <div className="text-center mb-8 relative z-10">
               <div className="w-16 h-16 bg-blue-500/20 border border-blue-500/30 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Brain className="h-8 w-8 text-blue-400" />
@@ -1457,7 +1454,7 @@ const TechnicalRound: React.FC = () => {
               >
                 Exit to Dashboard
               </button>
-              
+
               <div className="flex space-x-3">
                 <button
                   onClick={() => {

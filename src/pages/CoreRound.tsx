@@ -572,16 +572,24 @@ const CoreRound: React.FC = (): JSX.Element => {
   }
 
   return (
-    <div className="h-screen bg-black text-white flex flex-col overflow-hidden">
+    <div className="h-screen bg-black text-white flex flex-col overflow-hidden relative">
+      {/* Anti-cheat Warning Banner could go here if added */}
+
       {/* Header */}
-      <div className="flex-shrink-0 bg-black/60 backdrop-blur-md border-b border-white/10 px-6 py-3">
+      <div className="flex-shrink-0 bg-black/60 backdrop-blur-md border-b border-white/10 px-6 py-3 relative z-40">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-4">
             <div className="p-2 bg-green-500/20 rounded-lg border border-green-500/30">
               <Briefcase className="h-5 w-5 text-green-400" />
             </div>
             <div>
-              <h1 className="text-base font-semibold leading-tight">Core Round</h1>
+              <div className="flex items-center space-x-3">
+                <h1 className="text-base font-semibold leading-tight">Core Round</h1>
+                <span className="flex items-center space-x-1.5 bg-green-500/10 border border-green-500/20 rounded px-2 py-0.5 text-[10px] uppercase tracking-wider text-green-400 font-medium">
+                  {/* <Shield className="h-3 w-3" /> */}
+                  <span>Proctoring Active</span>
+                </span>
+              </div>
               <p className="text-xs text-gray-400">DBMS, OOP, OS & System Design</p>
             </div>
           </div>
@@ -602,22 +610,177 @@ const CoreRound: React.FC = (): JSX.Element => {
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       <div className="flex-1 min-h-0 p-4">
-        <div className="max-w-7xl mx-auto h-full grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Left Panel: Camera + Emotions */}
-          <div className="lg:col-span-1 flex flex-col gap-4 min-h-0">
-            {/* Camera Card */}
-            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
-              <div className="relative bg-black aspect-video">
-                <video ref={videoRef} className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} autoPlay muted playsInline />
+        <div className="max-w-7xl mx-auto h-full grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          {/* LEFT PANEL: Chat (Takes up 2/3 width) */}
+          <div className="lg:col-span-2 flex flex-col min-h-0 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden relative">
+            
+            {/* Panel Tabs */}
+            <div className="flex-shrink-0 flex items-center border-b border-white/10 bg-black/20">
+              <div
+                className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 border-green-500 text-green-400 bg-green-500/5`}
+              >
+                <Briefcase className="h-4 w-4" />
+                <span>Interview Chat</span>
+                {isLoading && (
+                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse ml-2" />
+                )}
+              </div>
+            </div>
+
+            {/* Panel Body */}
+            <div className="flex-1 overflow-hidden relative flex flex-col">
+                {/* Scrollable Messages */}
+                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+                  {messages.length === 0 && !isLoading && (
+                    <div className="h-full flex flex-col items-center justify-center text-gray-500">
+                      <Briefcase className="h-12 w-12 mb-4 opacity-20" />
+                      <p>Your core interview connects shortly...</p>
+                    </div>
+                  )}
+                  
+                  <AnimatePresence>
+                    {messages.map((message) => (
+                      <motion.div
+                        key={message.id}
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -16 }}
+                        transition={{ duration: 0.25 }}
+                        className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-[85%] px-5 py-4 rounded-2xl text-[15px] leading-relaxed shadow-sm ${
+                            message.sender === 'user'
+                              ? 'bg-green-600 text-white rounded-br-sm'
+                              : 'bg-white/10 text-gray-100 border border-white/10 rounded-bl-sm'
+                          }`}
+                        >
+                          <div className="prose prose-invert prose-sm max-w-none">
+                            <ReactMarkdown>{message.text}</ReactMarkdown>
+                          </div>
+                          <div className="text-xs opacity-40 mt-2 flex justify-end">
+                            {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                  
+                  {isLoading && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
+                      <div className="bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm px-5 py-4 flex items-center space-x-3">
+                        <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                        <span className="text-sm text-gray-400 font-medium">Interviewer AI is typing...</span>
+                      </div>
+                    </motion.div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Chat Input Bar */}
+                <div className="flex-shrink-0 px-6 py-4 border-t border-white/10 bg-black/20 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      {!isRecording ? (
+                        <button
+                          onClick={startRecording}
+                          disabled={isLoading}
+                          className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-green-500/20 border border-white/10 hover:border-green-500/40 rounded-xl text-sm transition-all disabled:opacity-50"
+                        >
+                          <Mic className="h-4 w-4" />
+                          <span>Voice Answer</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={stopRecording}
+                          className="flex items-center space-x-2 px-4 py-2 bg-red-600/30 hover:bg-red-600/50 border border-red-500/50 rounded-xl text-sm text-red-300 transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse"
+                        >
+                          <MicOff className="h-4 w-4" />
+                          <span>Stop Recording</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleChatSubmit} className="flex space-x-3">
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      placeholder={isRecording ? "Listening..." : "Type your answer..."}
+                      disabled={isRecording || isLoading}
+                      className="flex-1 px-5 py-3 bg-white/5 border border-white/15 rounded-xl text-white text-[15px] placeholder-gray-500 focus:outline-none focus:border-green-500/60 focus:bg-white/10 transition-all disabled:opacity-50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isRecording || !chatInput.trim() || isLoading}
+                      className="px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-white/10 disabled:text-gray-500 text-white text-[15px] rounded-xl transition-all font-medium flex items-center shadow-lg shadow-green-500/20"
+                    >
+                      Send
+                    </button>
+                  </form>
+                </div>
+            </div>
+          </div>
+
+          {/* RIGHT PANEL: AI Avatar & Camera Stack (Takes up 1/3 width) */}
+          <div className="lg:col-span-1 flex flex-col gap-6 min-h-0">
+            
+            {/* Top: AI Avatar Frame */}
+            <div className="flex-1 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex flex-col">
+              <div className="px-4 py-3 border-b border-white/10 bg-black/20 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  <h3 className="text-sm font-medium text-gray-200">Interviewer AI</h3>
+                </div>
+                {isLoading && (
+                  <span className="text-[10px] uppercase tracking-wider text-green-400 border border-green-500/30 bg-green-500/10 px-2 py-0.5 rounded">Analyzing</span>
+                )}
+              </div>
+              <div className="flex-1 relative bg-black/40 flex items-center justify-center p-4 min-h-[200px]">
+                {/* Placeholder for future 3D Avatar */}
+                <div className={`relative w-40 h-40 rounded-full bg-gradient-to-br from-green-900 to-emerald-900 border-4 border-white/10 flex items-center justify-center shadow-2xl transition-all duration-300 ${isLoading ? 'scale-105 shadow-green-500/40 border-green-400/30' : ''}`}>
+                  <Briefcase className={`h-16 w-16 ${isLoading ? 'text-white animate-pulse' : 'text-green-300'}`} />
+                  
+                  {/* Outer sound rings when speaking/thinking */}
+                  {isLoading && (
+                    <>
+                      <div className="absolute inset-[-12px] border border-green-400/20 rounded-full animate-[ping_2s_ease-out_infinite]" />
+                      <div className="absolute inset-[-24px] border border-green-400/10 rounded-full animate-[ping_2.5s_ease-out_infinite]" />
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom: Camera & Emotion Analysis */}
+            <div className="flex-1 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex flex-col">
+              <div className="relative bg-black h-full flex items-center justify-center">
+                <video
+                  ref={videoRef}
+                  className="w-full h-full object-cover"
+                  style={{ transform: 'scaleX(-1)' }}
+                  autoPlay
+                  muted
+                  playsInline
+                />
                 <canvas ref={canvasRef} className="hidden" />
 
                 {!isCameraOn && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
                     <CameraOff className="h-10 w-10 text-gray-500 mb-3" />
                     <p className="text-gray-400 text-sm mb-3">Camera is off</p>
-                    <button onClick={startCamera} className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-sm transition-colors">
+                    <button
+                      onClick={startCamera}
+                      className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-sm transition-colors"
+                    >
                       <Camera className="h-4 w-4" />
                       <span>Enable Camera</span>
                     </button>
@@ -632,47 +795,19 @@ const CoreRound: React.FC = (): JSX.Element => {
                 )}
 
                 {isCameraOn && (
-                  <button onClick={stopCamera} className="absolute top-3 right-3 p-1.5 bg-black/60 backdrop-blur-sm hover:bg-red-500/30 border border-white/10 rounded-full transition-colors" title="Turn off camera">
+                  <button
+                    onClick={stopCamera}
+                    className="absolute top-3 right-3 p-1.5 bg-black/60 backdrop-blur-sm hover:bg-red-500/30 border border-white/10 rounded-full transition-colors"
+                    title="Turn off camera"
+                  >
                     <CameraOff className="h-3.5 w-3.5 text-gray-300" />
                   </button>
                 )}
               </div>
 
-              {/* Emotion Analysis */}
-              <div className="p-4">
-                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Emotion Analysis</h4>
-                {isCameraOn && userExpression ? (
-                  <div className="space-y-2">
-                    {userExpression.emotionBreakdown && userExpression.emotionBreakdown.slice(0, 4).map((emotion: any, index: number) => (
-                      <div key={index}>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-gray-400">{emotion.name}</span>
-                          <span className="text-white">{(emotion.score * 100).toFixed(0)}%</span>
-                        </div>
-                        <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all duration-500"
-                            style={{ width: `${emotion.score * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                    <div className="flex items-center justify-between pt-1 border-t border-white/10 text-xs">
-                      <span className={userExpression.isConfident ? 'text-green-400' : 'text-amber-400'}>
-                        {userExpression.isConfident ? '✓ Confident' : '⚡ Building confidence'}
-                      </span>
-                      <span className="text-gray-500">{Math.round(userExpression.confidenceScore * 100)}%</span>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-xs">
-                    {isCameraOn ? (isAnalyzing ? 'Analyzing...' : 'Waiting for data...') : 'Enable camera to analyze emotions'}
-                  </p>
-                )}
-              </div>
+              {/* Emotion Analysis overlay disabled to give identical camera and avatar container */}
             </div>
 
-            {/* Error Display */}
             {error && (
               <div className="flex-shrink-0 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-start space-x-2">
                 <span className="flex-1">{error}</span>
@@ -681,197 +816,96 @@ const CoreRound: React.FC = (): JSX.Element => {
             )}
           </div>
 
-          {/* Right Panel: Chat */}
-          <div className="lg:col-span-2 flex flex-col min-h-0">
-            <div className="flex-1 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 flex flex-col min-h-0 overflow-hidden">
-              {/* Chat header */}
-              <div className="flex-shrink-0 px-5 py-4 border-b border-white/10 flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Briefcase className="h-4 w-4 text-green-400" />
-                  <h3 className="text-sm font-semibold">Interview Chat</h3>
-                </div>
-                {isLoading && (
-                  <div className="flex items-center space-x-2 text-xs text-gray-400">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Thinking...</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Scrollable Messages */}
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 min-h-0">
-                <AnimatePresence>
-                  {messages.map((message) => (
-                    <motion.div
-                      key={message.id}
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -16 }}
-                      transition={{ duration: 0.25 }}
-                      className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-[82%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${message.sender === 'user'
-                          ? 'bg-green-600 text-white rounded-br-md'
-                          : 'bg-white/10 text-gray-100 border border-white/10 rounded-bl-md'
-                          }`}
-                      >
-                        <div className="prose prose-invert prose-sm max-w-none">
-                          <ReactMarkdown>{message.text}</ReactMarkdown>
-                        </div>
-                        <div className="text-xs opacity-40 mt-1.5">
-                          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Input Bar */}
-              <div className="flex-shrink-0 px-5 py-4 border-t border-white/10 space-y-3">
-                <div className="flex items-center space-x-3">
-                  {!isRecording ? (
-                    <button
-                      onClick={startRecording}
-                      className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-red-500/20 border border-white/10 hover:border-red-500/40 rounded-xl text-sm transition-all"
-                    >
-                      <Mic className="h-4 w-4" />
-                      <span>Voice Answer</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={stopRecording}
-                      className="flex items-center space-x-2 px-4 py-2 bg-red-600/30 hover:bg-red-600/50 border border-red-500/50 rounded-xl text-sm text-red-300 transition-all animate-pulse"
-                    >
-                      <MicOff className="h-4 w-4" />
-                      <span>Stop Recording</span>
-                    </button>
-                  )}
-                  {isCameraOn && (
-                    <div className="flex items-center space-x-1.5 text-xs text-green-400">
-                      <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-                      <span>Emotion tracking active</span>
-                    </div>
-                  )}
-                </div>
-
-                <form onSubmit={handleChatSubmit} className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Type your answer..."
-                    className="flex-1 px-4 py-2.5 bg-white/5 border border-white/15 rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500/60 focus:bg-white/10 transition-all"
-                  />
-                  <button type="submit" className="px-5 py-2.5 bg-green-600 hover:bg-green-500 text-white text-sm rounded-xl transition-colors font-medium">
-                    Send
-                  </button>
-                </form>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Interview Complete Summary */}
+      {/* Completion Modal */}
       {isInterviewComplete && showSummary && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-gray-900 rounded-2xl p-8 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-white mb-2">Core Round Complete!</h2>
-              <p className="text-gray-400">Round Duration: {roundDuration} minutes</p>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-[#111] border border-white/10 rounded-2xl p-8 max-w-xl w-full mx-4 shadow-2xl relative overflow-hidden"
+          >
+            {/* Background decoration */}
+            <div className="absolute -top-32 -right-32 w-64 h-64 bg-green-500/10 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="text-center mb-8 relative z-10">
+              <div className="w-16 h-16 bg-green-500/20 border border-green-500/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Briefcase className="h-8 w-8 text-green-400" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">Core Round Complete</h2>
+              <p className="text-gray-400 text-sm">Time spent: {roundDuration} minutes</p>
             </div>
 
-            <div className="space-y-4 mb-6">
-              <div className="bg-blue-600/20 border border-blue-500/50 rounded-lg p-4">
-                <h3 className="text-lg font-semibold text-blue-300 mb-2">Round Statistics</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-400">Questions Asked:</span>
-                    <span className="text-white ml-2">{messages.filter(m => m.sender === 'ai').length}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Your Responses:</span>
-                    <span className="text-white ml-2">{messages.filter(m => m.sender === 'user').length}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Emotion Captures:</span>
-                    <span className="text-white ml-2">{questionExpressions.size}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Confident Moments:</span>
-                    <span className="text-white ml-2">{Array.from(questionExpressions.values()).filter(e => e.isConfident).length}</span>
-                  </div>
+            <div className="bg-white/5 border border-white/10 rounded-xl p-5 mb-8 relative z-10">
+              <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">Round Statistics</h3>
+              <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                  <span className="text-gray-500">Total Questions</span>
+                  <span className="text-white font-medium">{messages.filter(m => m.sender === 'ai').length}</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                  <span className="text-gray-500">Your Responses</span>
+                  <span className="text-white font-medium">{messages.filter(m => m.sender === 'user').length}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500">Emotion Captures</span>
+                  <span className="text-white font-medium">{questionExpressions.size}</span>
                 </div>
               </div>
-
-              {questionExpressions.size > 0 && (
-                <div className="bg-green-600/20 border border-green-500/50 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold text-green-300 mb-2">Emotion Analysis</h3>
-                  <div className="space-y-2">
-                    {Array.from(questionExpressions.entries()).map(([questionId, expression], index) => (
-                      <div key={questionId} className="flex justify-between items-center text-sm">
-                        <span className="text-gray-300">Question {index + 1}:</span>
-                        <span className={`px-2 py-1 rounded text-xs ${expression.isConfident ? 'bg-green-600/30 text-green-300' : expression.isNervous ? 'bg-red-600/30 text-red-300' : 'bg-yellow-600/30 text-yellow-300'}`}>
-                          {expression.dominantEmotion} ({Math.round(expression.confidenceScore * 100)}%)
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
-            <div className="flex justify-end space-x-4">
+            <div className="flex justify-between items-center relative z-10">
               <button
                 onClick={() => navigate('/dashboard')}
-                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                className="px-5 py-2.5 text-gray-400 hover:text-white transition-colors text-sm font-medium"
               >
-                Back to Dashboard
+                Exit to Dashboard
               </button>
-              <button
-                onClick={() => {
-                  navigate('/hr-round', {
-                    state: {
-                      messages,
-                      questionExpressions: Array.from(questionExpressions.entries()),
-                      resumeData,
-                      roundDuration,
-                      conversationId,
-                      // Pass technical round data through
-                      technicalMessages: location.state?.technicalMessages || location.state?.messages || [],
-                      technicalQuestionExpressions: location.state?.technicalQuestionExpressions || location.state?.questionExpressions || [],
-                      coreMessages: messages,
-                      coreQuestionExpressions: Array.from(questionExpressions.entries()),
-                    }
-                  });
-                }}
-                className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                Continue to HR Round →
-              </button>
-              <button
-                onClick={() => {
-                  navigate('/nerv-summary', {
-                    state: {
-                      summary: 'Core Round completed successfully',
-                      messages,
-                      questionExpressions: Array.from(questionExpressions.entries()),
-                      resumeData,
-                      roundDuration,
-                      conversationId,
-                      roundType: 'core'
-                    }
-                  });
-                }}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                View Summary
-              </button>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    navigate('/nerv-summary', {
+                      state: {
+                        summary: 'Core Round completed successfully',
+                        messages,
+                        questionExpressions: Array.from(questionExpressions.entries()),
+                        resumeData,
+                        roundDuration,
+                        conversationId,
+                        roundType: 'core'
+                      }
+                    });
+                  }}
+                  className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 shadow-lg shadow-black/50 text-white rounded-lg transition-all text-sm font-medium"
+                >
+                  View Report
+                </button>
+                <button
+                  onClick={() => {
+                    navigate('/hr-round', {
+                      state: {
+                        messages,
+                        questionExpressions: Array.from(questionExpressions.entries()),
+                        resumeData,
+                        roundDuration,
+                        conversationId,
+                        technicalMessages: location.state?.technicalMessages || location.state?.messages || [],
+                        technicalQuestionExpressions: location.state?.technicalQuestionExpressions || location.state?.questionExpressions || [],
+                        coreMessages: messages,
+                        coreQuestionExpressions: Array.from(questionExpressions.entries()),
+                      }
+                    });
+                  }}
+                  className="px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-all text-sm font-medium shadow-lg shadow-purple-500/20"
+                >
+                  Start HR Round →
+                </button>
+              </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
     </div>
