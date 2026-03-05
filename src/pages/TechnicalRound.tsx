@@ -1,14 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import {
-  Mic, MicOff, Camera, CameraOff, Volume2, VolumeX,
-  Loader2, ArrowLeft, Clock, Brain, X
+  Mic, MicOff, Camera, CameraOff,
+  Loader2, Clock, Brain, X, Shield, AlertTriangle,
+  Code2, MessageSquare, Play, Copy, ChevronDown
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import Editor from '@monaco-editor/react';
 
 // Services
 import { sarvamTTS as azureTTS } from '../services/sarvamTTSService';
@@ -75,6 +77,18 @@ const TechnicalRound: React.FC = () => {
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Anti-cheat / proctoring state
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [isWarningVisible, setIsWarningVisible] = useState(false);
+  const [isFlagged, setIsFlagged] = useState(false);
+  const warningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Code editor state
+  const [isCodingQuestion, setIsCodingQuestion] = useState(false);
+  const [codeContent, setCodeContent] = useState<string>('// Write your solution here\n');
+  const [codeLanguage, setCodeLanguage] = useState<string>('javascript');
+  const [activePanel, setActivePanel] = useState<'chat' | 'code'>('chat');
+
   // Interview data
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<string>('');
@@ -91,6 +105,20 @@ const TechnicalRound: React.FC = () => {
     import.meta.env.VITE_HUME_API_KEY || ''
   );
   const [conversationId, setConversationId] = useState<string>('');
+
+  // ── Helper: detect if question requires coding ─────────────────────────
+  const isProgrammingQuestion = useCallback((text: string): boolean => {
+    const lower = text.toLowerCase();
+    const codingKeywords = [
+      'write a function', 'implement', 'write code', 'write a program',
+      'write an algorithm', 'code a', 'solve the following', 'find two numbers',
+      'return the', 'given an array', 'given a string', 'given a list',
+      'two sum', 'binary search', 'linked list', 'sort the', 'reverse a',
+      'fibonacci', 'factorial', 'palindrome', 'anagram', 'stack', 'queue',
+      'tree traversal', 'graph', 'dynamic programming', 'recursion problem'
+    ];
+    return codingKeywords.some(kw => lower.includes(kw));
+  }, []);
 
   // Test API service function
   const testAPIService = async () => {
@@ -205,6 +233,36 @@ const TechnicalRound: React.FC = () => {
     return () => clearInterval(timer);
   }, [isInterviewStarted, isInterviewComplete]);
 
+  // ── Anti-cheat: tab switch + window blur detection ────────────────────
+  useEffect(() => {
+    if (!isInterviewStarted || isInterviewComplete) return;
+
+    const triggerWarning = () => {
+      setTabSwitchCount(prev => {
+        const next = prev + 1;
+        if (next >= 3) setIsFlagged(true);
+        return next;
+      });
+      setIsWarningVisible(true);
+      if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current);
+      warningTimeoutRef.current = setTimeout(() => setIsWarningVisible(false), 5000);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) triggerWarning();
+    };
+    const handleBlur = () => triggerWarning();
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+      if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current);
+    };
+  }, [isInterviewStarted, isInterviewComplete]);
+
   // Fetch user details and resume data
   const fetchUserDetails = async () => {
     if (!currentUser) return;
@@ -305,6 +363,16 @@ const TechnicalRound: React.FC = () => {
       }
 
       setCurrentQuestion(question);
+
+      // Detect if this is a coding/programming question → auto-switch panel
+      const isCode = isProgrammingQuestion(question);
+      setIsCodingQuestion(isCode);
+      if (isCode) {
+        setActivePanel('code');
+        setCodeContent('// Write your solution here\n');
+      } else {
+        setActivePanel('chat');
+      }
 
       // Generate unique question ID
       const questionId = `technical_${Date.now()}`;
@@ -423,6 +491,16 @@ const TechnicalRound: React.FC = () => {
       setMessages(prev => [...prev, aiMessage]);
       setPreviousQuestions(prev => [...prev, nextQuestion]);
       setCurrentQuestionId(nextQuestionId);
+
+      // Detect if follow-up is a coding question → auto-switch panel
+      const isCode = isProgrammingQuestion(nextQuestion);
+      setIsCodingQuestion(isCode);
+      if (isCode) {
+        setActivePanel('code');
+        setCodeContent('// Write your solution here\n');
+      } else {
+        setActivePanel('chat');
+      }
 
       // Speak the response
       await azureTTS.speak(nextQuestion, 'technical');
@@ -911,17 +989,43 @@ const TechnicalRound: React.FC = () => {
     );
   }
 
+  const LANGUAGES = ['javascript', 'typescript', 'python', 'java', 'cpp', 'c', 'go', 'rust'];
+
   return (
-    <div className="h-screen bg-black text-white flex flex-col overflow-hidden">
+    <div className="h-screen bg-black text-white flex flex-col overflow-hidden relative">
+      {/* Anti-cheat Warning Banner */}
+      <AnimatePresence>
+        {isWarningVisible && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center space-x-3 bg-red-600/90 backdrop-blur-md border border-red-500 text-white px-6 py-3 rounded-2xl shadow-2xl"
+          >
+            <AlertTriangle className="h-6 w-6 text-yellow-300 animate-pulse" />
+            <div>
+              <p className="font-bold">Proctoring Alert: Window switched</p>
+              <p className="text-sm opacity-90">Please keep this window active. Violations: {tabSwitchCount}/3</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
-      <div className="flex-shrink-0 bg-black/60 backdrop-blur-md border-b border-white/10 px-6 py-3">
+      <div className="flex-shrink-0 bg-black/60 backdrop-blur-md border-b border-white/10 px-6 py-3 relative z-40">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-4">
             <div className="p-2 bg-blue-500/20 rounded-lg border border-blue-500/30">
               <Brain className="h-5 w-5 text-blue-400" />
             </div>
             <div>
-              <h1 className="text-base font-semibold leading-tight">Technical Round</h1>
+              <div className="flex items-center space-x-3">
+                <h1 className="text-base font-semibold leading-tight">Technical Round</h1>
+                <span className="flex items-center space-x-1.5 bg-green-500/10 border border-green-500/20 rounded px-2 py-0.5 text-[10px] uppercase tracking-wider text-green-400 font-medium">
+                  <Shield className="h-3 w-3" />
+                  <span>Proctoring Active</span>
+                </span>
+              </div>
               <p className="text-xs text-gray-400">Data Structures & Algorithms</p>
             </div>
           </div>
@@ -942,15 +1046,276 @@ const TechnicalRound: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       <div className="flex-1 min-h-0 p-4">
-        <div className="max-w-7xl mx-auto h-full grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Left Panel: Camera + Emotions */}
-          <div className="lg:col-span-1 flex flex-col gap-4 min-h-0">
-            {/* Camera Card */}
+        <div className="max-w-7xl mx-auto h-full grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          {/* LEFT PANEL: Chat / Code Editor (Takes up 2/3 width) */}
+          <div className="lg:col-span-2 flex flex-col min-h-0 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden relative">
+            
+            {/* Panel Tabs */}
+            <div className="flex-shrink-0 flex items-center border-b border-white/10 bg-black/20">
+              <button
+                onClick={() => setActivePanel('chat')}
+                className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 ${
+                  activePanel === 'chat' 
+                    ? 'border-blue-500 text-blue-400 bg-blue-500/5' 
+                    : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                }`}
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span>Interview Chat</span>
+                {isLoading && activePanel !== 'chat' && (
+                  <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse ml-2" />
+                )}
+              </button>
+              
+              <button
+                onClick={() => setActivePanel('code')}
+                className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 ${
+                  activePanel === 'code' 
+                    ? 'border-blue-500 text-blue-400 bg-blue-500/5' 
+                    : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                }`}
+              >
+                <Code2 className="h-4 w-4" />
+                <span>Code Editor</span>
+                {isCodingQuestion && activePanel !== 'code' && (
+                  <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse ml-2" />
+                )}
+              </button>
+            </div>
+
+            {/* Panel Body */}
+            <div className="flex-1 overflow-hidden relative">
+              {/* CHAT TAB */}
+              <div className={`absolute inset-0 flex flex-col ${activePanel === 'chat' ? 'visible z-10' : 'invisible z-0'}`}>
+                {/* Scrollable Messages */}
+                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+                  {messages.length === 0 && !isLoading && (
+                    <div className="h-full flex flex-col items-center justify-center text-gray-500">
+                      <Brain className="h-12 w-12 mb-4 opacity-20" />
+                      <p>Your technical interview connects shortly...</p>
+                    </div>
+                  )}
+                  
+                  <AnimatePresence>
+                    {messages.map((message) => (
+                      <motion.div
+                        key={message.id}
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -16 }}
+                        transition={{ duration: 0.25 }}
+                        className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-[85%] px-5 py-4 rounded-2xl text-[15px] leading-relaxed shadow-sm ${
+                            message.sender === 'user'
+                              ? 'bg-blue-600 text-white rounded-br-sm'
+                              : 'bg-white/10 text-gray-100 border border-white/10 rounded-bl-sm'
+                          }`}
+                        >
+                          <div className="prose prose-invert prose-sm max-w-none">
+                            <ReactMarkdown>{message.text}</ReactMarkdown>
+                          </div>
+                          <div className="text-xs opacity-40 mt-2 flex justify-end">
+                            {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                  
+                  {isLoading && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
+                      <div className="bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm px-5 py-4 flex items-center space-x-3">
+                        <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                        <span className="text-sm text-gray-400 font-medium">Interviewer AI is typing...</span>
+                      </div>
+                    </motion.div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Chat Input Bar */}
+                <div className="flex-shrink-0 px-6 py-4 border-t border-white/10 bg-black/20 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      {!isRecording ? (
+                        <button
+                          onClick={startRecording}
+                          disabled={isLoading}
+                          className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-blue-500/20 border border-white/10 hover:border-blue-500/40 rounded-xl text-sm transition-all disabled:opacity-50"
+                        >
+                          <Mic className="h-4 w-4" />
+                          <span>Voice Answer</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={stopRecording}
+                          className="flex items-center space-x-2 px-4 py-2 bg-red-600/30 hover:bg-red-600/50 border border-red-500/50 rounded-xl text-sm text-red-300 transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse"
+                        >
+                          <MicOff className="h-4 w-4" />
+                          <span>Stop Recording</span>
+                        </button>
+                      )}
+                    </div>
+                    {isCodingQuestion && (
+                      <button 
+                        onClick={() => setActivePanel('code')}
+                        className="text-xs text-blue-400 flex items-center hover:text-blue-300 transition-colors"
+                      >
+                        <Code2 className="h-3.5 w-3.5 mr-1" />
+                        Switch to code editor
+                      </button>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleChatSubmit} className="flex space-x-3">
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      placeholder={isRecording ? "Listening..." : "Type your answer..."}
+                      disabled={isRecording || isLoading}
+                      className="flex-1 px-5 py-3 bg-white/5 border border-white/15 rounded-xl text-white text-[15px] placeholder-gray-500 focus:outline-none focus:border-blue-500/60 focus:bg-white/10 transition-all disabled:opacity-50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isRecording || !chatInput.trim() || isLoading}
+                      className="px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-white/10 disabled:text-gray-500 text-white text-[15px] rounded-xl transition-all font-medium flex items-center shadow-lg shadow-blue-500/20"
+                    >
+                      Send
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              {/* CODE EDITOR TAB */}
+              <div className={`absolute inset-0 flex flex-col bg-[#1e1e1e] ${activePanel === 'code' ? 'visible z-10' : 'invisible z-0'}`}>
+                {/* Editor Toolbar */}
+                <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 border-b border-white/5 bg-black/40">
+                  <div className="flex items-center space-x-3">
+                    <div className="relative">
+                      <select 
+                        value={codeLanguage}
+                        onChange={(e) => setCodeLanguage(e.target.value)}
+                        className="appearance-none bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs px-3 py-1.5 pr-8 rounded transition-colors focus:outline-none focus:border-blue-500 cursor-pointer"
+                      >
+                        {LANGUAGES.map(lang => (
+                          <option key={lang} value={lang} className="bg-gray-900 text-white">{lang}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <button 
+                      onClick={() => navigator.clipboard.writeText(codeContent)}
+                      className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded transition-colors"
+                      title="Copy code"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Question Info overlay in editor */}
+                {isCodingQuestion && (
+                  <div className="px-5 py-3 bg-blue-500/5 border-b border-white/5 text-sm text-gray-300 max-h-32 overflow-y-auto">
+                    <span className="font-semibold text-blue-400 mr-2">Task:</span>
+                    {currentQuestion}
+                  </div>
+                )}
+
+                {/* Monaco instance */}
+                <div className="flex-1 min-h-0 pt-2 relative">
+                  <Editor
+                    height="100%"
+                    language={codeLanguage}
+                    theme="vs-dark"
+                    value={codeContent}
+                    onChange={(val) => setCodeContent(val || '')}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 14,
+                      wordWrap: 'on',
+                      padding: { top: 10 },
+                      scrollBeyondLastLine: false,
+                      smoothScrolling: true,
+                      cursorBlinking: 'smooth',
+                      cursorSmoothCaretAnimation: 'on',
+                      formatOnPaste: true,
+                    }}
+                  />
+                  {isLoading && (
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-10 transition-opacity">
+                      <div className="bg-black/80 text-white px-4 py-2 rounded-lg border border-white/10 flex items-center space-x-2 shadow-xl">
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                        <span className="text-sm font-medium">Interviewer is analyzing...</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Editor Footer Actions */}
+                <div className="flex-shrink-0 p-4 border-t border-white/5 bg-black/40 flex justify-end space-x-3">
+                  <button 
+                    onClick={async () => {
+                      if (!codeContent.trim() || isLoading) return;
+                      await handleUserResponse(`I have written the following ${codeLanguage} code:\n\n\`\`\`${codeLanguage}\n${codeContent}\n\`\`\``);
+                      setActivePanel('chat');
+                    }}
+                    disabled={isLoading}
+                    className="flex items-center space-x-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-blue-500/20"
+                  >
+                    <Play className="h-4 w-4" />
+                    <span>Submit Code</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT PANEL: AI Avatar & Camera Stack (Takes up 1/3 width) */}
+          <div className="lg:col-span-1 flex flex-col gap-6 min-h-0">
+            
+            {/* Top: AI Avatar Frame */}
+            <div className="flex-1 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex flex-col">
+              <div className="px-4 py-3 border-b border-white/10 bg-black/20 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                  <h3 className="text-sm font-medium text-gray-200">Interviewer AI</h3>
+                </div>
+                {isLoading && (
+                  <span className="text-[10px] uppercase tracking-wider text-blue-400 border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 rounded">Analyzing</span>
+                )}
+              </div>
+              <div className="flex-1 relative bg-black/40 flex items-center justify-center p-4 min-h-[200px]">
+                {/* Placeholder for future 3D Avatar */}
+                <div className={`relative w-40 h-40 rounded-full bg-gradient-to-br from-blue-900 to-indigo-900 border-4 border-white/10 flex items-center justify-center shadow-2xl transition-all duration-300 ${isLoading ? 'scale-105 shadow-blue-500/40 border-blue-400/30' : ''}`}>
+                  <Brain className={`h-16 w-16 ${isLoading ? 'text-white animate-pulse' : 'text-blue-300'}`} />
+                  
+                  {/* Outer sound rings when speaking/thinking */}
+                  {isLoading && (
+                    <>
+                      <div className="absolute inset-[-12px] border border-blue-400/20 rounded-full animate-[ping_2s_ease-out_infinite]" />
+                      <div className="absolute inset-[-24px] border border-blue-400/10 rounded-full animate-[ping_2.5s_ease-out_infinite]" />
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom: Camera & Emotion Analysis */}
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
-              {/* Camera viewport */}
-              <div className="relative bg-black aspect-video">
+              <div className="relative bg-black aspect-video flex-shrink-0">
                 <video
                   ref={videoRef}
                   className="w-full h-full object-cover"
@@ -961,7 +1326,6 @@ const TechnicalRound: React.FC = () => {
                 />
                 <canvas ref={canvasRef} className="hidden" />
 
-                {/* Camera Off Overlay */}
                 {!isCameraOn && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
                     <CameraOff className="h-10 w-10 text-gray-500 mb-3" />
@@ -976,7 +1340,6 @@ const TechnicalRound: React.FC = () => {
                   </div>
                 )}
 
-                {/* Live badge */}
                 {isCameraOn && (
                   <div className="absolute top-3 left-3 flex items-center space-x-1.5 px-2 py-1 bg-black/60 backdrop-blur-sm rounded-full border border-white/10">
                     <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
@@ -984,7 +1347,6 @@ const TechnicalRound: React.FC = () => {
                   </div>
                 )}
 
-                {/* Camera toggle button */}
                 {isCameraOn && (
                   <button
                     onClick={stopCamera}
@@ -997,40 +1359,45 @@ const TechnicalRound: React.FC = () => {
               </div>
 
               {/* Emotion Analysis */}
-              <div className="p-4">
-                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Emotion Analysis</h4>
+              <div className="p-4 border-t border-white/10 bg-black/20">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Emotion Tracking</h4>
+                  {isCameraOn && userExpression && (
+                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${userExpression.isConfident ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                      {userExpression.isConfident ? 'Confident' : 'Uncertain'}
+                    </span>
+                  )}
+                </div>
+
                 {isCameraOn && userExpression ? (
-                  <div className="space-y-2">
-                    {userExpression.emotionBreakdown && userExpression.emotionBreakdown.slice(0, 4).map((emotion: { name: string; score: number }, index: number) => (
+                  <div className="space-y-2.5">
+                    {userExpression.emotionBreakdown && userExpression.emotionBreakdown.slice(0, 3).map((emotion: any, index: number) => (
                       <div key={index}>
                         <div className="flex justify-between text-xs mb-1">
-                          <span className="text-gray-400">{emotion.name}</span>
+                          <span className="text-gray-300">{emotion.name}</span>
                           <span className="text-white">{(emotion.score * 100).toFixed(0)}%</span>
                         </div>
-                        <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-gradient-to-r from-blue-500 to-violet-500 rounded-full transition-all duration-500"
+                            className="h-full bg-gradient-to-r from-blue-500 to-indigo-400 rounded-full transition-all duration-500"
                             style={{ width: `${emotion.score * 100}%` }}
                           />
                         </div>
                       </div>
                     ))}
-                    <div className="flex items-center justify-between pt-1 border-t border-white/10 text-xs">
-                      <span className={userExpression.isConfident ? 'text-green-400' : 'text-amber-400'}>
-                        {userExpression.isConfident ? '✓ Confident' : '⚡ Building confidence'}
-                      </span>
-                      <span className="text-gray-500">{Math.round(userExpression.confidenceScore * 100)}%</span>
-                    </div>
                   </div>
                 ) : (
-                  <p className="text-gray-500 text-xs">
-                    {isCameraOn ? (isAnalyzing ? 'Analyzing...' : 'Waiting for data...') : 'Enable camera to analyze emotions'}
-                  </p>
+                  <div className="flex items-center space-x-2 text-gray-500 text-xs py-2">
+                    {isCameraOn && isAnalyzing ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>Analyzing expressions...</span></>
+                    ) : (
+                      <span>{isCameraOn ? 'Waiting for face data...' : 'Camera required for tracking.'}</span>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
 
-            {/* Error Display */}
             {error && (
               <div className="flex-shrink-0 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-start space-x-2">
                 <span className="flex-1">{error}</span>
@@ -1039,249 +1406,98 @@ const TechnicalRound: React.FC = () => {
             )}
           </div>
 
-          {/* Right Panel: Chat */}
-          <div className="lg:col-span-2 flex flex-col min-h-0">
-            <div className="flex-1 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 flex flex-col min-h-0 overflow-hidden">
-              {/* Chat header */}
-              <div className="flex-shrink-0 px-5 py-4 border-b border-white/10 flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Brain className="h-4 w-4 text-blue-400" />
-                  <h3 className="text-sm font-semibold">Interview Chat</h3>
-                </div>
-                {isLoading && (
-                  <div className="flex items-center space-x-2 text-xs text-gray-400">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Thinking...</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Scrollable Messages */}
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 min-h-0">
-                <AnimatePresence>
-                  {messages.map((message) => (
-                    <motion.div
-                      key={message.id}
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -16 }}
-                      transition={{ duration: 0.25 }}
-                      className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-[82%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                          message.sender === 'user'
-                            ? 'bg-blue-600 text-white rounded-br-md'
-                            : 'bg-white/10 text-gray-100 border border-white/10 rounded-bl-md'
-                        }`}
-                      >
-                        <div className="prose prose-invert prose-sm max-w-none">
-                          <ReactMarkdown>{message.text}</ReactMarkdown>
-                        </div>
-                        <div className="text-xs opacity-40 mt-1.5">
-                          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Input Bar */}
-              <div className="flex-shrink-0 px-5 py-4 border-t border-white/10 space-y-3">
-                {/* Voice / status row */}
-                <div className="flex items-center space-x-3">
-                  {!isRecording ? (
-                    <button
-                      onClick={startRecording}
-                      className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-red-500/20 border border-white/10 hover:border-red-500/40 rounded-xl text-sm transition-all"
-                    >
-                      <Mic className="h-4 w-4" />
-                      <span>Voice Answer</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={stopRecording}
-                      className="flex items-center space-x-2 px-4 py-2 bg-red-600/30 hover:bg-red-600/50 border border-red-500/50 rounded-xl text-sm text-red-300 transition-all animate-pulse"
-                    >
-                      <MicOff className="h-4 w-4" />
-                      <span>Stop Recording</span>
-                    </button>
-                  )}
-                  {isCameraOn && (
-                    <div className="flex items-center space-x-1.5 text-xs text-blue-400">
-                      <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
-                      <span>Emotion tracking active</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Text input row */}
-                <form onSubmit={handleChatSubmit} className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Type your answer..."
-                    className="flex-1 px-4 py-2.5 bg-white/5 border border-white/15 rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500/60 focus:bg-white/10 transition-all"
-                  />
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-xl transition-colors font-medium"
-                  >
-                    Send
-                  </button>
-                </form>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Interview Complete Summary */}
+      {/* Completion Modal */}
       {isInterviewComplete && showSummary && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-gray-900 rounded-2xl p-8 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-white mb-2">Technical Round Complete!</h2>
-              <p className="text-gray-400">Round Duration: {roundDuration} minutes</p>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-[#111] border border-white/10 rounded-2xl p-8 max-w-xl w-full mx-4 shadow-2xl relative overflow-hidden"
+          >
+            {/* Background decoration */}
+            <div className="absolute -top-32 -right-32 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="text-center mb-8 relative z-10">
+              <div className="w-16 h-16 bg-blue-500/20 border border-blue-500/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Brain className="h-8 w-8 text-blue-400" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">Technical Round Complete</h2>
+              <p className="text-gray-400 text-sm">Time spent: {roundDuration} minutes</p>
             </div>
 
-            <div className="space-y-4 mb-6">
-              <div className="bg-blue-600/20 border border-blue-500/50 rounded-lg p-4">
-                <h3 className="text-lg font-semibold text-blue-300 mb-2">Round Statistics</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-400">Questions Asked:</span>
-                    <span className="text-white ml-2">{messages.filter(m => m.sender === 'ai').length}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Your Responses:</span>
-                    <span className="text-white ml-2">{messages.filter(m => m.sender === 'user').length}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Emotion Captures:</span>
-                    <span className="text-white ml-2">{questionExpressions.size}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Confident Moments:</span>
-                    <span className="text-white ml-2">{Array.from(questionExpressions.values()).filter(expr => expr.isConfident).length}</span>
-                  </div>
+            <div className="bg-white/5 border border-white/10 rounded-xl p-5 mb-8 relative z-10">
+              <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">Round Statistics</h3>
+              <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                  <span className="text-gray-500">Total Questions</span>
+                  <span className="text-white font-medium">{messages.filter(m => m.sender === 'ai').length}</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                  <span className="text-gray-500">Your Responses</span>
+                  <span className="text-white font-medium">{messages.filter(m => m.sender === 'user').length}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500">Emotion Captures</span>
+                  <span className="text-white font-medium">{questionExpressions.size}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500">Code Submitted</span>
+                  <span className="text-blue-400 font-medium">{messages.filter(m => m.text.includes('```')).length}</span>
                 </div>
               </div>
-
-              {questionExpressions.size > 0 && (
-                <div className="bg-green-600/20 border border-green-500/50 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold text-green-300 mb-2">Emotion Analysis</h3>
-                  <div className="space-y-2">
-                    {Array.from(questionExpressions.entries()).map(([questionId, expression], index) => (
-                      <div key={questionId} className="flex justify-between items-center text-sm">
-                        <span className="text-gray-300">Question {index + 1}:</span>
-                        <div className="flex items-center space-x-2">
-                          <span className={`px-2 py-1 rounded text-xs ${expression.isConfident ? 'bg-green-600/30 text-green-300' :
-                            expression.isNervous ? 'bg-red-600/30 text-red-300' :
-                              'bg-yellow-600/30 text-yellow-300'
-                            }`}>
-                            {expression.dominantEmotion} ({Math.round(expression.confidenceScore * 100)}%)
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
-            <div className="flex justify-end space-x-4">
+            <div className="flex justify-between items-center relative z-10">
               <button
                 onClick={() => navigate('/dashboard')}
-                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                className="px-5 py-2.5 text-gray-400 hover:text-white transition-colors text-sm font-medium"
               >
-                Back to Dashboard
+                Exit to Dashboard
               </button>
-              <button
-                onClick={() => {
-                  console.log('[TechnicalRound] MANUAL EMOTION TEST - Triggering captureFrame');
-                  captureFrame('test_question');
-                }}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                Test Emotion Capture
-              </button>
-              <button
-                onClick={() => {
-                  console.log('[TechnicalRound] SIMPLE EMOTION TEST - Creating fake emotion data');
-                  const fakeExpression = {
-                    isConfident: Math.random() > 0.5,
-                    isNervous: Math.random() < 0.3,
-                    isStruggling: Math.random() < 0.2,
-                    dominantEmotion: ['Confidence', 'Joy', 'Neutral', 'Doubt'][Math.floor(Math.random() * 4)],
-                    confidenceScore: Math.random(),
-                    emotionBreakdown: [
-                      { name: 'Confidence', score: Math.random() },
-                      { name: 'Joy', score: Math.random() },
-                      { name: 'Neutral', score: Math.random() },
-                      { name: 'Doubt', score: Math.random() }
-                    ]
-                  };
-                  setUserExpression(fakeExpression);
-                  setQuestionExpressions(prev => {
-                    const newMap = new Map(prev);
-                    newMap.set('test_question', fakeExpression);
-                    console.log('[TechnicalRound] Added fake emotion data, map size:', newMap.size);
-                    return newMap;
-                  });
-                }}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                Fake Emotion Data
-              </button>
-              <button
-                onClick={() => {
-                  navigate('/core-round', {
-                    state: {
-                      messages,
-                      questionExpressions: Array.from(questionExpressions.entries()),
-                      resumeData,
-                      roundDuration,
-                      conversationId,
-                      // Pass technical round data explicitly
-                      technicalMessages: messages,
-                      technicalQuestionExpressions: Array.from(questionExpressions.entries()),
-                    }
-                  });
-                }}
-                className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                Continue to Core Round →
-              </button>
-              <button
-                onClick={() => {
-                  console.log('[TechnicalRound] Navigating to summary with data:', {
-                    messagesCount: messages.length,
-                    questionExpressionsSize: questionExpressions.size,
-                    questionExpressionsData: Array.from(questionExpressions.entries())
-                  });
-
-                  navigate('/nerv-summary', {
-                    state: {
-                      summary: 'Technical Round completed successfully',
-                      messages,
-                      questionExpressions: Array.from(questionExpressions.entries()), // Convert Map to Array
-                      resumeData,
-                      roundDuration,
-                      conversationId,
-                      roundType: 'technical'
-                    }
-                  });
-                }}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                View Summary
-              </button>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    navigate('/nerv-summary', {
+                      state: {
+                        summary: 'Technical Round completed successfully',
+                        messages,
+                        questionExpressions: Array.from(questionExpressions.entries()),
+                        resumeData,
+                        roundDuration,
+                        conversationId,
+                        roundType: 'technical'
+                      }
+                    });
+                  }}
+                  className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 shadow-lg shadow-black/50 text-white rounded-lg transition-all text-sm font-medium"
+                >
+                  View Report
+                </button>
+                <button
+                  onClick={() => {
+                    navigate('/core-round', {
+                      state: {
+                        messages,
+                        questionExpressions: Array.from(questionExpressions.entries()),
+                        resumeData,
+                        roundDuration,
+                        conversationId,
+                        technicalMessages: messages,
+                        technicalQuestionExpressions: Array.from(questionExpressions.entries()),
+                      }
+                    });
+                  }}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-all text-sm font-medium shadow-lg shadow-blue-500/20"
+                >
+                  Start Core Round →
+                </button>
+              </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
     </div>
@@ -1289,6 +1505,3 @@ const TechnicalRound: React.FC = () => {
 };
 
 export default TechnicalRound;
-
-
-
