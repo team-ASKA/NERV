@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { InterviewerAvatar } from '../components/InterviewerAvatar';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiService } from '../services/apiService';
@@ -440,6 +441,7 @@ const HRRound: React.FC = (): JSX.Element => {
   // Start camera
   const startCamera = async () => {
     try {
+      setError(null);
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: 640,
@@ -447,11 +449,18 @@ const HRRound: React.FC = (): JSX.Element => {
           facingMode: 'user'
         }
       });
-
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        await videoRef.current.play();
         setIsCameraOn(true);
+        console.log('Camera started successfully');
+
+        // Start emotion analysis after camera is ready
+        setTimeout(() => {
+          setIsCapturingExpression(true);
+          console.log('Starting emotion analysis');
+          captureFrame();
+        }, 1000);
       }
     } catch (error) {
       console.error('Error starting camera:', error);
@@ -473,9 +482,10 @@ const HRRound: React.FC = (): JSX.Element => {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach(track => track.stop());
       videoRef.current.srcObject = null;
-      setIsCameraOn(false);
-      setUserExpression(null);
     }
+    setIsCameraOn(false);
+    setUserExpression(null);
+    setCurrentEmotions([]);
   };
 
   // Capture frame for emotion analysis (only when question is asked)
@@ -1048,19 +1058,8 @@ const HRRound: React.FC = (): JSX.Element => {
                   <span className="text-[10px] uppercase tracking-wider text-purple-400 border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 rounded">Analyzing</span>
                 )}
               </div>
-              <div className="flex-1 relative bg-black/40 flex items-center justify-center p-4 min-h-[200px]">
-                {/* Placeholder for future 3D Avatar */}
-                <div className={`relative w-40 h-40 rounded-full bg-gradient-to-br from-purple-900 to-fuchsia-900 border-4 border-white/10 flex items-center justify-center shadow-2xl transition-all duration-300 ${isLoading ? 'scale-105 shadow-purple-500/40 border-purple-400/30' : ''}`}>
-                  <Users className={`h-16 w-16 ${isLoading ? 'text-white animate-pulse' : 'text-purple-300'}`} />
-
-                  {/* Outer sound rings when speaking/thinking */}
-                  {isLoading && (
-                    <>
-                      <div className="absolute inset-[-12px] border border-purple-400/20 rounded-full animate-[ping_2s_ease-out_infinite]" />
-                      <div className="absolute inset-[-24px] border border-purple-400/10 rounded-full animate-[ping_2.5s_ease-out_infinite]" />
-                    </>
-                  )}
-                </div>
+              <div className="flex-1 relative bg-black/40 min-h-[200px]">
+                <InterviewerAvatar isSpeaking={isLoading} accentColor="purple" />
               </div>
             </div>
 
@@ -1108,20 +1107,50 @@ const HRRound: React.FC = (): JSX.Element => {
                   </button>
                 )}
 
-                {/* Minimal Emotion Overlay Badge */}
-                {isCameraOn && userExpression && (
-                  <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none">
+                {/* Top 5 Emotions Overlay */}
+                {isCameraOn && currentEmotions && currentEmotions.length > 0 && (
+                  <div className="absolute top-12 right-3 pointer-events-none z-20">
                     <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="flex items-center space-x-2 px-3 py-1.5 bg-black/60 backdrop-md border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="bg-black/40 backdrop-blur-md border border-white/10 rounded-xl p-2.5 shadow-2xl w-40"
                     >
-                      <div className={`w-2 h-2 rounded-full ${userExpression.isConfident ? 'bg-green-400' : 'bg-amber-400'} shadow-[0_0_8px_rgba(255,255,255,0.3)]`} />
-                      <span className="text-[11px] font-bold text-gray-200 uppercase tracking-tight">
-                        {userExpression.dominantEmotion}: {(userExpression.confidenceScore * 100).toFixed(0)}%
-                      </span>
+                      <div className="flex items-center justify-between mb-2 px-1">
+                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Sentiment</span>
+                        <div className="flex items-center space-x-1">
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                          <span className="text-[8px] text-gray-500 uppercase">Live</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        {[...currentEmotions]
+                          .sort((a, b) => b.score - a.score)
+                          .slice(0, 5)
+                          .map((emotion) => (
+                            <div key={emotion.name} className="flex flex-col space-y-0.5">
+                              <div className="flex justify-between text-[10px] px-0.5">
+                                <span className="text-gray-300 font-medium truncate mr-2">{emotion.name}</span>
+                                <span className="text-gray-400 font-mono">{(emotion.score * 100).toFixed(0)}%</span>
+                              </div>
+                              <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                                <motion.div
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${emotion.score * 100}%` }}
+                                  transition={{ duration: 0.5 }}
+                                  className="h-full bg-gradient-to-r from-blue-500/50 to-purple-500/80"
+                                />
+                              </div>
+                            </div>
+                          ))
+                        }
+                      </div>
                     </motion.div>
+                  </div>
+                )}
 
+                {/* AI Sentiment Status Indicator */}
+                {isCameraOn && (
+                  <div className="absolute bottom-3 left-3 p-1 rounded-lg pointer-events-none">
                     <div className="flex items-center bg-black/40 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/5 text-[10px] text-gray-400 font-medium italic">
                       AI sentiment analysis active
                     </div>
