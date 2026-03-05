@@ -215,23 +215,29 @@ INTERVIEW BEHAVIOR:
     } else {
       prompt = `Generate an interview question for round ${context.round}. `;
 
-      if (context.userExpression?.isConfident) {
-        prompt += `The candidate appears confident, so ask a challenging question or follow-up. `;
-      } else if (context.userExpression?.isNervous || context.userExpression?.isStruggling) {
-        prompt += `The candidate seems nervous or struggling, so ask an easier question. `;
+      if (context.userExpression) {
+        prompt += `\nEMOTION DATA (CRITICAL): The candidate's dominant emotion is ${context.userExpression.dominantEmotion.toUpperCase()} (Confidence score: ${(context.userExpression.confidenceScore * 100).toFixed(1)}%).\n`;
+
+        if (context.userExpression.isConfident) {
+          prompt += `Because the candidate is confident, INCREASE the difficulty. Ask a more complex, challenging question or ask for a deeper edge-case. `;
+        } else if (context.userExpression.isStruggling) {
+          prompt += `Because the candidate is struggling, REDUCE the difficulty. Break down the problem, lower the complexity, or ask a fundamentally easier question to rebuild their confidence. `;
+        } else if (context.userExpression.isNervous) {
+          prompt += `Because the candidate is nervous, adopt a VERY ENCOURAGING tone. Ask a straightforward question to help them settle in before getting to harder topics. `;
+        }
       }
 
       if (context.round === 'core' && context.resumeData) {
-        prompt += `Focus on their skills: ${context.resumeData.skills.join(', ')} and projects: ${context.resumeData.projects.join(', ')}. `;
+        prompt += `\nRESUME CONTEXT: Focus specifically on asking about their skills: [${context.resumeData.skills.join(', ')}] and their projects: [${context.resumeData.projects.join(', ')}]. `;
       } else if (context.round === 'hr' && context.resumeData) {
-        prompt += `Focus on their achievements: ${context.resumeData.achievements.join(', ')}. `;
+        prompt += `\nRESUME CONTEXT: Focus specifically on asking about their achievements: [${context.resumeData.achievements.join(', ')}]. `;
       }
 
       if (context.previousQuestions.length > 0) {
-        prompt += `Previous questions asked: ${context.previousQuestions.slice(-3).join(', ')}. `;
+        prompt += `\nPREVIOUS QUESTIONS ASKED (DO NOT REPEAT): ${context.previousQuestions.slice(-3).join(' | ')}. `;
       }
 
-      prompt += `This is question ${context.previousQuestions.length + 1}. Ask ONE question only.`;
+      prompt += `\nThis is question ${context.previousQuestions.length + 1}. You MUST ask ONE question only. Do not provide the answer.`;
     }
 
     return prompt;
@@ -257,13 +263,19 @@ INTERVIEW BEHAVIOR:
       Always acknowledge their approach and discuss it further. `;
     }
 
-    if (context.userExpression?.isConfident) {
-      prompt += `They seem confident, so ask for optimization or edge cases. `;
-    } else if (context.userExpression?.isNervous || context.userExpression?.isStruggling) {
-      prompt += `They seem to be struggling, so give hints or break down the problem. `;
+    if (context.userExpression) {
+      prompt += `\n\nEMOTION DATA (CRITICAL): The candidate's dominant emotion is ${context.userExpression.dominantEmotion.toUpperCase()} (Confidence score: ${(context.userExpression.confidenceScore * 100).toFixed(1)}%).\n`;
+
+      if (context.userExpression.isConfident) {
+        prompt += `Since they are confident, ask an advanced follow-up. Ask for time/space optimization (if technical), or a highly complex edge-case scenario. `;
+      } else if (context.userExpression.isStruggling) {
+        prompt += `Since they are struggling, BE SUPPORTIVE and drop hints. Break the problem into smaller, digestible pieces rather than demanding the full answer. `;
+      } else if (context.userExpression.isNervous) {
+        prompt += `Since they are nervous, validate their effort. Speak warmly to reassure them before politely pointing them in the right direction. `;
+      }
     }
 
-    prompt += `Respond to what they said. If unavailable, acknowledge briefly and ask a simple clarifying question. Never say "undefined". Ask ONE follow-up question for the ${context.round} round.`;
+    prompt += `\n\nINSTRUCTION: Respond directly to what they said above. If their answer is [unavailable] or [no answer], politely acknowledge their silence and ask a simple clarifying question to get them talking again. Never literally say "undefined" or "null". Provide exactly ONE follow-up question/response for the ${context.round} round.`;
 
     return prompt;
   }
