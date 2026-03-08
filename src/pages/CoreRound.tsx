@@ -3,10 +3,9 @@ import { InterviewerAvatar } from '../components/InterviewerAvatar';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../lib/firebase';
 import {
   Mic, MicOff, Camera, CameraOff,
-  Loader2, Clock, Briefcase, X
+  Clock, Briefcase, X
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -54,14 +53,12 @@ const CoreRound: React.FC = (): JSX.Element => {
   // UI state
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [avatarSpeakText, setAvatarSpeakText] = useState<string>('');
 
   // Interview data
   const [messages, setMessages] = useState<Message[]>(previousMessages);
-  const [currentQuestion, setCurrentQuestion] = useState<string>('');
   const [currentQuestionId, setCurrentQuestionId] = useState<string>('');
   const [resumeData, setResumeData] = useState<ResumeData | null>(location.state?.resumeData || null);
   const [userExpression, setUserExpression] = useState<UserExpression | null>(null);
@@ -70,7 +67,6 @@ const CoreRound: React.FC = (): JSX.Element => {
   const [questionExpressions, setQuestionExpressions] = useState<Map<string, UserExpression>>(previousExpressions);
   const [isCapturingExpression, setIsCapturingExpression] = useState<boolean>(false);
   const [currentEmotions, setCurrentEmotions] = useState<any[]>([]);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [humeApiKey] = useState<string>(import.meta.env.VITE_HUME_API_KEY || '');
 
   // Time management
@@ -210,7 +206,6 @@ const CoreRound: React.FC = (): JSX.Element => {
         }
       }
 
-      setCurrentQuestion(question);
       const questionId = `core_${Date.now()}`;
       setCurrentQuestionId(questionId);
 
@@ -226,8 +221,8 @@ const CoreRound: React.FC = (): JSX.Element => {
       setIsCapturingExpression(true);
       setTimeout(() => captureFrame(questionId), 2000);
 
-      // Speak the question via D-ID avatar
-      setAvatarSpeakText(question);
+      // Speak the question via Sarvam TTS
+      await azureTTS.speak(question, 'core');
 
     } catch (error) {
       console.error('Error starting core round:', error);
@@ -300,8 +295,6 @@ const CoreRound: React.FC = (): JSX.Element => {
         }
       }
 
-      setCurrentQuestion(nextQuestion);
-
       const nextQuestionId = `core_${Date.now()}`;
       const aiMessage: Message = {
         id: nextQuestionId,
@@ -313,8 +306,8 @@ const CoreRound: React.FC = (): JSX.Element => {
       setPreviousQuestions(prev => [...prev, nextQuestion]);
       setCurrentQuestionId(nextQuestionId);
 
-      // Speak the response via D-ID avatar
-      setAvatarSpeakText(nextQuestion);
+      // Speak the response via Sarvam TTS
+      await azureTTS.speak(nextQuestion, 'core');
 
     } catch (error) {
       console.error('Error handling user response:', error);
@@ -421,7 +414,6 @@ const CoreRound: React.FC = (): JSX.Element => {
     if (!blob) return;
 
     try {
-      setIsAnalyzing(true);
       const file = new File([blob], 'frame.jpg', { type: 'image/jpeg' });
       const formData = new FormData();
       formData.append('file', file);
@@ -521,7 +513,7 @@ const CoreRound: React.FC = (): JSX.Element => {
       console.error('[CoreRound] Error analyzing emotions:', error);
       setUserExpression({ isConfident: false, isNervous: true, isStruggling: false, dominantEmotion: 'Neutral', confidenceScore: 0.5, emotionBreakdown: [] });
     } finally {
-      setIsAnalyzing(false);
+      // setIsAnalyzing(false);
     }
   };
 
@@ -751,7 +743,10 @@ const CoreRound: React.FC = (): JSX.Element => {
                 )}
               </div>
               <div className="flex-1 relative bg-black/40 min-h-[200px]">
-                <InterviewerAvatar isSpeaking={isLoading} accentColor="green" speakText={avatarSpeakText} />
+                <InterviewerAvatar 
+                  accentColor="green" 
+                  speakText={""} 
+                />
               </div>
             </div>
 

@@ -24,6 +24,8 @@ export interface DIDAgentCallbacks {
     onConnectionStateChange?: (state: ConnectionState) => void;
     /** Video state changes (idle ↔ streaming) */
     onVideoStateChange?: (state: VideoState) => void;
+    /** Called when the avatar finishes speaking */
+    onSpeechFinished?: () => void;
     /** Errors */
     onError?: (error: string, errorData?: any) => void;
 }
@@ -39,9 +41,10 @@ class DIDAgentService {
     private _connectionState: ConnectionState = 'idle';
     private _isInitialised = false;
     private apiKey: string | null = null;
+    private voiceId = 'en-US-JennyNeural'; // Standard Microsoft Voice
 
-    // We use a professional unsplash portrait for the avatar
-    private sourceUrl = 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3';
+    // Using a more stable D-ID hosted persona image
+    private sourceUrl = 'https://create-images-results.d-id.com/DefaultPresenters/Amber_f/v1_image.jpg';
 
     get connectionState() {
         return this._connectionState;
@@ -115,8 +118,9 @@ class DIDAgentService {
                 console.log('[DIDAgentService] ICE Connection state:', state);
                 if (state === 'connected' || state === 'completed') {
                     this.updateConnectionState('connected');
-                } else if (state === 'failed' || state === 'closed') {
-                    this.updateConnectionState('error');
+                } else if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+                    // Only error if it's truly failed, disconnected might just be temporary
+                    if (state === 'failed') this.updateConnectionState('error');
                 }
             };
 
@@ -189,7 +193,7 @@ class DIDAgentService {
                     script: {
                         type: 'text',
                         input: text,
-                        provider: { type: 'microsoft', voice_id: 'en-US-JennyMultilingualV2Neural' }
+                        provider: { type: 'microsoft', voice_id: this.voiceId }
                     },
                     session_id: this.sessionId,
                     config: {
@@ -201,14 +205,23 @@ class DIDAgentService {
 
             if (!res.ok) throw new Error(await res.text());
 
-            // Listen for when video stops
+            // 5. Success — Estimate duration to trigger finish callback
+            // Rough words-per-minute heuristic: ~130 WPM = ~2.2 words per second
+            const wordCount = text.split(/\s+/).length;
+            const estimatedDurationMs = Math.max(2000, (wordCount / 2.2) * 1000 + 1000);
+
+            console.log(`[DIDAgentService] Speech started. Estimated duration: ${estimatedDurationMs}ms`);
+
             setTimeout(() => {
+                console.log('[DIDAgentService] Speech finished.');
                 this.callbacks.onVideoStateChange?.('idle');
-            }, text.length * 80); // Rough estimate of speech duration based on text length
+                this.callbacks.onSpeechFinished?.();
+            }, estimatedDurationMs);
 
         } catch (err) {
             console.error('[DIDAgentService] Speak failed:', err);
             this.callbacks.onVideoStateChange?.('idle');
+            this.callbacks.onSpeechFinished?.(); // Trigger anyway so STT isn't blocked
         }
     }
 

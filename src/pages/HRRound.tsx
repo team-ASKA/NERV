@@ -6,7 +6,7 @@ import { apiService } from '../services/apiService';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Mic, MicOff, Camera, CameraOff,
-  Loader2, Clock, Users, X
+  Clock, Users, X
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -54,14 +54,12 @@ const HRRound: React.FC = (): JSX.Element => {
   // UI state
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [avatarSpeakText, setAvatarSpeakText] = useState<string>('');
 
   // Interview data
   const [messages, setMessages] = useState<Message[]>(previousMessages);
-  const [currentQuestion, setCurrentQuestion] = useState<string>('');
   const [currentQuestionId, setCurrentQuestionId] = useState<string>('');
   const [resumeData, setResumeData] = useState<ResumeData | null>(location.state?.resumeData || null);
   const [userExpression, setUserExpression] = useState<UserExpression | null>(null);
@@ -70,8 +68,7 @@ const HRRound: React.FC = (): JSX.Element => {
   const [questionExpressions, setQuestionExpressions] = useState<Map<string, UserExpression>>(previousExpressions);
   const [isCapturingExpression, setIsCapturingExpression] = useState<boolean>(false);
   const [currentEmotions, setCurrentEmotions] = useState<any[]>([]);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [humeApiKey, setHumeApiKey] = useState<string>(
+  const [humeApiKey] = useState<string>(
     import.meta.env.VITE_HUME_API_KEY || ''
   );
 
@@ -246,8 +243,6 @@ const HRRound: React.FC = (): JSX.Element => {
         throw new Error('Failed to generate question');
       }
 
-      setCurrentQuestion(question);
-
       // Generate unique question ID
       const questionId = `hr_${Date.now()}`;
       setCurrentQuestionId(questionId);
@@ -274,8 +269,7 @@ const HRRound: React.FC = (): JSX.Element => {
 
       // Speak the question
       try {
-        // Speak the question via D-ID avatar
-        setAvatarSpeakText(question);
+        await azureTTS.speak(question, 'hr');
       } catch (ttsError) {
         console.warn('TTS failed, continuing without audio:', ttsError);
       }
@@ -370,8 +364,6 @@ const HRRound: React.FC = (): JSX.Element => {
           nextQuestion = "Interesting. Can you tell me more about how you handle constructive feedback from your peers?";
         }
       }
-      setCurrentQuestion(nextQuestion);
-
       // Add AI response to messages
       const aiMessage: Message = {
         id: Date.now().toString(),
@@ -382,9 +374,8 @@ const HRRound: React.FC = (): JSX.Element => {
       setMessages(prev => [...prev, aiMessage]);
       setPreviousQuestions(prev => [...prev, nextQuestion]);
 
-      // Speak the response
-      // Speak the response via D-ID avatar
-      setAvatarSpeakText(nextQuestion);
+      // Speak the response via Sarvam TTS
+      await azureTTS.speak(nextQuestion, 'hr');
 
     } catch (error) {
       console.error('Error handling user response:', error);
@@ -526,7 +517,7 @@ const HRRound: React.FC = (): JSX.Element => {
     console.log('[HRRound] Image captured, size:', blob.size, "bytes");
 
     try {
-      setIsAnalyzing(true);
+      // setIsAnalyzing(true);
       console.log("Starting facial analysis...");
 
       // Create a File object from the blob
@@ -718,7 +709,7 @@ const HRRound: React.FC = (): JSX.Element => {
       setUserExpression(fallbackExpression);
       console.log('⚠️ Using fallback emotion data due to error');
     } finally {
-      setIsAnalyzing(false);
+      // setIsAnalyzing(false);
     }
   };
 
@@ -1062,7 +1053,10 @@ const HRRound: React.FC = (): JSX.Element => {
                 )}
               </div>
               <div className="flex-1 relative bg-black/40 min-h-[200px]">
-                <InterviewerAvatar isSpeaking={isLoading} accentColor="purple" speakText={avatarSpeakText} />
+                <InterviewerAvatar 
+                  accentColor="purple" 
+                  speakText={""} 
+                />
               </div>
             </div>
 

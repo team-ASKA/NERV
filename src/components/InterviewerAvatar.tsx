@@ -4,6 +4,8 @@ import {
     ConnectionState,
     VideoState,
 } from '../services/didAgentService';
+import { Loader2, AlertCircle } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // D-ID Real-Time Avatar
@@ -11,12 +13,14 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface InterviewerAvatarProps {
-    isSpeaking: boolean;
+    isSpeaking?: boolean;
     accentColor?: 'blue' | 'green' | 'purple';
     /** Text for the agent to speak (lip-synced avatar). */
     speakText?: string;
     /** Called when the D-ID agent finishes initialising + connecting. */
     onAgentReady?: () => void;
+    /** Called when speech finishes */
+    onSpeechFinished?: () => void;
 }
 
 const RING_COLORS: Record<string, string> = {
@@ -36,6 +40,7 @@ export function InterviewerAvatar({
     accentColor = 'blue',
     speakText,
     onAgentReady,
+    onSpeechFinished,
 }: InterviewerAvatarProps) {
     const streamVideoRef = useRef<HTMLVideoElement>(null);
     const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
@@ -64,6 +69,9 @@ export function InterviewerAvatar({
                 },
                 onVideoStateChange: (state) => {
                     setVideoState(state);
+                },
+                onSpeechFinished: () => {
+                    onSpeechFinished?.();
                 },
                 onError: (err) => {
                     setError(err);
@@ -103,68 +111,28 @@ export function InterviewerAvatar({
             {/* Single WebRTC stream video (handles both idle portrait and speaking animation) */}
             <video
                 ref={streamVideoRef}
-                className="absolute inset-0 w-full h-full object-cover"
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${isConnected ? 'opacity-100' : 'opacity-0'}`}
                 autoPlay
                 playsInline
-                muted={!isConnected}
             />
 
             {/* Connection status overlay */}
-            {!isConnected && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10">
-                    {connectionState === 'connecting' && (
+            {(connectionState === 'connecting' || connectionState === 'idle' || connectionState === 'error' || connectionState === 'disconnected' || true) && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10 p-6 text-center">
+                    {(connectionState === 'connecting' || connectionState === 'idle' || true) ? (
                         <>
-                            <div className="w-10 h-10 border-2 border-white/20 border-t-white rounded-full animate-spin mb-3" />
+                            <Loader2 className={`w-10 h-10 animate-spin mb-3 ${STATUS_COLORS[accentColor]}`} />
                             <p className={`text-sm font-medium ${STATUS_COLORS[accentColor]}`}>
-                                Connecting to avatar...
+                                {connectionState === 'connecting' ? 'Connecting to avatar...' : 'Initialising avatar...'}
+                            </p>
+                            <p className="text-[10px] text-gray-400 mt-2 font-mono uppercase tracking-widest opacity-70">
+                                Global Session Credits: Expired
+                            </p>
+                            <p className="text-[9px] text-gray-500 mt-1 italic">
+                                Switching to Simulation Mode for Showcase
                             </p>
                         </>
-                    )}
-                    {connectionState === 'idle' && (
-                        <>
-                            <div className="w-10 h-10 border-2 border-white/20 border-t-white rounded-full animate-spin mb-3" />
-                            <p className="text-sm font-medium text-gray-400">
-                                Initialising avatar...
-                            </p>
-                        </>
-                    )}
-                    {connectionState === 'error' && (
-                        <div className="text-center px-4">
-                            <div className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 flex items-center justify-center mx-auto mb-3">
-                                <span className="text-red-400 text-lg">!</span>
-                            </div>
-                            <p className="text-sm text-red-400 font-medium mb-1">
-                                Avatar connection failed
-                            </p>
-                            <p className="text-xs text-gray-500 max-w-[200px] break-words">
-                                {error || 'Please check your connection and try again'}
-                            </p>
-                            <button
-                                onClick={() => {
-                                    setError('');
-                                    setConnectionState('connecting');
-                                    didAgentService.reconnect();
-                                }}
-                                className="mt-3 px-4 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-xs text-white transition-colors"
-                            >
-                                Retry
-                            </button>
-                        </div>
-                    )}
-                    {connectionState === 'disconnected' && (
-                        <div className="text-center">
-                            <p className="text-sm text-gray-400 mb-2">Avatar disconnected</p>
-                            <button
-                                onClick={() => {
-                                    setConnectionState('connecting');
-                                    didAgentService.reconnect();
-                                }}
-                                className="px-4 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-xs text-white transition-colors"
-                            >
-                                Reconnect
-                            </button>
-                        </div>
-                    )}
+                    ) : null}
                 </div>
             )}
 
@@ -181,16 +149,27 @@ export function InterviewerAvatar({
                 </div>
             )}
 
-            {/* Animated speaking rings */}
-            {isSpeaking && isConnected && (
-                <>
-                    <div
-                        className={`absolute inset-[-8px] border-2 rounded-xl pointer-events-none ${RING_COLORS[accentColor]} animate-[ping_1.8s_ease-out_infinite]`}
-                    />
-                    <div
-                        className={`absolute inset-[-16px] border rounded-xl pointer-events-none ${RING_COLORS[accentColor]} animate-[ping_2.3s_ease-out_infinite]`}
-                    />
-                </>
+            {/* Animated speaking rings — synced to actual stream activity or isSpeaking prop */}
+            {(isSpeaking || isStreaming) && isConnected && (
+                <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
+                    {[1, 1.5, 2].map((scale, i) => (
+                        <motion.div
+                            key={i}
+                            className={`absolute inset-0 rounded-full border-4 ${RING_COLORS[accentColor].split(' ')[0]}`}
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{
+                                scale: scale * 1.2,
+                                opacity: [0, 0.4, 0],
+                            }}
+                            transition={{
+                                duration: 2,
+                                repeat: Infinity,
+                                delay: i * 0.6,
+                                ease: "easeOut"
+                            }}
+                        />
+                    ))}
+                </div>
             )}
         </div>
     );

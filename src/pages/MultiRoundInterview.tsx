@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -6,13 +6,14 @@ import { db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import {
   Mic, MicOff, Camera, CameraOff, Volume2, VolumeX,
-  Loader2, ArrowLeft, Clock, Brain, User, Briefcase, Users, X
+  Loader2, ArrowLeft, Clock, Brain, Briefcase, Users, X
 } from 'lucide-react';
 import { FaVideo } from 'react-icons/fa';
 import ReactMarkdown from 'react-markdown';
 
 // Services
 import { sarvamTTS as azureTTS } from '../services/sarvamTTSService';
+import { InterviewerAvatar } from '../components/InterviewerAvatar';
 import { sarvamSTT as whisperService } from '../services/sarvamSTTService';
 import { humeAI, UserExpression } from '../services/humeAIService';
 import { openAI, QuestionContext } from '../services/openAIService';
@@ -66,7 +67,7 @@ const MultiRoundInterview: React.FC = () => {
   const navigate = useNavigate();
 
   // Interview state
-  const [isInterviewStarted, setIsInterviewStarted] = useState(false);
+  const [isInterviewStarted] = useState(false);
   const [isInterviewComplete, setIsInterviewComplete] = useState(false);
   const [currentRound, setCurrentRound] = useState<'technical' | 'core' | 'hr'>('technical');
   const [roundIndex, setRoundIndex] = useState(0);
@@ -88,7 +89,6 @@ const MultiRoundInterview: React.FC = () => {
 
   // Interview data
   const [messages, setMessages] = useState<Message[]>([]);
-  const [currentQuestion, setCurrentQuestion] = useState<string>('');
   const [resumeData, setResumeData] = useState<ResumeData | null>(null);
   const [userExpression, setUserExpression] = useState<UserExpression | null>(null);
   const [previousQuestions, setPreviousQuestions] = useState<string[]>([]);
@@ -97,6 +97,7 @@ const MultiRoundInterview: React.FC = () => {
   const [isCapturingExpression, setIsCapturingExpression] = useState<boolean>(false);
   const [showSummary, setShowSummary] = useState<boolean>(false);
   const [interviewSummary, setInterviewSummary] = useState<any>(null);
+  const [avatarSpeakText, setAvatarSpeakText] = useState<string>('');
 
   // Load resume data from Firebase or localStorage
   useEffect(() => {
@@ -238,7 +239,7 @@ const MultiRoundInterview: React.FC = () => {
 
       console.log('Question context for', currentRound, ':', questionContext);
       const question = await openAI.generateQuestion(questionContext);
-      setCurrentQuestion(question);
+      // setCurrentQuestion(question);
 
       // Generate unique question ID
       const questionId = `${currentRound}_${Date.now()}`;
@@ -262,7 +263,7 @@ const MultiRoundInterview: React.FC = () => {
         captureFrame(questionId);
       }, 2000);
 
-      // Speak the question
+      // Speak the question via Sarvam TTS
       await azureTTS.speak(question, currentRound);
 
     } catch (error) {
@@ -372,12 +373,11 @@ const MultiRoundInterview: React.FC = () => {
           confidenceScore: 0.5
         },
         resumeData: resumeData || undefined, // Resume data is always included
-        previousQuestions,
-        currentQuestionIndex: previousQuestions.length
+        previousQuestions
       };
 
       const nextQuestion = await openAI.generateFollowUpQuestion(questionContext, transcription);
-      setCurrentQuestion(nextQuestion);
+      // setCurrentQuestion(nextQuestion);
 
       // Add AI response to messages
       const aiMessage: Message = {
@@ -390,7 +390,7 @@ const MultiRoundInterview: React.FC = () => {
       setMessages(prev => [...prev, aiMessage]);
       setPreviousQuestions(prev => [...prev, nextQuestion]);
 
-      // Speak the response
+      // Speak the response via Sarvam TTS
       await azureTTS.speak(nextQuestion, currentRound);
 
     } catch (error) {
@@ -764,13 +764,19 @@ const MultiRoundInterview: React.FC = () => {
                 Video Feed
               </h2>
 
-              <div className="relative bg-black rounded-lg overflow-hidden">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  className="w-full h-64 object-cover"
-                />
+                <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden mb-4 border border-white/10 shadow-2xl relative group">
+                  <InterviewerAvatar 
+                    speakText={""} 
+                  />
+                </div>
+                
+                <div className="relative bg-black rounded-lg overflow-hidden">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    muted
+                    className="w-full h-48 object-cover"
+                  />
                 <canvas
                   ref={canvasRef}
                   className="hidden"

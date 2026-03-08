@@ -6,13 +6,12 @@ export default function SplineComponent() {
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
-    // Set a timeout to handle loading issues
     const timeout = setTimeout(() => {
       if (isLoading) {
         setHasError(true);
         setIsLoading(false);
       }
-    }, 10000); // 10 second timeout
+    }, 10000);
 
     return () => clearTimeout(timeout);
   }, [isLoading]);
@@ -60,4 +59,3 @@ export default function SplineComponent() {
     </div>
   );
 }
-

@@ -7,7 +7,7 @@ import { db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import {
   Mic, MicOff, Camera, CameraOff,
-  Loader2, Clock, Brain, X, Shield, AlertTriangle,
+  Clock, Brain, X, Shield, AlertTriangle,
   Code2, MessageSquare, Play, Copy, ChevronDown
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -76,12 +76,11 @@ const TechnicalRound: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [avatarSpeakText, setAvatarSpeakText] = useState<string>('');
+  // const [avatarSpeakText, setAvatarSpeakText] = useState<string>('');
 
   // Anti-cheat / proctoring state
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [isWarningVisible, setIsWarningVisible] = useState(false);
-  const [isFlagged, setIsFlagged] = useState(false);
   const warningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Code editor state
@@ -101,7 +100,6 @@ const TechnicalRound: React.FC = () => {
   const [questionExpressions, setQuestionExpressions] = useState<Map<string, UserExpression>>(new Map());
   const [isCapturingExpression, setIsCapturingExpression] = useState<boolean>(false);
   const [currentEmotions, setCurrentEmotions] = useState<any[]>([]);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const humeApiKey = useState<string>(
     import.meta.env.VITE_HUME_API_KEY || ''
   )[0];
@@ -121,27 +119,6 @@ const TechnicalRound: React.FC = () => {
     return codingKeywords.some(kw => lower.includes(kw));
   }, []);
 
-  // Test API service function
-  const testAPIService = async () => {
-    try {
-      console.log('[TechnicalRound] Testing API service...');
-      console.log('[TechnicalRound] API Service object:', apiService);
-      console.log('[TechnicalRound] API Service getTechnicalQuestion method:', apiService.getTechnicalQuestion);
-
-      const response = await apiService.getTechnicalQuestion({
-        emotion: 'confident',
-        last_answer: undefined,
-        round: 'technical'
-      });
-      console.log('[TechnicalRound] API test successful:', response);
-      alert('API test successful! Check console for details.');
-    } catch (error: any) {
-      console.error('[TechnicalRound] API test failed:', error);
-      console.error('[TechnicalRound] Error details:', error.message);
-      console.error('[TechnicalRound] Error stack:', error.stack);
-      alert('API test failed! Check console for details.');
-    }
-  };
 
   // Time management
   const [timeRemaining, setTimeRemaining] = useState(roundDuration * 60);
@@ -241,7 +218,7 @@ const TechnicalRound: React.FC = () => {
     const triggerWarning = () => {
       setTabSwitchCount(prev => {
         const next = prev + 1;
-        if (next >= 3) setIsFlagged(true);
+        // if (next >= 3) setIsFlagged(true);
         return next;
       });
       setIsWarningVisible(true);
@@ -365,7 +342,8 @@ const TechnicalRound: React.FC = () => {
 
       setCurrentQuestion(question);
 
-      // Detect if this is a coding/programming question → auto-switch panel
+      // Speak the question via Sarvam TTS (Independent of Avatar)
+      await azureTTS.speak(question, 'technical');
       const isCode = isProgrammingQuestion(question);
       setIsCodingQuestion(isCode);
       if (isCode) {
@@ -399,8 +377,8 @@ const TechnicalRound: React.FC = () => {
         captureFrame(questionId);
       }, 2000);
 
-      // Speak the question via D-ID avatar
-      setAvatarSpeakText(question);
+      // Speak the question via Sarvam TTS
+      await azureTTS.speak(question, 'technical');
 
     } catch (error) {
       console.error('Error starting round:', error);
@@ -499,8 +477,8 @@ const TechnicalRound: React.FC = () => {
         setActivePanel('chat');
       }
 
-      // Speak the response via D-ID avatar
-      setAvatarSpeakText(nextQuestion);
+      // Speak the response via Sarvam TTS
+      await azureTTS.speak(nextQuestion, 'technical');
 
     } catch (error) {
       console.error('Error handling user response:', error);
@@ -663,7 +641,7 @@ const TechnicalRound: React.FC = () => {
     console.log('[TechnicalRound] Image captured, size:', blob.size, "bytes");
 
     try {
-      setIsAnalyzing(true);
+      // setIsAnalyzing(true);
       console.log("Starting facial analysis...");
 
       // Create a File object from the blob (like your previous project)
@@ -868,7 +846,7 @@ const TechnicalRound: React.FC = () => {
       setUserExpression(fallbackExpression);
       console.log('⚠️ Using fallback emotion data due to error');
     } finally {
-      setIsAnalyzing(false);
+      // setIsAnalyzing(false);
     }
   };
 
@@ -1252,14 +1230,14 @@ const TechnicalRound: React.FC = () => {
                       formatOnPaste: true,
                     }}
                   />
-                  {isLoading && (
+                  {/* {isLoading && (
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-10 transition-opacity">
                       <div className="bg-black/80 text-white px-4 py-2 rounded-lg border border-white/10 flex items-center space-x-2 shadow-xl">
                         <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
                         <span className="text-sm font-medium">Interviewer is analyzing...</span>
                       </div>
                     </div>
-                  )}
+                  )} */}
                 </div>
 
                 {/* Editor Footer Actions */}
@@ -1296,7 +1274,10 @@ const TechnicalRound: React.FC = () => {
                 )}
               </div>
               <div className="flex-1 relative bg-black/40 min-h-[200px]">
-                <InterviewerAvatar isSpeaking={isLoading} accentColor="blue" speakText={avatarSpeakText} />
+                <InterviewerAvatar 
+                  accentColor="blue" 
+                  speakText={""} /* D-ID Speak disabled for showcase */
+                />
               </div>
             </div>
 
