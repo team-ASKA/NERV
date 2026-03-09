@@ -76,7 +76,14 @@ const TechnicalRound: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // const [avatarSpeakText, setAvatarSpeakText] = useState<string>('');
+  // Avatar state
+  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
+  const [isUserSpeaking, setIsUserSpeaking] = useState<boolean>(false);
+
+  // Sync user speaking with recording state
+  useEffect(() => {
+    setIsUserSpeaking(isRecording);
+  }, [isRecording]);
 
   // Anti-cheat / proctoring state
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
@@ -378,7 +385,9 @@ const TechnicalRound: React.FC = () => {
       }, 2000);
 
       // Speak the question via Sarvam TTS
+      setIsAvatarSpeaking(true);
       await azureTTS.speak(question, 'technical');
+      setIsAvatarSpeaking(false);
 
     } catch (error) {
       console.error('Error starting round:', error);
@@ -478,7 +487,9 @@ const TechnicalRound: React.FC = () => {
       }
 
       // Speak the response via Sarvam TTS
+      setIsAvatarSpeaking(true);
       await azureTTS.speak(nextQuestion, 'technical');
+      setIsAvatarSpeaking(false);
 
     } catch (error) {
       console.error('Error handling user response:', error);
@@ -1275,8 +1286,9 @@ const TechnicalRound: React.FC = () => {
               </div>
               <div className="flex-1 relative bg-black/40 min-h-[200px]">
                 <InterviewerAvatar 
+                  isAvatarSpeaking={isAvatarSpeaking}
+                  isUserSpeaking={isUserSpeaking}
                   accentColor="blue" 
-                  speakText={""} /* D-ID Speak disabled for showcase */
                 />
               </div>
             </div>

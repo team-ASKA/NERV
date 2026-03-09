@@ -56,7 +56,15 @@ const HRRound: React.FC = (): JSX.Element => {
   const [isRecording, setIsRecording] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [avatarSpeakText, setAvatarSpeakText] = useState<string>('');
+
+  // Avatar state
+  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
+  const [isUserSpeaking, setIsUserSpeaking] = useState<boolean>(false);
+
+  // Sync user speaking with recording state
+  useEffect(() => {
+    setIsUserSpeaking(isRecording);
+  }, [isRecording]);
 
   // Interview data
   const [messages, setMessages] = useState<Message[]>(previousMessages);
@@ -269,9 +277,12 @@ const HRRound: React.FC = (): JSX.Element => {
 
       // Speak the question
       try {
+        setIsAvatarSpeaking(true);
         await azureTTS.speak(question, 'hr');
+        setIsAvatarSpeaking(false);
       } catch (ttsError) {
         console.warn('TTS failed, continuing without audio:', ttsError);
+        setIsAvatarSpeaking(false);
       }
 
     } catch (error) {
@@ -1054,8 +1065,9 @@ const HRRound: React.FC = (): JSX.Element => {
               </div>
               <div className="flex-1 relative bg-black/40 min-h-[200px]">
                 <InterviewerAvatar 
+                  isAvatarSpeaking={isAvatarSpeaking}
+                  isUserSpeaking={isUserSpeaking}
                   accentColor="purple" 
-                  speakText={""} 
                 />
               </div>
             </div>

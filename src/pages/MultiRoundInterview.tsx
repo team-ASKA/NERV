@@ -97,7 +97,15 @@ const MultiRoundInterview: React.FC = () => {
   const [isCapturingExpression, setIsCapturingExpression] = useState<boolean>(false);
   const [showSummary, setShowSummary] = useState<boolean>(false);
   const [interviewSummary, setInterviewSummary] = useState<any>(null);
-  const [avatarSpeakText, setAvatarSpeakText] = useState<string>('');
+
+  // Avatar state
+  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
+  const [isUserSpeaking, setIsUserSpeaking] = useState<boolean>(false);
+
+  // Sync user speaking with recording state
+  useEffect(() => {
+    setIsUserSpeaking(isRecording);
+  }, [isRecording]);
 
   // Load resume data from Firebase or localStorage
   useEffect(() => {
@@ -264,7 +272,13 @@ const MultiRoundInterview: React.FC = () => {
       }, 2000);
 
       // Speak the question via Sarvam TTS
-      await azureTTS.speak(question, currentRound);
+      try {
+        setIsAvatarSpeaking(true);
+        await azureTTS.speak(question, currentRound);
+        setIsAvatarSpeaking(false);
+      } catch (e) {
+        setIsAvatarSpeaking(false);
+      }
 
     } catch (error) {
       console.error('Error starting round:', error);
@@ -391,7 +405,13 @@ const MultiRoundInterview: React.FC = () => {
       setPreviousQuestions(prev => [...prev, nextQuestion]);
 
       // Speak the response via Sarvam TTS
-      await azureTTS.speak(nextQuestion, currentRound);
+      try {
+        setIsAvatarSpeaking(true);
+        await azureTTS.speak(nextQuestion, currentRound);
+        setIsAvatarSpeaking(false);
+      } catch (e) {
+        setIsAvatarSpeaking(false);
+      }
 
     } catch (error) {
       console.error('Error handling user response:', error);
@@ -766,7 +786,8 @@ const MultiRoundInterview: React.FC = () => {
 
                 <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden mb-4 border border-white/10 shadow-2xl relative group">
                   <InterviewerAvatar 
-                    speakText={""} 
+                    isAvatarSpeaking={isAvatarSpeaking}
+                    isUserSpeaking={isUserSpeaking}
                   />
                 </div>
                 

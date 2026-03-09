@@ -1,26 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-    didAgentService,
-    ConnectionState,
-    VideoState,
-} from '../services/didAgentService';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// D-ID Real-Time Avatar
-// Streams an interactive avatar via WebRTC using D-ID talks/streams API.
+// Local Video Avatar
+// Swaps between avocadospeaks.mp4 and userspeaks.mp4 based on conversation state.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface InterviewerAvatarProps {
-    isSpeaking?: boolean;
+    isAvatarSpeaking?: boolean;
+    isUserSpeaking?: boolean;
     accentColor?: 'blue' | 'green' | 'purple';
-    /** Text for the agent to speak (lip-synced avatar). */
-    speakText?: string;
-    /** Called when the D-ID agent finishes initialising + connecting. */
-    onAgentReady?: () => void;
-    /** Called when speech finishes */
-    onSpeechFinished?: () => void;
 }
 
 const RING_COLORS: Record<string, string> = {
@@ -29,128 +18,69 @@ const RING_COLORS: Record<string, string> = {
     purple: 'border-purple-400/40 shadow-purple-500/30',
 };
 
-const STATUS_COLORS: Record<string, string> = {
-    blue: 'text-blue-400',
-    green: 'text-green-400',
-    purple: 'text-purple-400',
-};
-
 export function InterviewerAvatar({
-    isSpeaking,
+    isAvatarSpeaking = false,
+    isUserSpeaking = false,
     accentColor = 'blue',
-    speakText,
-    onAgentReady,
-    onSpeechFinished,
 }: InterviewerAvatarProps) {
-    const streamVideoRef = useRef<HTMLVideoElement>(null);
-    const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
-    const [videoState, setVideoState] = useState<VideoState>('idle');
-    const [error, setError] = useState<string>('');
-    const initRef = useRef(false);
-    const lastSpeakTextRef = useRef<string>('');
+    const avatarVideoRef = useRef<HTMLVideoElement>(null);
+    const userVideoRef = useRef<HTMLVideoElement>(null);
 
-    // ── Initialise the D-ID WebRTC stream on mount ───────────────────────────
+    // Watch for AI speech
     useEffect(() => {
-        if (initRef.current) return;
-        initRef.current = true;
-
-        const init = async () => {
-            await didAgentService.initialize({
-                onSrcObjectReady: (srcObject) => {
-                    if (streamVideoRef.current) {
-                        streamVideoRef.current.srcObject = srcObject;
-                    }
-                },
-                onConnectionStateChange: (state) => {
-                    setConnectionState(state);
-                    if (state === 'connected') {
-                        onAgentReady?.();
-                    }
-                },
-                onVideoStateChange: (state) => {
-                    setVideoState(state);
-                },
-                onSpeechFinished: () => {
-                    onSpeechFinished?.();
-                },
-                onError: (err) => {
-                    setError(err);
-                },
-            });
-
-            // Connect to start the WebRTC session
-            await didAgentService.connect();
-        };
-
-        init();
-
-        return () => {
-            didAgentService.disconnect();
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    // ── Speak when speakText changes ────────────────────────────────────────
-    useEffect(() => {
-        if (
-            speakText &&
-            speakText !== lastSpeakTextRef.current &&
-            connectionState === 'connected'
-        ) {
-            lastSpeakTextRef.current = speakText;
-            didAgentService.speak(speakText);
+        if (isAvatarSpeaking && avatarVideoRef.current) {
+            // Only reset if it's currently paused, so it doesn't jerk back when rapidly triggered
+            if (avatarVideoRef.current.paused) {
+                avatarVideoRef.current.currentTime = 0;
+            }
+            avatarVideoRef.current.play().catch(console.error);
         }
-    }, [speakText, connectionState]);
+    }, [isAvatarSpeaking]);
 
-    // ── Render ──────────────────────────────────────────────────────────────
-    const isConnected = connectionState === 'connected';
-    const isStreaming = videoState === 'streaming';
+    // Render logic to determine which video is shown
+    // Priorities: 1. Avatar Speaks, 2. User Speaks, 3. User Speaks (idle state)
+    const showAvatarVideo = isAvatarSpeaking;
+    const showUserVideo = !isAvatarSpeaking;
 
     return (
-        <div className="relative w-full h-full">
-            {/* Single WebRTC stream video (handles both idle portrait and speaking animation) */}
+        <div className="relative w-full h-full bg-black">
+            {/* Avatar Speaks Video */}
             <video
-                ref={streamVideoRef}
-                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${isConnected ? 'opacity-100' : 'opacity-0'}`}
-                autoPlay
+                ref={avatarVideoRef}
+                src="/avatarspeaks.mp4"
+                loop
+                muted // we rely on Sarvam for audio
                 playsInline
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${showAvatarVideo ? 'opacity-100 z-10' : 'opacity-0 z-0'
+                    }`}
             />
 
-            {/* Connection status overlay */}
-            {(connectionState === 'connecting' || connectionState === 'idle' || connectionState === 'error' || connectionState === 'disconnected' || true) && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10 p-6 text-center">
-                    {(connectionState === 'connecting' || connectionState === 'idle' || true) ? (
-                        <>
-                            <Loader2 className={`w-10 h-10 animate-spin mb-3 ${STATUS_COLORS[accentColor]}`} />
-                            <p className={`text-sm font-medium ${STATUS_COLORS[accentColor]}`}>
-                                {connectionState === 'connecting' ? 'Connecting to avatar...' : 'Initialising avatar...'}
-                            </p>
-                            <p className="text-[10px] text-gray-400 mt-2 font-mono uppercase tracking-widest opacity-70">
-                                Global Session Credits: Expired
-                            </p>
-                            <p className="text-[9px] text-gray-500 mt-1 italic">
-                                Switching to Simulation Mode for Showcase
-                            </p>
-                        </>
-                    ) : null}
-                </div>
-            )}
+            {/* User Speaks (or Idle) Video */}
+            <video
+                ref={userVideoRef}
+                src="/userspeaks.mp4"
+                loop
+                muted
+                autoPlay // Start playing immediately as it's the default idle state
+                playsInline
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${showUserVideo ? 'opacity-100 z-10' : 'opacity-0 z-0'
+                    }`}
+            />
 
-            {/* Connected indicator (small dot) */}
-            {isConnected && (
-                <div className="absolute top-2 left-2 flex items-center space-x-1.5 px-2 py-1 bg-black/50 backdrop-blur-sm rounded-full border border-white/10 z-10">
-                    <div
-                        className={`w-1.5 h-1.5 rounded-full ${isStreaming ? 'bg-green-400 animate-pulse' : 'bg-green-400'
-                            }`}
-                    />
-                    <span className="text-[9px] text-gray-300 font-medium uppercase tracking-wider">
-                        {isStreaming ? 'Speaking' : 'Live'}
-                    </span>
-                </div>
-            )}
+            {/* Speaking Indicator */}
+            <div className="absolute top-2 left-2 flex items-center space-x-1.5 px-2 py-1 bg-black/50 backdrop-blur-sm rounded-full border border-white/10 z-20">
+                <div
+                    className={`w-1.5 h-1.5 rounded-full ${isAvatarSpeaking ? 'bg-green-400 animate-pulse' :
+                            isUserSpeaking ? 'bg-blue-400 animate-pulse' : 'bg-gray-400'
+                        }`}
+                />
+                <span className="text-[9px] text-gray-300 font-medium uppercase tracking-wider">
+                    {isAvatarSpeaking ? 'Avatar Speaking' : isUserSpeaking ? 'Listening...' : 'Idle'}
+                </span>
+            </div>
 
-            {/* Animated speaking rings — synced to actual stream activity or isSpeaking prop */}
-            {(isSpeaking || isStreaming) && isConnected && (
+            {/* Animated rings */}
+            {(isAvatarSpeaking || isUserSpeaking) && (
                 <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
                     {[1, 1.5, 2].map((scale, i) => (
                         <motion.div

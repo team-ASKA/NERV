@@ -55,7 +55,15 @@ const CoreRound: React.FC = (): JSX.Element => {
   const [isRecording, setIsRecording] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [avatarSpeakText, setAvatarSpeakText] = useState<string>('');
+
+  // Avatar state
+  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
+  const [isUserSpeaking, setIsUserSpeaking] = useState<boolean>(false);
+
+  // Sync user speaking with recording state
+  useEffect(() => {
+    setIsUserSpeaking(isRecording);
+  }, [isRecording]);
 
   // Interview data
   const [messages, setMessages] = useState<Message[]>(previousMessages);
@@ -222,7 +230,9 @@ const CoreRound: React.FC = (): JSX.Element => {
       setTimeout(() => captureFrame(questionId), 2000);
 
       // Speak the question via Sarvam TTS
+      setIsAvatarSpeaking(true);
       await azureTTS.speak(question, 'core');
+      setIsAvatarSpeaking(false);
 
     } catch (error) {
       console.error('Error starting core round:', error);
@@ -307,7 +317,9 @@ const CoreRound: React.FC = (): JSX.Element => {
       setCurrentQuestionId(nextQuestionId);
 
       // Speak the response via Sarvam TTS
+      setIsAvatarSpeaking(true);
       await azureTTS.speak(nextQuestion, 'core');
+      setIsAvatarSpeaking(false);
 
     } catch (error) {
       console.error('Error handling user response:', error);
@@ -744,8 +756,9 @@ const CoreRound: React.FC = (): JSX.Element => {
               </div>
               <div className="flex-1 relative bg-black/40 min-h-[200px]">
                 <InterviewerAvatar 
+                  isAvatarSpeaking={isAvatarSpeaking}
+                  isUserSpeaking={isUserSpeaking}
                   accentColor="green" 
-                  speakText={""} 
                 />
               </div>
             </div>
