@@ -1,8 +1,10 @@
 /**
- * Question Generation Service (powered by Google Gemini)
- * Drop-in replacement for the old Azure OpenAI service.
+ * Question Generation Service (powered by Groq Llama 3.1 8B)
+ * Drop-in replacement for the old Azure OpenAI/Gemini service.
  * Keeps the same exported interface so all callers work unchanged.
  */
+
+import Groq from 'groq-sdk';
 
 export interface QuestionContext {
   round: 'technical' | 'core' | 'hr';
@@ -24,34 +26,27 @@ export interface QuestionContext {
   lastAnswer?: string;
 }
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 
-async function callGemini(systemPrompt: string, userPrompt: string): Promise<string> {
-  const response = await fetch(GEMINI_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
-        }
+// Ensure we pass dynamically the API key and allow browser instantiation since this is Vite
+const groq = new Groq({ apiKey: GROQ_API_KEY, dangerouslyAllowBrowser: true });
+
+async function callGroq(systemPrompt: string, userPrompt: string): Promise<string> {
+  try {
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
       ],
-      generationConfig: {
-        maxOutputTokens: 600,
-        temperature: 0.7,
-      }
-    }),
-  });
-
-  if (!response.ok) {
-    const errData = await response.json();
-    throw new Error(`Gemini API error: ${response.status} - ${errData?.error?.message || 'Unknown error'}`);
+      temperature: 0.7,
+      max_tokens: 600,
+    });
+    
+    return completion.choices[0]?.message?.content || '';
+  } catch (err: any) {
+    throw new Error(`Groq API error: ${err.message || 'Unknown error'}`);
   }
-
-  const data = await response.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
 export class OpenAIService {
@@ -62,7 +57,7 @@ export class OpenAIService {
     try {
       const systemPrompt = this.getSystemPrompt(context.round);
       const userPrompt = this.buildUserPrompt(context);
-      const result = await callGemini(systemPrompt, userPrompt);
+      const result = await callGroq(systemPrompt, userPrompt);
       return result || this.getFallbackQuestion(context.round);
     } catch (error) {
       console.error('Error generating question:', error);
@@ -77,7 +72,7 @@ export class OpenAIService {
     try {
       const systemPrompt = this.getSystemPrompt(context.round);
       const followUpPrompt = this.buildFollowUpPrompt(context, userResponse);
-      const result = await callGemini(systemPrompt, followUpPrompt);
+      const result = await callGroq(systemPrompt, followUpPrompt);
       return result || this.getFallbackQuestion(context.round);
     } catch (error) {
       console.error('Error generating follow-up question:', error);
@@ -90,109 +85,62 @@ export class OpenAIService {
    */
   private getSystemPrompt(round: 'technical' | 'core' | 'hr'): string {
     const prompts = {
-      technical: `You are a senior technical interviewer from a top IT company conducting a realistic DSA interview.
+      technical: `You are a strict, senior technical interviewer from a top-tier tech company conducting a high-stakes DSA interview.
 
 CRITICAL RULES - FOLLOW EXACTLY:
 
-1. NEVER SAY "THAT'S NOT CORRECT" OR "THAT ANSWER ISN'T CORRECT"
-   - Most approaches have merit and should be discussed
-   - Even brute force solutions are valid starting points
-   - NEVER dismiss a candidate's approach as "wrong"
+1. BE EXTREMELY CONCISE AND DIRECT
+   - Your responses MUST NOT exceed 2-3 sentences. No fluff.
+   - Do not use motivational jargon. Never say "Great job", "Don't worry", "You're on the right track", or "I appreciate your effort".
+   - Stick purely to the technical facts. 
 
-2. ACKNOWLEDGE AND DISCUSS EVERY APPROACH
-   - If they say "two loops": "Good, that's a brute force approach. What's the time complexity? Can we optimize it?"
-   - If they say "hash map": "Excellent! Hash map is the optimal approach. How would you implement it?"
-   - If they say "two pointers": "Interesting! Two pointers can work for sorted arrays. How would you use them?"
+2. CRITIQUE FLAWED APPROACHES BLUNTLY 
+   - If an approach is brute force, point out its inefficiency immediately. ("That is O(n^2). We need better.")
+   - If their logic is flawed, tell them it's wrong and ask why they thought it would work.
+   - Do not validate incorrect answers.
 
-3. BE ENCOURAGING AND CONSTRUCTIVE
-   - "That's a valid approach. Let's analyze it..."
-   - "Good thinking! Now let's see if we can optimize..."
-   - "You're on the right track. Can you explain the implementation?"
+3. NEVER REPEAT THE SAME QUESTION
+   - Move the conversation forward or drill deeper into their failure.
 
-4. LISTEN TO THEIR FULL ANSWER
-   - Don't interrupt or dismiss
-   - Build on what they said
-   - Ask follow-up questions about THEIR approach
-
-5. NEVER REPEAT THE SAME QUESTION
-   - If they answered, discuss their answer
-   - Don't ask the same question again
-   - Move the conversation forward
-
-6. NO GREETINGS OR INTRODUCTIONS
-   - Start directly with the technical question
-   - No "Hello, welcome" phrases
-
-FORBIDDEN PHRASES:
-❌ "That answer isn't correct"
-❌ "That's not correct"
-❌ "Please try again"
-❌ "Wrong approach"
-
-REQUIRED PHRASES:
-✅ "Good approach, let's analyze it"
-✅ "That would work, what's the complexity?"
-✅ "Excellent thinking, can you optimize it?"
-✅ "You're on the right track"
+4. NO GREETINGS OR INTRODUCTIONS
+   - Start directly with the technical question.
 
 INTERVIEW BEHAVIOR:
-      - Behave like a real interviewer, not a chatbot
-      - Ask ONE question at a time, wait for response
-      - If they give correct answer: Acknowledge and ask follow-up or move to next question
-      - If they give wrong answer: Tell them it's wrong, ask them to try again
-      - If they fail twice: Move to a completely different question
-      - Do NOT give hints or suggestions unless they ask
-      - Do NOT repeat the same question
-      - Do NOT ask multiple questions in one response
-      
-      QUESTION TYPES:
-      - Data structures (arrays, linked lists, trees, graphs, hash tables)
-      - Algorithms (sorting, searching, dynamic programming, greedy algorithms)
-      - Time and space complexity analysis
-      
-      FORMAT: Ask ONE clear question with test cases. Wait for their response before asking anything else.`,
+- Behave like a real, demanding interviewer.
+- Ask ONE question at a time.
+- If they fail twice, move on to a new question without pity.
+- Do NOT give hints unless they explicitly ask for one, and even then, make them work for it.
 
-      core: `You are a Senior Engineer conducting a Core Subjects interview. 
+FORMAT: Ask ONE clear question with test cases if applicable. Keep it under 50 words. wait for their response.`,
+
+      core: `You are a strict, Senior Engineer conducting a Core Subjects interview. 
       
       INTERVIEW BEHAVIOR:
-      - Behave like a real interviewer, not a chatbot
-      - Ask ONE question at a time, wait for response
-      - If they give correct answer: Acknowledge and ask follow-up or move to next question
-      - If they give wrong answer: Tell them it's wrong, ask them to try again
-      - If they fail twice: Move to a completely different question
-      - Do NOT give hints or suggestions unless they ask
-      - Do NOT repeat the same question
-      - Do NOT ask multiple questions in one response
+      - You are highly concise and demanding. Maximum 2-3 sentences.
+      - NEVER use motivational fluff ("Great job", "You're on the right track").
+      - If their answer is wrong, point it out bluntly. Do not sugarcoat it.
+      - Ask ONE deep, probing question at a time.
+      - Do NOT give hints or suggestions.
+      - If they fail to explain a core concept, drill down into why they don't know it.
       
       QUESTION TYPES (STRICTLY NO DSA QUESTIONS):
-      - Database Management Systems (DBMS) - SQL queries, normalization, indexing, ACID properties, transactions
-      - Object-Oriented Programming (OOP) - inheritance, polymorphism, encapsulation, abstraction, design patterns
-      - Operating Systems (OS) - processes, threads, memory management, file systems, scheduling
-      - System Design - scalability, load balancing, microservices, databases, caching
-      - Skills and projects from their resume (MUST reference their specific skills and projects)
+      - Database Management Systems (DBMS), OOP, OS, System Design.
+      - Skills and projects from their resume.
       
-      FORMAT: Ask ONE clear question. Wait for their response before asking anything else.`,
+      FORMAT: Ask ONE clear question under 40 words. Wait for their response.`,
 
-      hr: `You are an HR Manager conducting a behavioral interview.
+      hr: `You are an HR Executive conducting a behavioral interview. You are analytical, perceptive, and formal.
       
       INTERVIEW BEHAVIOR:
-      - Behave like a real interviewer, not a chatbot
-      - Ask ONE question at a time, wait for response
-      - If they give good answer: Acknowledge and ask follow-up or move to next question
-      - If they give weak answer: Ask them to elaborate or provide more details
-      - If they struggle: Ask about a different experience or situation
-      - Do NOT give hints or suggestions unless they ask
-      - Do NOT repeat the same question
-      - Do NOT ask multiple questions in one response
+      - Be highly concise. Maximum 2 sentences.
+      - Do NOT use motivational or emotional language ("That's wonderful," "I appreciate your honesty").
+      - If their behavioral answer is weak or lacks evidence, criticize it and demand concrete examples using the STAR method.
+      - Ask ONE situational question at a time.
       
       QUESTION TYPES:
-      - Leadership and teamwork
-      - Problem-solving in professional settings
-      - Achievements and accomplishments from their resume (MUST reference specific achievements)
-      - Career goals and motivation
-      - Handling challenges and conflicts
+      - Leadership, conflict resolution, professional achievements.
       
-      FORMAT: Ask ONE clear question. Wait for their response before asking anything else.`
+      FORMAT: Ask ONE clear question under 40 words. Wait for their response.`
     };
 
     return prompts[round];
@@ -219,11 +167,11 @@ INTERVIEW BEHAVIOR:
         prompt += `\nEMOTION DATA (CRITICAL): The candidate's dominant emotion is ${context.userExpression.dominantEmotion.toUpperCase()} (Confidence score: ${(context.userExpression.confidenceScore * 100).toFixed(1)}%).\n`;
 
         if (context.userExpression.isConfident) {
-          prompt += `Because the candidate is confident, INCREASE the difficulty. Ask a more complex, challenging question or ask for a deeper edge-case. `;
+          prompt += `Because the candidate is confident, aggressively increase the difficulty and ask for edge-case proofs. `;
         } else if (context.userExpression.isStruggling) {
-          prompt += `Because the candidate is struggling, REDUCE the difficulty. Break down the problem, lower the complexity, or ask a fundamentally easier question to rebuild their confidence. `;
+          prompt += `Because the candidate is struggling, bluntly point out their failure and demand they clarify their thought process. Do NOT be supportive. `;
         } else if (context.userExpression.isNervous) {
-          prompt += `Because the candidate is nervous, adopt a VERY ENCOURAGING tone. Ask a straightforward question to help them settle in before getting to harder topics. `;
+          prompt += `Because the candidate is nervous, remain completely stoic and professional. Push them to stay focused and answer the question without fluff. `;
         }
       }
 
@@ -253,29 +201,22 @@ INTERVIEW BEHAVIOR:
     let prompt = `The candidate just answered: "${cleaned}". `;
 
     if (context.round === 'technical') {
-      prompt += `IMPORTANT: You MUST respond to their answer first. DO NOT ask a new question.
-      
-      Examples:
-      - If they mentioned "two loops" or "brute force": Say "Good! That's a brute force approach. What's the time complexity? Can we optimize it?"
-      - If they mentioned "hash map" or "hash table": Say "Excellent! That's the optimal solution. How would you implement it?"
-      - If they mentioned "two pointers": Say "Interesting! Two pointers work well for sorted arrays. How would you use them?"
-      
-      Always acknowledge their approach and discuss it further. `;
+      prompt += `IMPORTANT: Respond directly to their answer. If it's flawed, point out the flaw instantly. DO NOT say "Good try". Tell them why it's wrong in 1 sentence, then ask how to fix it. `;
     }
 
     if (context.userExpression) {
       prompt += `\n\nEMOTION DATA (CRITICAL): The candidate's dominant emotion is ${context.userExpression.dominantEmotion.toUpperCase()} (Confidence score: ${(context.userExpression.confidenceScore * 100).toFixed(1)}%).\n`;
 
       if (context.userExpression.isConfident) {
-        prompt += `Since they are confident, ask an advanced follow-up. Ask for time/space optimization (if technical), or a highly complex edge-case scenario. `;
+        prompt += `Since they are confident, ask an advanced, extremely complex follow-up. `;
       } else if (context.userExpression.isStruggling) {
-        prompt += `Since they are struggling, BE SUPPORTIVE and drop hints. Break the problem into smaller, digestible pieces rather than demanding the full answer. `;
+        prompt += `Since they are struggling, do not pity them. Demand they explain the root cause of their error. `;
       } else if (context.userExpression.isNervous) {
-        prompt += `Since they are nervous, validate their effort. Speak warmly to reassure them before politely pointing them in the right direction. `;
+        prompt += `Since they are nervous, remain stoic. Ignore their nerves and demand the technical facts clearly. `;
       }
     }
 
-    prompt += `\n\nINSTRUCTION: Respond directly to what they said above. If their answer is [unavailable] or [no answer], politely acknowledge their silence and ask a simple clarifying question to get them talking again. Never literally say "undefined" or "null". Provide exactly ONE follow-up question/response for the ${context.round} round.`;
+    prompt += `\n\nINSTRUCTION: Provide exactly ONE follow-up question/response for the ${context.round} round. KEEP IT UNDER 3 SENTENCES TOTAL. Never say "undefined" or "null". Eliminate all conversational fluff.`;
 
     return prompt;
   }

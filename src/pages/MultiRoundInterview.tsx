@@ -227,13 +227,14 @@ const MultiRoundInterview: React.FC = () => {
   };
 
   // Start current round
-  const startCurrentRound = async () => {
+  const startCurrentRound = async (overrideRound?: 'technical' | 'core' | 'hr') => {
+    const activeRound = overrideRound || currentRound;
     try {
       setIsLoading(true);
 
       // Generate first question for current round
       const questionContext: QuestionContext = {
-        round: currentRound,
+        round: activeRound,
         userExpression: userExpression || {
           isConfident: false,
           isNervous: false,
@@ -245,12 +246,12 @@ const MultiRoundInterview: React.FC = () => {
         previousQuestions
       };
 
-      console.log('Question context for', currentRound, ':', questionContext);
+      console.log('Question context for', activeRound, ':', questionContext);
       const question = await openAI.generateQuestion(questionContext);
       // setCurrentQuestion(question);
 
       // Generate unique question ID
-      const questionId = `${currentRound}_${Date.now()}`;
+      const questionId = `${activeRound}_${Date.now()}`;
 
       // Add question to messages
       const questionMessage: Message = {
@@ -258,7 +259,7 @@ const MultiRoundInterview: React.FC = () => {
         text: question,
         sender: 'ai',
         timestamp: new Date(),
-        round: currentRound
+        round: activeRound
       };
       setMessages(prev => [...prev, questionMessage]);
       setPreviousQuestions(prev => [...prev, question]);
@@ -271,10 +272,13 @@ const MultiRoundInterview: React.FC = () => {
         captureFrame(questionId);
       }, 2000);
 
+      // Ensure React flushes the new message to the DOM before audio starts
+      await new Promise(resolve => setTimeout(resolve, 50));
+
       // Speak the question via Sarvam TTS
       try {
         setIsAvatarSpeaking(true);
-        await azureTTS.speak(question, currentRound);
+        await azureTTS.speak(question, activeRound);
         setIsAvatarSpeaking(false);
       } catch (e) {
         setIsAvatarSpeaking(false);
@@ -353,11 +357,12 @@ const MultiRoundInterview: React.FC = () => {
     const nextRoundIndex = roundIndex + 1;
 
     if (nextRoundIndex < rounds.length) {
-      setCurrentRound(rounds[nextRoundIndex]);
+      const nextRound = rounds[nextRoundIndex];
+      setCurrentRound(nextRound);
       setRoundIndex(nextRoundIndex);
       setRoundTimeRemaining(roundDuration * 60);
       // Keep camera running, don't restart it
-      startCurrentRound();
+      startCurrentRound(nextRound);
     }
   };
 
@@ -403,6 +408,9 @@ const MultiRoundInterview: React.FC = () => {
       };
       setMessages(prev => [...prev, aiMessage]);
       setPreviousQuestions(prev => [...prev, nextQuestion]);
+
+      // Ensure React flushes the new message to the DOM before audio starts
+      await new Promise(resolve => setTimeout(resolve, 50));
 
       // Speak the response via Sarvam TTS
       try {

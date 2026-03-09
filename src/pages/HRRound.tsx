@@ -275,6 +275,9 @@ const HRRound: React.FC = (): JSX.Element => {
         captureFrame(questionId);
       }, 2000);
 
+      // Ensure React flushes the new message to the DOM before audio starts
+      await new Promise(resolve => setTimeout(resolve, 50));
+
       // Speak the question
       try {
         setIsAvatarSpeaking(true);
@@ -385,8 +388,13 @@ const HRRound: React.FC = (): JSX.Element => {
       setMessages(prev => [...prev, aiMessage]);
       setPreviousQuestions(prev => [...prev, nextQuestion]);
 
+      // Ensure React flushes the new message to the DOM before audio starts
+      await new Promise(resolve => setTimeout(resolve, 50));
+
       // Speak the response via Sarvam TTS
+      setIsAvatarSpeaking(true);
       await azureTTS.speak(nextQuestion, 'hr');
+      setIsAvatarSpeaking(false);
 
     } catch (error) {
       console.error('Error handling user response:', error);

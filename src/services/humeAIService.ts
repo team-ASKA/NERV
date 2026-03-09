@@ -2,6 +2,7 @@
  * Hume AI Service for emotion detection
  * Analyzes facial expressions to determine user confidence level
  */
+import { HumeClient } from 'hume';
 
 export interface EmotionData {
   name: string;
@@ -27,14 +28,22 @@ export interface UserExpression {
 }
 
 export class HumeAIService {
+  private client: HumeClient | null = null;
   private apiKey: string;
   private secretKey: string;
-  private baseUrl: string = 'https://api.hume.ai/v0/batch/jobs';
-  private streamUrl: string = 'https://api.hume.ai/v0/stream/models';
 
   constructor(apiKey: string, secretKey: string) {
     this.apiKey = apiKey;
     this.secretKey = secretKey;
+    
+    if (this.apiKey) {
+      this.client = new HumeClient({
+        apiKey: this.apiKey,
+        secretKey: this.secretKey, 
+        // @ts-ignore - Some older versions of the SDK require this in Vite/browser context
+        dangerouslyAllowBrowser: true 
+      });
+    }
   }
 
   /**
@@ -50,15 +59,13 @@ export class HumeAIService {
         return this.generateRealisticFallback();
       }
 
-      if (!this.apiKey) {
-        console.log('[HumeAI] No Hume API key provided, using realistic fallback data');
+      if (!this.client) {
+        console.log('[HumeAI] HumeClient not initialized (missing API key), using realistic fallback data');
         return this.generateRealisticFallback();
       }
 
-      console.log('[HumeAI] Analyzing emotions with Hume AI...');
+      console.log('[HumeAI] Analyzing emotions with official Hume SDK...');
       console.log('[HumeAI] Image data length:', imageData.length);
-      console.log('[HumeAI] API Key present:', !!this.apiKey);
-      console.log('[HumeAI] Secret Key present:', !!this.secretKey);
       
       // Use real Hume API with shorter timeout (8 seconds)
       const response = await Promise.race([
@@ -187,118 +194,68 @@ export class HumeAIService {
   }
 
   /**
-   * Real Hume API implementation (for when API key is available)
+   * Real Hume API implementation using official SDK
    */
   private async callHumeAPI(imageData: string): Promise<HumeResponse> {
+    if (!this.client) {
+      throw new Error('HumeClient not initialized');
+    }
+
     console.log('Hume API - Image data length:', imageData.length);
     console.log('Hume API - Image data preview:', imageData.substring(0, 50) + '...');
     
-    // Ensure imageData is in the correct format
-    // If it doesn't start with data:image, add the prefix
     let formattedImageData = imageData;
     if (!imageData.startsWith('data:image')) {
       formattedImageData = `data:image/jpeg;base64,${imageData}`;
       console.log('Added data URL prefix to image');
     }
     
-    // First, create a job using the correct batch API format
-    const requestBody = {
-      models: {
-        face: {}
-      },
-      urls: [formattedImageData]
-    };
-    
-    console.log('Hume API - Request body keys:', Object.keys(requestBody));
-    
-    const jobResponse = await fetch(this.baseUrl, {
-      method: 'POST',
-      headers: {
-        'X-Hume-Api-Key': this.apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody)
+    // Convert base64 Data URL to a native File/Blob object for the SDK
+    const res = await fetch(formattedImageData);
+    const blob = await res.blob();
+    const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
+
+    // 1. Start the inference job using `files` instead of `urls` for local Blobs
+    const job = await this.client.expressionMeasurement.batch.startInferenceJob({
+      models: { face: {} },
+      files: [file]
     });
 
-    if (!jobResponse.ok) {
-      const errorText = await jobResponse.text();
-      console.error('Hume API error response:', errorText);
-      console.error('Hume API status:', jobResponse.status);
-      console.error('Hume API headers:', Object.fromEntries(jobResponse.headers.entries()));
-      throw new Error(`Hume API job creation error: ${jobResponse.status} - ${errorText}`);
-    }
+    console.log('Hume SDK job created, waiting for completion... Job ID:', job.jobId);
 
-    const jobData = await jobResponse.json();
-    console.log('Hume API job created:', jobData);
-    const jobId = jobData.job_id || jobData.id;
+    // 2. Await completion automatically! No more raw polling loops.
+    await job.awaitCompletion();
     
-    if (!jobId) {
-      console.error('No job ID received from Hume API:', jobData);
-      throw new Error('No job ID received from Hume API');
-    }
+    // 3. Get the predictions
+    const predictionsResponse = await this.client.expressionMeasurement.batch.getJobPredictions(job.jobId);
     
-    console.log('Polling for job results, job ID:', jobId);
-
-    // Poll for results with intervals
-    let attempts = 0;
-    const maxAttempts = 30; // 15 seconds max wait (30 * 0.5s)
+    console.log('Hume SDK job completed successfully.');
     
-    while (attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 500)); // Wait 0.5 seconds
+    // The official SDK returns an array of results
+    if (predictionsResponse && predictionsResponse.length > 0) {
+      const firstResult = predictionsResponse[0];
       
-      const statusResponse = await fetch(`${this.baseUrl}/${jobId}`, {
-        headers: {
-          'X-Hume-Api-Key': this.apiKey,
-        }
-      });
-
-      if (!statusResponse.ok) {
-        throw new Error(`Hume API status error: ${statusResponse.status}`);
-      }
-
-      const statusData = await statusResponse.json();
-      
-      console.log(`Hume API polling attempt ${attempts + 1}: status = ${statusData.state?.status || statusData.status}`);
-      
-      const status = statusData.state?.status || statusData.status;
-      
-      if (status === 'COMPLETED' || status === 'completed') {
-        console.log('Hume API job completed successfully');
-        console.log('Full status data:', JSON.stringify(statusData, null, 2));
+      // Navigate the typed SDK response structure
+      if (firstResult.results?.predictions && firstResult.results.predictions.length > 0) {
+        const filePrediction = firstResult.results.predictions[0];
         
-        // Extract predictions from the response
-        const predictions = statusData.results?.predictions || statusData.predictions;
-        if (predictions && predictions.length > 0) {
-          const firstPrediction = predictions[0];
+        if (filePrediction.models?.face?.groupedPredictions && filePrediction.models.face.groupedPredictions.length > 0) {
+          const faceGroup = filePrediction.models.face.groupedPredictions[0];
           
-          // Handle different response formats
-          if (firstPrediction.models?.face?.grouped_predictions) {
-            const faceData = firstPrediction.models.face.grouped_predictions[0];
-            return {
-              face_predictions: faceData.predictions.map((p: any) => ({
-                emotions: p.emotions || []
-              }))
-            };
-          } else if (firstPrediction.face_predictions) {
-            return firstPrediction;
-          } else {
-            console.warn('Unexpected prediction format, using fallback');
-            throw new Error('Unexpected prediction format');
+          if (faceGroup.predictions && faceGroup.predictions.length > 0) {
+             // Map SDK format to our internal `HumeResponse` structure
+             return {
+                face_predictions: faceGroup.predictions.map((p: any) => ({
+                  emotions: p.emotions || []
+                }))
+             };
           }
-        } else {
-          console.warn('[HumeAI] No predictions found in response - no face detected, using fallback');
-          return this.generateRealisticFallback();
         }
-      } else if (status === 'FAILED' || status === 'failed') {
-        console.error('Hume API job failed:', statusData);
-        throw new Error('Hume API job failed');
       }
-      
-      attempts++;
     }
-
-    console.warn('Hume API timeout, using fallback emotion data');
-    throw new Error('Hume API timeout');
+    
+    console.warn('[HumeAI] No face predictions found in SDK response, using fallback');
+    throw new Error('No predictions in SDK format');
   }
 }
 

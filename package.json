@@ -1,5 +1,5 @@
 {
-  "name": "orato-ai-interview-platform",
+  "name": "nerv-interview-platform",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -22,7 +22,8 @@
     "fflate": "^0.8.2",
     "firebase": "^11.5.0",
     "framer-motion": "^11.0.8",
-    "hume": "^0.9.15",
+    "groq-sdk": "^0.37.0",
+    "hume": "^0.9.18",
     "idb": "^8.0.2",
     "lucide-react": "^0.344.0",
     "pdfjs-dist": "^4.10.38",
