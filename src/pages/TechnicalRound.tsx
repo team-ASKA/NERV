@@ -349,8 +349,6 @@ const TechnicalRound: React.FC = () => {
 
       setCurrentQuestion(question);
 
-      // Speak the question via Sarvam TTS (Independent of Avatar)
-      await azureTTS.speak(question, 'technical');
       const isCode = isProgrammingQuestion(question);
       setIsCodingQuestion(isCode);
       if (isCode) {
@@ -485,6 +483,9 @@ const TechnicalRound: React.FC = () => {
       } else {
         setActivePanel('chat');
       }
+
+      // Ensure React flushes the new message to the DOM before audio starts
+      await new Promise(resolve => setTimeout(resolve, 50));
 
       // Speak the response via Sarvam TTS
       setIsAvatarSpeaking(true);

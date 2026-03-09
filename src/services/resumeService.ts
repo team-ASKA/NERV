@@ -1,6 +1,8 @@
 /**
- * Resume Service - Parses and extracts structured data from resume text using Gemini AI
+ * Resume Service - Parses and extracts structured data from resume text using Groq Llama 3.1 8B
  */
+
+import Groq from 'groq-sdk';
 
 export interface ResumeData {
   skills: string[];
@@ -17,9 +19,9 @@ export class ResumeService {
   async parseResume(resumeText: string): Promise<ResumeData> {
     // PRIMARY: Use Gemini AI for intelligent parsing
     try {
-      const parsed = await this.parseWithGemini(resumeText);
+      const parsed = await this.parseWithGroq(resumeText);
       if (parsed && (parsed.skills.length > 0 || parsed.experience.length > 0 || parsed.education.length > 0)) {
-        console.log('[ResumeService] Gemini parsing succeeded:', {
+        console.log('[ResumeService] Groq parsing succeeded:', {
           skills: parsed.skills.length,
           projects: parsed.projects.length,
           achievements: parsed.achievements.length,
@@ -28,8 +30,8 @@ export class ResumeService {
         });
         return parsed;
       }
-    } catch (geminiError) {
-      console.warn('[ResumeService] Gemini parsing failed, using regex fallback:', geminiError);
+    } catch (groqError) {
+      console.warn('[ResumeService] Groq parsing failed, using regex fallback:', groqError);
     }
 
     // FALLBACK: Regex-based extraction
@@ -37,16 +39,18 @@ export class ResumeService {
   }
 
   /**
-   * Use Gemini AI to extract structured data from free-form resume text
+   * Use Groq AI to extract structured data from free-form resume text
    */
-  private async parseWithGemini(resumeText: string): Promise<ResumeData> {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey) throw new Error('No Gemini API key');
+  private async parseWithGroq(resumeText: string): Promise<ResumeData> {
+    const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+    if (!apiKey) throw new Error('No Groq API key');
+
+    const groq = new Groq({ apiKey, dangerouslyAllowBrowser: true });
 
     // Truncate to avoid token limits while keeping the most useful sections
     const truncatedText = resumeText.slice(0, 6000);
 
-    const prompt = `You are a resume parser. Extract structured information from the following resume text and return ONLY a valid JSON object (no markdown, no extra text).
+    const prompt = `You are a resume parser. Extract structured information from the following resume text and return ONLY a valid JSON object.
 
 Resume Text:
 """
@@ -71,27 +75,15 @@ Rules:
 - If a section is empty, return an empty array []
 - Return ONLY the JSON object, nothing else`;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            maxOutputTokens: 1500,
-            temperature: 0.1,
-          },
-        }),
-      }
-    );
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0.1,
+      max_tokens: 1500,
+    });
 
-    if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const rawText = completion.choices[0]?.message?.content || '';
 
     // Strip markdown code fences if present
     const jsonText = rawText
@@ -223,7 +215,7 @@ export const extractAndSaveResume = async (
 
     console.log('[ResumeService] Extracted PDF text length:', resumeText.length);
 
-    // Parse with Gemini AI (with regex fallback)
+    // Parse with Groq AI (with regex fallback)
     const resumeData = await resumeService.parseResume(resumeText);
 
     const resumeId = `resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

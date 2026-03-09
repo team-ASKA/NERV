@@ -67,7 +67,7 @@ const Interview = () => {
 
   // ... (useEffect hooks and other functions remain the same) ...
 
-  // Process user answer using Gemini
+  // Process user answer using Groq Llama 3.1 8B
   const processUserAnswer = async (answer: string): Promise<string> => {
     try {
       const isFirstResponse = messages.length === 1;
@@ -88,24 +88,18 @@ const Interview = () => {
       const recentHistory = conversationHistory.slice(-4).map(m => m.content).join('\n');
       const fullPrompt = `${systemContent}\n\n${recentHistory}\n\nUser: ${prompt}`;
 
-      const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-      const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
+      const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
+      const Groq = (await import('groq-sdk')).default;
+      const groq = new Groq({ apiKey: GROQ_API_KEY, dangerouslyAllowBrowser: true });
 
-      const response = await fetch(geminiEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
-          generationConfig: { maxOutputTokens: 500, temperature: 0.7 }
-        })
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.1-8b-instant",
+        messages: [{ role: 'user', content: fullPrompt }],
+        max_tokens: 500,
+        temperature: 0.7
       });
 
-      if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const aiResponse = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Let me ask you another question. Can you explain a data structure you are most comfortable with?';
+      const aiResponse = completion.choices[0]?.message?.content || 'Let me ask you another question. Can you explain a data structure you are most comfortable with?';
 
       setConversationHistory(prev => [
         ...prev,

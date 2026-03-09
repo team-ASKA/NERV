@@ -90,6 +90,20 @@ class SarvamTTSService {
   private fallbackSpeak(text: string): Promise<void> {
     return new Promise((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
+      
+      // Try to find a female English voice for fallback consistency
+      const voices = window.speechSynthesis.getVoices();
+      const femaleVoice = voices.find(voice => 
+        voice.lang.startsWith('en') && 
+        (voice.name.toLowerCase().includes('female') || 
+         voice.name.toLowerCase().includes('zira') || // Microsoft Zira (Female Windows)
+         voice.name.toLowerCase().includes('samantha')) // Apple Samantha (Female Mac)
+      ) || voices.find(voice => voice.lang.startsWith('en')); // fallback to any English if no explicit female found
+      
+      if (femaleVoice) {
+        utterance.voice = femaleVoice;
+      }
+
       utterance.onend = () => resolve();
       window.speechSynthesis.speak(utterance);
     });

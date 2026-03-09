@@ -229,6 +229,9 @@ const CoreRound: React.FC = (): JSX.Element => {
       setIsCapturingExpression(true);
       setTimeout(() => captureFrame(questionId), 2000);
 
+      // Ensure React flushes the new message to the DOM before audio starts
+      await new Promise(resolve => setTimeout(resolve, 50));
+
       // Speak the question via Sarvam TTS
       setIsAvatarSpeaking(true);
       await azureTTS.speak(question, 'core');
@@ -315,6 +318,9 @@ const CoreRound: React.FC = (): JSX.Element => {
       setMessages(prev => [...prev, aiMessage]);
       setPreviousQuestions(prev => [...prev, nextQuestion]);
       setCurrentQuestionId(nextQuestionId);
+
+      // Ensure React flushes the new message to the DOM before audio starts
+      await new Promise(resolve => setTimeout(resolve, 50));
 
       // Speak the response via Sarvam TTS
       setIsAvatarSpeaking(true);
