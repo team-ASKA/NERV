@@ -15,10 +15,11 @@ const isTooGeneric = (q: string) => /time\s+complexity|space\s+complexity|outlin
 
 const router = express.Router();
 
-router.post("/", async (req, res) => {
-  const { emotion, last_answer, round }: {
+router.post("/", async (req: any, res: any) => {
+  const { emotion, last_answer, skills, round }: {
     emotion: string,
     last_answer: string,
+    skills: string[],
     round: string
   } = req.body;
   const conversationId = (req.header('x-conversation-id') || 'default').toString();
@@ -34,7 +35,8 @@ router.post("/", async (req, res) => {
     console.log('[TechnicalRound] Incoming payload:', {
       emotion,
       round,
-      sanitizedAnswer
+      sanitizedAnswer,
+      skillsCount: skills?.length
     });
   } catch { }
 
@@ -58,31 +60,29 @@ router.post("/", async (req, res) => {
       "models/gemini-2.0-flash-exp"
     ];
 
-    const systemPrompt = `You are a senior technical interviewer specializing in Data Structures and Algorithms (DSA).
+    const systemPrompt = `You are a highly analytical and straightforward senior technical interviewer. Your goal is to assess the candidate's core Engineering and DSA skills based on their actual resume technology stack. 
 
 INTERVIEW RULES:
-1. Ask ONE specific DSA question at a time
-2. If last_answer is "N/A" or empty, ask a starting DSA question
-3. If last_answer contains content, ask a NEW DSA question (not follow-up on same problem)
-4. Adapt difficulty based on emotion and previous answers
-5. Vary question types: arrays, strings, trees, graphs, dynamic programming, etc.
+1. Ask ONE specific technical question at a time.
+2. If last_answer is "N/A" or empty (First Question): START by offering a brief, welcoming introduction (e.g., "Welcome to the technical round. I see you have experience with [Skill]."). Then, ask them a highly specific, unique coding or architecture question directly related to one of their skills. DO NOT start with a generic "Two Sum" or generic array question unless that is their only skill.
+3. Base your questions around the candidate's actual SKILLS provided. Ask Data Structures, Algorithms, or language-specific deep dive questions (e.g., event loop in JS, memory management in C++, etc.)
+4. GRACEFUL PIVOTS: If the candidate gives a clearly wrong answer, struggles, or displays "struggling" emotion, DO NOT be harsh or dig deeper into their insecurity. Acknowledge it briefly and gently pivot to an entirely different technical topic or an easier fundamental question.
+5. Do not be overly helpful or overly insulting. You are a neutral, professional engineer trying to find what they *do* know.
 
-QUESTION DIFFICULTY BY EMOTION:
-- If emotion contains "nervous" or "low confidence": Ask EASY questions (arrays, basic sorting, simple string problems)
-- If emotion contains "confident" or "high confidence": Ask MEDIUM/HARD questions (dynamic programming, complex data structures, optimization)
-- If emotion contains "struggling": Ask EASY questions and provide hints
+QUESTION DIFFICULTY DYNAMICS:
+- "nervous" / "struggling": Pivot to easier, fundamental concepts or change topics to help them regain confidence.
+- "confident": Ask MEDIUM/HARD questions (optimization, advanced structures, edge cases).
 
-NEVER ask generic questions like "outline your approach", "explain your approach", or "time/space complexity" prompts – always ask a new, concrete problem statement.`;
+NEVER ask generic questions like "outline your approach" or "explain your approach". Always ask a concrete problem or conceptual question.`;
 
     const userPrompt = `Candidate's Last Answer: ${sanitizedAnswer}
 Emotion: ${emotion}
-
-Difficulty progression: Easy → Medium → Hard (based on confidence)
+Candidate Skills: ${skills && skills.length ? skills.join(', ') : 'General Computer Science'}
 
 Previously asked questions (do not repeat or paraphrase any of these):
 ${previouslyAsked.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 
-Generate the next DSA question:`;
+Generate the next highly specific technical question:`;
 
     let question = "";
     let lastError = null;

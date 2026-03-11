@@ -1,10 +1,9 @@
 /**
- * Firebase Resume Service
- * Fetches resume data from Firebase for interview rounds
+ * Supabase Resume Service (Formerly Firebase)
+ * Fetches resume data from Supabase for interview rounds
  */
 
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabaseInterviewService } from './supabaseInterviewService';
 
 export interface ResumeData {
   skills: string[];
@@ -15,20 +14,17 @@ export interface ResumeData {
 }
 
 /**
- * Fetch resume data from Firebase for a specific user
+ * Fetch resume data from Supabase for a specific user
  */
-export const fetchResumeDataFromFirebase = async (userId: string): Promise<ResumeData | null> => {
+export const fetchResumeDataFromSupabase = async (userId: string): Promise<ResumeData | null> => {
   try {
-    console.log('Fetching resume data from Firebase for user:', userId);
+    console.log('Fetching resume data from Supabase for user:', userId);
     
-    // Try to get resume data from user's resume collection
-    const resumeDocRef = doc(db, 'users', userId, 'resumes', 'latest');
-    const resumeDoc = await getDoc(resumeDocRef);
+    // Get resume data from user's record
+    const data = await supabaseInterviewService.getUserResume(userId);
     
-    if (resumeDoc.exists()) {
-      const data = resumeDoc.data();
-      console.log('Found resume data in Firebase:', data);
-      
+    if (data) {
+      console.log('Found resume data in Supabase');
       return {
         skills: data.skills || [],
         projects: data.projects || [],
@@ -37,11 +33,11 @@ export const fetchResumeDataFromFirebase = async (userId: string): Promise<Resum
         education: data.education || []
       };
     } else {
-      console.log('No resume data found in Firebase');
+      console.log('No resume data found in Supabase');
       return null;
     }
   } catch (error) {
-    console.error('Error fetching resume data from Firebase:', error);
+    console.error('Error fetching resume data from Supabase:', error);
     return null;
   }
 };
@@ -54,7 +50,7 @@ export const fetchResumeDataFromLocalStorage = (): ResumeData | null => {
     const savedResumeData = localStorage.getItem('resumeData');
     if (savedResumeData) {
       const parsed = JSON.parse(savedResumeData);
-      console.log('Found resume data in localStorage:', parsed);
+      console.log('Found resume data in localStorage');
       return parsed;
     }
     return null;
@@ -65,13 +61,13 @@ export const fetchResumeDataFromLocalStorage = (): ResumeData | null => {
 };
 
 /**
- * Get resume data from Firebase or localStorage fallback
+ * Get resume data from Supabase or localStorage fallback
  */
 export const getResumeData = async (userId: string): Promise<ResumeData | null> => {
-  // First try Firebase
-  const firebaseData = await fetchResumeDataFromFirebase(userId);
-  if (firebaseData) {
-    return firebaseData;
+  // First try Supabase
+  const supabaseData = await fetchResumeDataFromSupabase(userId);
+  if (supabaseData) {
+    return supabaseData;
   }
   
   // Fallback to localStorage
@@ -81,9 +77,6 @@ export const getResumeData = async (userId: string): Promise<ResumeData | null> 
     return localData;
   }
   
-  console.warn('No resume data found in Firebase or localStorage');
+  console.warn('No resume data found in Supabase or localStorage');
   return null;
 };
-
-
-

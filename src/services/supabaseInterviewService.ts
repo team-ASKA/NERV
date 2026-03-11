@@ -57,5 +57,52 @@ export const supabaseInterviewService = {
       console.error('Error fetching interivews from Supabase:', error);
       throw error;
     }
+  },
+
+  /**
+   * Save a user's parsed resume to Supabase
+   */
+  async saveUserResume(userId: string, resumeData: any, rawText?: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('resumes')
+        .insert([
+          {
+            user_id: userId,
+            resume_data: resumeData,
+            raw_text: rawText || null,
+          }
+        ]);
+
+      if (error) throw error;
+      console.log('[SupabaseService] ✅ Saved resume to Supabase successfully');
+    } catch (error) {
+      console.error('[SupabaseService] ❌ Error saving resume to Supabase:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Fetch a user's latest parsed resume from Supabase
+   */
+  async getUserResume(userId: string): Promise<any | null> {
+    try {
+      const { data, error } = await supabase
+        .from('resumes')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 is "Row not found"
+        throw error;
+      }
+
+      return data ? data.resume_data : null;
+    } catch (error) {
+      console.error('[SupabaseService] ❌ Error fetching resume from Supabase:', error);
+      return null;
+    }
   }
 };

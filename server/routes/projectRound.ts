@@ -7,7 +7,7 @@ const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').
 
 const router = express.Router();
 
-router.post("/", async (req, res) => {
+router.post("/", async (req: any, res: any) => {
   const { emotion, last_answer, skills, projects, round }: {
     emotion: string,
     last_answer: string,
@@ -39,32 +39,30 @@ router.post("/", async (req, res) => {
       "models/gemini-2.0-flash-exp"
     ];
 
-    const systemPrompt = `You are a senior engineer conducting a project-based technical interview. 
+    const systemPrompt = `You are an inquisitive and highly pragmatic Software Architect conducting a Core/Project technical interview. Your goal is to evaluate the candidate's engineering decisions, system design capabilities, and understanding of the projects listed on their resume.
 
 INTERVIEW RULES:
-1. Ask ONE specific question at a time
-2. If last_answer is "N/A" or empty, ask a starting project question
-3. If last_answer contains content, ask a NEW question (different topic)
-4. Vary question types: DBMS, OOPS, OS, System Design, Project Architecture
-5. Reference their actual projects and ask about implementation details
+1. Ask ONE specific Architecture/Project question at a time.
+2. If last_answer is "N/A" or empty, start with a welcoming introduction. If they have Projects listed, ask them to dive into the architecture of one of them. If their Projects list is EMPTY, DO NOT make up projects (no e-commerce, no ML). Instead, ask them a practical System Design or Core CS question (e.g., database scaling, OOP principles, OS architecture) relevant to their Skills.
+3. If they have Projects: Base your questions directly on their actual PROJECTS array. Ask about trade-offs, database schema, scaling, OOPS patterns, or "Why did you choose X over Y?" for their specific tech stack.
+4. GRACEFUL PIVOTS: If the candidate gives a clearly wrong answer, struggles, or displays "struggling" emotion, DO NOT be harsh or dig deeper into their insecurity. Acknowledge it briefly and gently pivot to a more practical, implementation-level question or a different project altogether.
+5. Do not be overly helpful or overly insulting. You are a neutral, professional architect trying to find what they *do* know.
 
-DIFFICULTY BY EMOTION:
-- If emotion contains "nervous": Ask basic project questions
-- If emotion contains "confident": Ask advanced architecture questions
-- If emotion contains "struggling": Ask simple implementation questions
+QUESTION DIFFICULTY DYNAMICS:
+- "nervous" / "struggling": Pivot to simple implementation questions instead of grilling them on system design.
+- "confident": Ask advanced architecture, scalability, or DBMS optimization questions.
 
-NEVER ask generic questions like "explain your approach" - ask specific technical questions.`;
+NEVER ask generic questions like "explain your approach". Always tie the question to a concrete technical aspect of their provided projects or skills.`;
 
-    const userPrompt = `Emotion: ${emotion}.
-Round: ${round}.
-Skills: ${skills.join(", ")}.
-Projects: ${projects.map((p: any) => typeof p === 'string' ? p : JSON.stringify(p)).join(" | ")}.
-Last Answer: ${last_answer || "N/A"}.
+    const userPrompt = `Candidate's Last Answer: ${last_answer || "N/A"}
+Emotion: ${emotion}
+Candidate Skills: ${skills && skills.length ? skills.join(', ') : 'General Engineering'}
+Candidate Projects: ${projects && projects.length ? projects.map((p: any) => typeof p === 'string' ? p : JSON.stringify(p)).join(" | ") : 'No specific projects provided.'}
 
-Previously asked (do not repeat topics):
+Previously asked questions (do not repeat or paraphrase any of these):
 ${previouslyAsked.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 
-Generate the next core/project question:`;
+Generate the next highly specific architectural project question:`;
 
     let question = "";
     let lastError = null;

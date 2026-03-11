@@ -305,14 +305,15 @@ const TechnicalRound: React.FC = () => {
 
       let question: string;
 
-      // ── PRIMARY: Backend API ───────────────────────────────────────────
       try {
         console.log('[TechnicalRound] Attempting to call backend API for technical round...');
-        const response = await apiService.getTechnicalQuestion({
+        const payload = {
           emotion: emotionScore,
           last_answer: '',
+          skills: resumeData?.skills || [],
           round: 'technical'
-        }, conversationId);
+        };
+        const response = await apiService.getTechnicalQuestion(payload, conversationId);
         question = await sanitizeQuestion(response.question);
         console.log('[TechnicalRound] Backend API success:', question);
       } catch (apiError) {
@@ -432,11 +433,13 @@ const TechnicalRound: React.FC = () => {
       // ── PRIMARY: Backend API ──────────────────────────────────────────
       try {
         console.log('[TechnicalRound] Calling backend API for technical follow-up...');
-        const response = await apiService.getTechnicalQuestion({
+        const payload = {
           emotion: emotionScore,
           last_answer: safeText,
+          skills: resumeData?.skills || [],
           round: 'technical'
-        }, conversationId);
+        };
+        const response = await apiService.getTechnicalQuestion(payload, conversationId);
         nextQuestion = await sanitizeQuestion(response.question);
         console.log('[TechnicalRound] Backend follow-up success:', nextQuestion);
       } catch (apiError) {

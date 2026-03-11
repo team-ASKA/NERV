@@ -50,7 +50,7 @@ export class ResumeService {
     // Truncate to avoid token limits while keeping the most useful sections
     const truncatedText = resumeText.slice(0, 6000);
 
-    const prompt = `You are a resume parser. Extract structured information from the following resume text and return ONLY a valid JSON object.
+    const prompt = `You are an expert resume parser. Extract structured information from the following resume text and return ONLY a valid JSON object.
 
 Resume Text:
 """
@@ -66,13 +66,16 @@ Return this exact JSON structure:
   "education": ["Degree in Field from Institution (Year)", "Certification Name"]
 }
 
-Rules:
+Rules FOR SMART PARSING:
+- AGGRESSIVELY INFER SECTIONS: The candidate may NOT use clear headings like "Projects" or "Experience". Read the raw text and infer them.
+    - If you see a bullet point about "built a web app", "developed a feature", or a GitHub/live link, classify it as a Project.
+    - If you see an internship, freelance work, or regular job, classify it as Experience.
 - skills: technical and soft skills only, max 20, as short strings
-- projects: include project name and one-line description, max 10
+- projects: project name and one-line description, max 10. Extract them even if they are just mentioned in a summary or bullet points!
 - achievements: quantified results and awards, max 10
 - experience: job titles, companies, dates, max 10
 - education: degrees, institutions, graduation years, max 5
-- If a section is empty, return an empty array []
+- If a category is TRULY empty and cannot be inferred, return an empty array []
 - Return ONLY the JSON object, nothing else`;
 
     const completion = await groq.chat.completions.create({
@@ -197,8 +200,10 @@ Rules:
 
 export const resumeService = new ResumeService();
 
+import { supabaseInterviewService } from './supabaseInterviewService';
+
 /**
- * Extract and save resume data — uses Gemini-powered parsing with Firebase save
+ * Extract and save resume data — uses Gemini-powered parsing with Supabase save
  */
 export const extractAndSaveResume = async (
   userId: string,
@@ -228,8 +233,12 @@ export const extractAndSaveResume = async (
       education: resumeData.education.length,
     });
 
-    // Save to Firebase
-    await saveResumeDataToFirebase(userId, resumeData);
+    // Save to Supabase
+    try {
+      await supabaseInterviewService.saveUserResume(userId, resumeData, resumeText);
+    } catch (e) {
+      console.warn('[ResumeService] Supabase save failed, continuing with local storage:', e);
+    }
 
     // Also save to localStorage as backup
     localStorage.setItem('resumeData', JSON.stringify(resumeData));
@@ -239,27 +248,5 @@ export const extractAndSaveResume = async (
   } catch (error) {
     console.error('[ResumeService] Error extracting and saving resume:', error);
     throw error;
-  }
-};
-
-/**
- * Save resume data to Firebase Firestore
- */
-const saveResumeDataToFirebase = async (userId: string, resumeData: ResumeData): Promise<void> => {
-  try {
-    const { doc, setDoc } = await import('firebase/firestore');
-    const { db } = await import('../lib/firebase');
-
-    const resumeDocRef = doc(db, 'users', userId, 'resumes', 'latest');
-    await setDoc(resumeDocRef, {
-      ...resumeData,
-      uploadedAt: new Date(),
-      userId,
-    });
-
-    console.log('[ResumeService] ✅ Saved to Firebase successfully');
-  } catch (error) {
-    console.error('[ResumeService] ❌ Firebase save failed:', error);
-    // Don't re-throw — localStorage backup is sufficient for interviews to work
   }
 };
