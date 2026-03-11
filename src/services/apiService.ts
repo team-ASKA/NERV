@@ -1,6 +1,7 @@
 /**
  * API Service for communicating with the backend interview API
  */
+import { openAI } from './openAIService';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -157,34 +158,24 @@ class APIService {
     questionExpressions: Map<string, any>
   ): Promise<string> {
     try {
-      const summaryData = {
-        technical: technicalHistory,
-        project: projectHistory,
-        hr: hrHistory,
-        resume: resumeData,
-        emotions: Array.from(questionExpressions.entries()).map(([qId, expr]) => ({
-          questionId: qId,
-          emotion: expr.dominantEmotion,
-          confidence: expr.confidenceScore,
-          isConfident: expr.isConfident,
-          isStruggling: expr.isStruggling
-        }))
-      };
+      const expressionsArray = Array.from(questionExpressions.entries()).map(([qId, expr]) => ({
+        questionId: qId,
+        emotion: expr.dominantEmotion,
+        confidence: expr.confidenceScore,
+        isConfident: expr.isConfident,
+        isStruggling: expr.isStruggling
+      }));
 
-      const response = await fetch(`${API_BASE_URL}/api/summary`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(summaryData)
-      });
+      // Call the AI Service to generate the comprehensive summary using Groq
+      const summaryMarkdown = await openAI.generateComprehensiveSummary(
+        technicalHistory,
+        projectHistory,
+        hrHistory,
+        resumeData,
+        expressionsArray
+      );
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      return result.summary;
+      return summaryMarkdown;
     } catch (error) {
       console.error('Failed to generate summary:', error);
       // Fallback to local summary generation

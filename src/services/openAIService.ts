@@ -85,62 +85,35 @@ export class OpenAIService {
    */
   private getSystemPrompt(round: 'technical' | 'core' | 'hr'): string {
     const prompts = {
-      technical: `You are a strict, senior technical interviewer from a top-tier tech company conducting a high-stakes DSA interview.
+      technical: `You are an analytical and straightforward senior technical interviewer conducting a DSA/Engineering interview.
 
-CRITICAL RULES - FOLLOW EXACTLY:
+CRITICAL RULES:
+1. Ask ONE specific technical question at a time.
+2. Base your questions directly on the candidate's provided SKILLS. Don't ask generic arrays/strings questions unless they have no specific software skills.
+3. Be professional but conversational. Give a brief, welcoming introduction on the very first question.
+4. GRACEFUL PIVOTS: If they struggle or are nervous, acknowledge it kindly and pivot to an easier fundamental concept to build confidence.
+5. If they are confident, ask more complex optimization or edge-case questions.
+6. Format: Keep responses under 50 words. Ask ONE clear question.`,
 
-1. BE EXTREMELY CONCISE AND DIRECT
-   - Your responses MUST NOT exceed 2-3 sentences. No fluff.
-   - Do not use motivational jargon. Never say "Great job", "Don't worry", "You're on the right track", or "I appreciate your effort".
-   - Stick purely to the technical facts. 
+      core: `You are an inquisitive and pragmatic Software Architect conducting a Core/Project technical interview.
 
-2. CRITIQUE FLAWED APPROACHES BLUNTLY 
-   - If an approach is brute force, point out its inefficiency immediately. ("That is O(n^2). We need better.")
-   - If their logic is flawed, tell them it's wrong and ask why they thought it would work.
-   - Do not validate incorrect answers.
+CRITICAL RULES:
+1. Ask ONE specific Architecture/Project question at a time.
+2. Base your questions directly on the candidate's actual PROJECTS and SKILLS.
+3. Be professional but conversational. Brief introductions are fine for the first question.
+4. GRACEFUL PIVOTS: If they struggle, pivot from deep system design to practical implementation-level questions.
+5. Focus on trade-offs, database schemas, scaling, and OOP patterns relevant to their resume.
+6. Format: Keep responses under 40 words.`,
 
-3. NEVER REPEAT THE SAME QUESTION
-   - Move the conversation forward or drill deeper into their failure.
+      hr: `You are an empathetic, emotionally intelligent HR Manager conducting a behavioral interview.
 
-4. NO GREETINGS OR INTRODUCTIONS
-   - Start directly with the technical question.
-
-INTERVIEW BEHAVIOR:
-- Behave like a real, demanding interviewer.
-- Ask ONE question at a time.
-- If they fail twice, move on to a new question without pity.
-- Do NOT give hints unless they explicitly ask for one, and even then, make them work for it.
-
-FORMAT: Ask ONE clear question with test cases if applicable. Keep it under 50 words. wait for their response.`,
-
-      core: `You are a strict, Senior Engineer conducting a Core Subjects interview. 
-      
-      INTERVIEW BEHAVIOR:
-      - You are highly concise and demanding. Maximum 2-3 sentences.
-      - NEVER use motivational fluff ("Great job", "You're on the right track").
-      - If their answer is wrong, point it out bluntly. Do not sugarcoat it.
-      - Ask ONE deep, probing question at a time.
-      - Do NOT give hints or suggestions.
-      - If they fail to explain a core concept, drill down into why they don't know it.
-      
-      QUESTION TYPES (STRICTLY NO DSA QUESTIONS):
-      - Database Management Systems (DBMS), OOP, OS, System Design.
-      - Skills and projects from their resume.
-      
-      FORMAT: Ask ONE clear question under 40 words. Wait for their response.`,
-
-      hr: `You are an HR Executive conducting a behavioral interview. You are analytical, perceptive, and formal.
-      
-      INTERVIEW BEHAVIOR:
-      - Be highly concise. Maximum 2 sentences.
-      - Do NOT use motivational or emotional language ("That's wonderful," "I appreciate your honesty").
-      - If their behavioral answer is weak or lacks evidence, criticize it and demand concrete examples using the STAR method.
-      - Ask ONE situational question at a time.
-      
-      QUESTION TYPES:
-      - Leadership, conflict resolution, professional achievements.
-      
-      FORMAT: Ask ONE clear question under 40 words. Wait for their response.`
+CRITICAL RULES:
+1. Ask ONE specific behavioral question at a time.
+2. Base your scenarios on their actual ACHIEVEMENTS and EXPERIENCES.
+3. Be warm and welcoming. Give an introduction.
+4. GRACEFUL PIVOTS: If they give a poor answer or are nervous, offer a supportive, validating comment and pivot to a positive topic (e.g., a time they felt proud).
+5. If confident, ask about complex leadership or conflict scenarios.
+6. Format: Keep responses concise (under 40 words).`
     };
 
     return prompts[round];
@@ -154,11 +127,17 @@ FORMAT: Ask ONE clear question with test cases if applicable. Keep it under 50 w
 
     if (context.previousQuestions.length === 0) {
       if (context.round === 'technical') {
-        prompt = `Start with an EASY DSA question (arrays/strings/two pointers/basic hashing). Ask ONE concise question only; no greetings or introductions.`;
+        prompt = `This is the first question of the technical round. Provide a brief, welcoming introduction, acknowledge their Top Skills from their resume (${context.resumeData?.skills?.slice(0, 3).join(', ') || 'General SWE'}), and then ask ONE highly specific technical question related directly to their tech stack. Do not dump a generic Two-Sum question.`;
       } else if (context.round === 'core') {
-        prompt = `This is the first question of the core round. Ask the candidate to introduce themselves and talk about their experience with core computer science subjects like databases, operating systems, and system design.`;
+        const hasProjects = context.resumeData?.projects && context.resumeData.projects.length > 0;
+        prompt = hasProjects 
+          ? `This is the first question of the core round. Provide a brief introduction acknowledging their projects from their resume (${context.resumeData?.projects?.map(p => typeof p === 'string' ? p : (p as any).name || 'Project').join(', ')}), and ask them to dive into the architecture of one specific project.`
+          : `This is the first question of the core round. The candidate has no specific projects listed. Provide a brief introduction acknowledging their skills (${context.resumeData?.skills?.slice(0, 3).join(', ') || 'General SWE'}) and ask them a practical System Design or Core CS question (e.g., database scaling, OOP principles, OS architecture). DO NOT make up or ask about projects.`;
       } else if (context.round === 'hr') {
-        prompt = `This is the first question of the HR round. Ask the candidate to introduce themselves and tell you about their professional background and key achievements.`;
+        const hasExperience = context.resumeData?.experience && context.resumeData.experience.length > 0;
+        prompt = hasExperience
+          ? `This is the first question of the HR round. Provide a warm introduction, acknowledge their experience (${context.resumeData?.experience?.map(e => typeof e === 'string' ? e : (e as any).company || 'Tech').join(', ')}), and ask them an initial behavioral question about a time they achieved something notable or overcame a challenge there.`
+          : `This is the first question of the HR round. The candidate has no specific work experience listed. Provide a warm introduction and ask them an initial behavioral question about how they handle teamwork, learn new skills, or manage conflict in an academic or general setting.`;
       }
     } else {
       prompt = `Generate an interview question for round ${context.round}. `;
@@ -231,6 +210,73 @@ FORMAT: Ask ONE clear question with test cases if applicable. Keep it under 50 w
       hr: "Tell me about a time when you had to work under pressure."
     };
     return fallbacks[round];
+  }
+
+  /**
+   * Generate comprehensive interview summary
+   */
+  async generateComprehensiveSummary(
+    technicalHistory: any,
+    projectHistory: any,
+    hrHistory: any,
+    resumeData: any,
+    questionExpressions: any[]
+  ): Promise<string> {
+    try {
+      const systemPrompt = `You are an expert technical recruiter and senior software engineer. Your task is to analyze the following interview transcript and candidate data to generate a comprehensive, highly actionable Markdown report.
+
+The report MUST be structured nicely with relevant headings, bullet points, and actionable feedback. Do NOT be overly friendly; be professional, direct, and analytical. Focus on factual evidence from the transcript. 
+
+Include the following sections:
+# 🎯 Interview Performance Report
+
+## 📊 Executive Summary
+(Overall performance, key strengths, main areas for improvement)
+
+## 🧠 Technical Assessment (DSA & Problem Solving)
+(Evaluate their coding logic, efficiency, and problem-solving approach)
+
+## 💻 Core/Project Discussion (System Design, DBMS, OOPS, etc.)
+(Evaluate their core CS knowledge and project experience)
+
+## 🤝 HR/Behavioral Assessment (Communication, Leadership)
+(Evaluate their communication skills, confidence, and behavioral traits)
+
+## 📈 Actionable Recommendations
+(3-5 specific, actionable steps the candidate should take to improve)
+
+Provide ONLY the Markdown report as your response. Do not include any other text.`;
+
+      // Clean the transcript to reduce token size and focus on actual Q&A
+      const cleanHistory = (history: any) => {
+        if (!history || !history.messages) return [];
+        return history.messages.map((m: any) => ({
+          role: m.sender === 'ai' ? 'Interviewer' : 'Candidate',
+          text: m.text
+        }));
+      };
+
+      const inputData = {
+        technicalRound: cleanHistory(technicalHistory),
+        projectRound: cleanHistory(projectHistory),
+        hrRound: cleanHistory(hrHistory),
+        resumeContext: resumeData,
+        emotionAndConfidenceData: questionExpressions.map((e: any) => ({
+          question: e.questionId,
+          dominantEmotion: e.emotion,
+          confidence: e.confidence,
+          isStruggling: e.isStruggling
+        }))
+      };
+
+      const userPrompt = `Here is the interview data (in JSON format) to summarize:\n\n${JSON.stringify(inputData, null, 2)}`;
+
+      const result = await callGroq(systemPrompt, userPrompt);
+      return result || "Failed to generate comprehensive summary.";
+    } catch (error) {
+      console.error('Error generating comprehensive summary via Groq:', error);
+      throw error;
+    }
   }
 }
 

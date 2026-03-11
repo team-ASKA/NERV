@@ -6,7 +6,6 @@ import LandingPage from './pages/LandingPage';
 import SignUp from './pages/SignUp';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import Interview from './pages/Interview';
 import MultiRoundInterview from './pages/MultiRoundInterview';
 import TechnicalRound from './pages/TechnicalRound';
 import CoreRound from './pages/CoreRound';
@@ -46,11 +45,7 @@ const AppContent = () => {
             <Dashboard />
           </ProtectedRoute>
         } />
-        <Route path="/interview" element={
-          <ProtectedRoute>
-            <Interview />
-          </ProtectedRoute>
-        } />
+
         <Route path="/multi-round-interview" element={
           <ProtectedRoute>
             <MultiRoundInterview />

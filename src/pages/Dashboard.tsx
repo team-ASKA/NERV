@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, CheckCircle, AlertCircle, ArrowRight, Briefcase, Menu, User, Edit, LogOut, Linkedin, Globe, X, Upload, Clock, Calendar, BarChart, ChevronLeft, ChevronRight, ExternalLink, Trash2, History } from 'lucide-react';
+import { FileText, CheckCircle, AlertCircle, ArrowRight, Briefcase, Menu, Edit, LogOut, Linkedin, Globe, X, Upload, Calendar, ChevronLeft, ChevronRight, ExternalLink, Trash2, History } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { collection, getDocs, query, where, setDoc, Timestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { extractTextFromPDF } from '../services/pdfService';
 import { extractAndSaveResume } from '../services/resumeService';
+import { supabaseInterviewService } from '../services/supabaseInterviewService';
 
 // Add proper type for user details
 type UserDetails = {
@@ -57,8 +56,7 @@ const Dashboard = () => {
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [uploadError, setUploadError] = useState('');
 
-  // Add this new state for the alert
-  const [showResumeAlert, setShowResumeAlert] = useState(false);
+
 
   // Add new state variables for interview history
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history'>('dashboard');
@@ -124,15 +122,28 @@ const Dashboard = () => {
     
     fetchUserDetails();
     
-    // Load interview history from localStorage
-    const storedHistory = localStorage.getItem('interviewHistory');
-    if (storedHistory) {
+    // Load interview history from Supabase, fallback to localStorage
+    const fetchInterviews = async () => {
+      if (!currentUser) return;
       try {
-        setInterviewHistory(JSON.parse(storedHistory));
-      } catch (e) {
-        console.error('Error parsing interview history:', e);
+        const dbInterviews = await supabaseInterviewService.getUserInterviews(currentUser.uid);
+        if (dbInterviews && dbInterviews.length > 0) {
+          setInterviewHistory(dbInterviews);
+        } else {
+          const storedHistory = localStorage.getItem('interviewHistory');
+          if (storedHistory) {
+            setInterviewHistory(JSON.parse(storedHistory));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch from Supabase:', err);
+        const storedHistory = localStorage.getItem('interviewHistory');
+        if (storedHistory) {
+          setInterviewHistory(JSON.parse(storedHistory));
+        }
       }
-    }
+    };
+    fetchInterviews();
     
     // Load latest improvement plan from localStorage
     const storedPlan = localStorage.getItem('latestImprovementPlan');
@@ -271,25 +282,7 @@ const Dashboard = () => {
     }));
   };
 
-  // Start interview
-  const startInterview = () => {
-    // During development, we'll allow starting interviews without a resume
-    navigate('/interview');
-    
-    // The resume check code is commented out for development
-    /*
-    if (!userDetails?.resumeURL) {
-      setShowResumeAlert(true);
-      
-      setTimeout(() => {
-        setShowResumeAlert(false);
-      }, 5000);
-      return;
-    }
-    
-    navigate('/interview');
-    */
-  };
+
 
   // Add this new function to handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -418,8 +411,14 @@ const Dashboard = () => {
     // Store the selected interview in localStorage
     const selectedInterview = interviewHistory.find(interview => interview.id === interviewId);
     if (selectedInterview) {
-      localStorage.setItem('interviewResults', JSON.stringify(selectedInterview));
-      navigate('/results');
+      // Navigate to /nerv-summary instead of /results and pass isHistorical flag
+      navigate('/nerv-summary', { 
+        state: { 
+          isHistorical: true, 
+          interviewData: selectedInterview,
+          summary: selectedInterview.summary_markdown || selectedInterview.summary
+        } 
+      });
     }
   };
   
@@ -1113,35 +1112,43 @@ const Dashboard = () => {
               </div>
             </motion.div>
 
-            {/* Quick Actions */}
+            {/* Quick Actions - Revamped NERV Style */}
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.2 }}
-              className="bg-black border border-white/10 rounded-xl p-4 shadow-lg hover:border-white/30 transition-all h-fit"
+              className="bg-white/[0.03] backdrop-blur-md border border-white/10 rounded-2xl p-6 shadow-2xl hover:border-white/20 transition-all h-fit group"
             >
-              <div className="flex items-center mb-2">
-                <Briefcase className="h-4 w-4 text-white mr-2" />
-                <h2 className="text-lg font-semibold">Quick Actions</h2>
+              <div className="flex items-center mb-4">
+                <div className="p-2 bg-white/5 rounded-lg mr-3 group-hover:bg-white/10 transition-colors">
+                  <Briefcase className="h-5 w-5 text-white" />
+                </div>
+                <h2 className="text-xl font-bold uppercase tracking-tight text-white/90">Quick Actions</h2>
               </div>
-              <p className="text-gray-400 text-xs mb-4">
-                Start your AI-powered interview experience.
+              
+              <p className="text-gray-500 text-[11px] font-medium uppercase tracking-[0.15em] mb-6 leading-relaxed">
+                Experience the next generation of AI-driven interview simulation.
               </p>
-              <div className="space-y-2">
-                <button
-                  onClick={startInterview}
-                  className="w-full py-1.5 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all flex items-center justify-center text-xs"
-                >
-                  Start Standard Interview
-                  <ArrowRight className="ml-1 h-3 w-3" />
-                </button>
+
+              <div className="space-y-4">
                 <button
                   onClick={() => navigate('/multi-round-interview')}
-                  className="w-full py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center text-xs"
+                  className="w-full group/btn relative overflow-hidden bg-white text-black py-4 rounded-xl font-bold text-xs uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-[0.98]"
                 >
-                  Start Multi-Round Interview
-                  <ArrowRight className="ml-1 h-3 w-3" />
+                  <span className="relative z-10 flex items-center justify-center">
+                    Start Multi-Round Interview
+                    <ArrowRight className="ml-2 h-4 w-4 transform group-hover/btn:translate-x-1 transition-transform" />
+                  </span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-700" />
                 </button>
+
+                <div className="flex items-center justify-center space-x-2 text-[9px] font-bold text-gray-600 uppercase tracking-widest pt-2">
+                  <span className="w-1 h-1 bg-gray-800 rounded-full" />
+                  <span>3 Rounds</span>
+                  <span className="w-1 h-1 bg-gray-800 rounded-full" />
+                  <span>Real-time Feedback</span>
+                  <span className="w-1 h-1 bg-gray-800 rounded-full" />
+                </div>
               </div>
             </motion.div>
 
@@ -1200,7 +1207,7 @@ const Dashboard = () => {
                 )}
                 
                 <button
-                  onClick={() => navigate('/results')}
+                  onClick={() => navigate('/nerv-summary')}
                   className="mt-2 inline-flex items-center text-indigo-400 hover:text-indigo-300 text-sm font-medium"
                 >
                   View full improvement plan
@@ -1242,7 +1249,7 @@ const Dashboard = () => {
                             <div className="flex items-center mb-2">
                               <Calendar className="h-4 w-4 text-gray-400 mr-2" />
                               <span className="text-sm text-gray-300">
-                                {new Date(interview.timestamp).toLocaleDateString()} at {new Date(interview.timestamp).toLocaleTimeString()}
+                                {new Date(interview.timestamp || interview.created_at).toLocaleDateString()} at {new Date(interview.timestamp || interview.created_at).toLocaleTimeString('short')}
                               </span>
                             </div>
                             
@@ -1251,7 +1258,7 @@ const Dashboard = () => {
                             </h3>
                             
                             <p className="text-gray-400 text-sm line-clamp-2">
-                              {interview.summary ? interview.summary.split('\n')[0] : "Interview completed"}
+                              {interview.summary ? interview.summary.split('\n')[0].replace(/[#*`]/g, '') : (interview.summary_markdown ? interview.summary_markdown.split('\n')[0].replace(/[#*`]/g, '') : "Interview completed")}
                             </p>
                             
                             <div className="mt-3 flex items-center text-blue-400 text-xs">
@@ -1305,7 +1312,7 @@ const Dashboard = () => {
                 <div className="text-center py-10">
                   <p className="text-gray-400 mb-4">You haven't completed any interviews yet.</p>
                   <button
-                    onClick={() => navigate('/interview')}
+                    onClick={() => navigate('/multi-round-interview')}
                     className="px-4 py-2 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all"
                   >
                     Start Your First Interview

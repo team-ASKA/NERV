@@ -6,7 +6,7 @@ import { apiService } from '../services/apiService';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Mic, MicOff, Camera, CameraOff,
-  Clock, Users, X
+  Clock, Users, X, ArrowLeft, ArrowRight, Briefcase
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -22,6 +22,7 @@ interface Message {
   text: string;
   sender: 'user' | 'ai';
   timestamp: Date;
+  round?: string;
 }
 
 interface UserExpression {
@@ -86,6 +87,7 @@ const HRRound: React.FC = (): JSX.Element => {
   const [isInterviewComplete, setIsInterviewComplete] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [conversationId, setConversationId] = useState<string>('');
+  const [shouldStartRound, setShouldStartRound] = useState(false);
 
   // Generate conversation ID when component mounts
   useEffect(() => {
@@ -156,13 +158,11 @@ const HRRound: React.FC = (): JSX.Element => {
     return () => clearInterval(timer);
   }, [isInterviewStarted, isInterviewComplete]);
 
-  // Start interview
   const startInterview = () => {
     setIsInterviewStarted(true);
     setTimeRemaining(roundDuration * 60);
-    startCurrentRound();
+    setShouldStartRound(true);
   };
-
   // Start current round
   const startCurrentRound = async () => {
     try {
@@ -260,7 +260,8 @@ const HRRound: React.FC = (): JSX.Element => {
         id: questionId,
         text: question,
         sender: 'ai',
-        timestamp: new Date()
+        timestamp: new Date(),
+        round: 'hr'
       };
       setMessages(prev => [...prev, questionMessage]);
       setPreviousQuestions(prev => [...prev, question]);
@@ -296,6 +297,15 @@ const HRRound: React.FC = (): JSX.Element => {
     }
   };
 
+  // Call startCurrentRound once the flag is set (after function is defined)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (shouldStartRound) {
+      setShouldStartRound(false);
+      startCurrentRound();
+    }
+  }, [shouldStartRound]);
+
   // Handle user response
   const handleUserResponse = async (transcription: string) => {
     let safeText = (typeof transcription === 'string') ? transcription.trim() : '';
@@ -309,7 +319,8 @@ const HRRound: React.FC = (): JSX.Element => {
         id: Date.now().toString(),
         text: safeText,
         sender: 'user',
-        timestamp: new Date()
+        timestamp: new Date(),
+        round: 'hr'
       };
       setMessages(prev => [...prev, userMessage]);
 
@@ -383,7 +394,8 @@ const HRRound: React.FC = (): JSX.Element => {
         id: Date.now().toString(),
         text: nextQuestion,
         sender: 'ai',
-        timestamp: new Date()
+        timestamp: new Date(),
+        round: 'hr'
       };
       setMessages(prev => [...prev, aiMessage]);
       setPreviousQuestions(prev => [...prev, nextQuestion]);
@@ -821,45 +833,94 @@ const HRRound: React.FC = (): JSX.Element => {
 
   if (!isInterviewStarted) {
     return (
-      <div className="min-h-screen bg-primary text-white p-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center mb-8">
-            <h1 className="text-3xl font-bold">HR Round - Behavioral Interview</h1>
+      <div className="min-h-screen bg-black text-white p-4 md:p-8 flex flex-col justify-center">
+        <div className="max-w-3xl mx-auto w-full">
+          <div className="flex items-center mb-6">
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="p-2 hover:bg-white/10 rounded-xl transition-all mr-4 border border-white/5"
+              title="Back to dashboard"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div>
+              <h1 className="text-2xl font-black uppercase tracking-tighter">
+                NERV <span className="text-white/30">/</span> HR
+              </h1>
+              <p className="text-[8px] font-bold uppercase tracking-[0.3em] text-pink-500/60 mt-0.5">Round 03: Final Selection & Culture</p>
+            </div>
           </div>
 
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8">
-            <h2 className="text-2xl font-semibold mb-6">HR Round Setup</h2>
+          <div className="bg-white/[0.01] backdrop-blur-xl rounded-2xl p-6 md:p-10 relative overflow-hidden ring-1 ring-white/5">
+            <div className="absolute -top-24 -left-24 w-48 h-48 bg-pink-600/10 blur-[100px]" />
+            <h2 className="text-xs font-bold uppercase tracking-[0.2em] mb-8 pb-3 border-b border-white/5 text-gray-500 text-center">Protocol Initialization</h2>
 
-            <div className="space-y-6">
-              <div className="bg-purple-500/20 border border-purple-500/30 rounded-lg p-4">
-                <h3 className="text-lg font-semibold mb-2">Round Details</h3>
-                <p className="text-gray-300">
-                  This round focuses on behavioral questions and soft skills. The interviewer will ask about
-                  your achievements, leadership experiences, and how you handle various workplace situations.
-                </p>
-                <p className="text-sm text-gray-400 mt-2">
-                  Duration: {roundDuration} minutes
-                </p>
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white/[0.03] p-6 rounded-2xl border border-white/5 relative group">
+                  <div className="absolute top-4 right-4 p-2 bg-pink-500/10 rounded-lg">
+                    <Users className="h-4 w-4 text-pink-400" />
+                  </div>
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-pink-400 mb-3">Focus Areas</h3>
+                  <ul className="space-y-2">
+                    {['Cultural Alignment', 'Conflict Resolution', 'Career Objectives', 'Value Assessment'].map((item, i) => (
+                      <li key={i} className="flex items-center text-[11px] font-medium text-gray-300">
+                        <div className="w-1 h-1 bg-pink-500 rounded-full mr-2" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="bg-white/[0.03] p-6 rounded-2xl border border-white/5 relative group">
+                  <div className="absolute top-4 right-4 p-2 bg-pink-500/10 rounded-lg">
+                    <Clock className="h-4 w-4 text-pink-400" />
+                  </div>
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-pink-400 mb-3">Parameters</h3>
+                  <div className="space-y-4 mt-2">
+                    <div>
+                      <p className="text-[8px] uppercase tracking-widest text-gray-500 mb-1">Duration</p>
+                      <p className="text-xl font-black">{roundDuration} <span className="text-[10px] text-gray-600 uppercase">min</span></p>
+                    </div>
+                    <div>
+                      <p className="text-[8px] uppercase tracking-widest text-gray-500 mb-1">Environment</p>
+                      <p className="text-[11px] font-bold text-gray-300">Final Culture Fit Protocol</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {resumeData && (
-                <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold mb-2">Your Achievements</h3>
-                  <div className="space-y-1">
-                    {resumeData.achievements.map((achievement, index) => (
-                      <div key={index} className="text-sm text-gray-300">
-                        • {typeof achievement === 'string' ? achievement : JSON.stringify(achievement)}
-                      </div>
+                <div className="bg-white/[0.02] p-6 rounded-2xl border border-white/5">
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-pink-400 mb-4 flex items-center">
+                    <Briefcase className="h-3 w-3 mr-2" />
+                    Professional DNA
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {(resumeData.experience || []).slice(0, 3).map((exp, index) => (
+                      <span key={index} className="text-[10px] font-bold bg-pink-500/5 px-3 py-1.5 rounded-lg text-pink-300/70 border border-pink-500/10">
+                        {typeof exp === 'string' ? exp : (exp as any).company || (exp as any).title}
+                      </span>
                     ))}
                   </div>
                 </div>
               )}
 
+              <div className="bg-pink-500/5 p-4 rounded-xl border border-pink-500/10 text-center">
+                <p className="text-[9px] font-medium text-pink-400/80 uppercase tracking-widest leading-relaxed">
+                  Final assessment layer. Cultural synchronization checks active.
+                </p>
+              </div>
+
               <button
                 onClick={startInterview}
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-4 px-6 rounded-lg transition-colors"
+                className="w-full relative group overflow-hidden bg-white text-black py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all hover:scale-[1.01] active:scale-[0.99] shadow-xl shadow-pink-500/5"
               >
-                Start HR Round
+                <span className="relative z-10 flex items-center justify-center">
+                  Initiate HR Synchronization
+                  <ArrowRight className="ml-2 h-4 w-4 transform group-hover:translate-x-1 transition-transform" />
+                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-black/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
               </button>
             </div>
           </div>

@@ -6,7 +6,7 @@ import { db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import {
   Mic, MicOff, Camera, CameraOff, Volume2, VolumeX,
-  Loader2, ArrowLeft, Clock, Brain, Briefcase, Users, X
+  Loader2, ArrowLeft, ArrowRight, Clock, Brain, Briefcase, Users, X
 } from 'lucide-react';
 import { FaVideo } from 'react-icons/fa';
 import ReactMarkdown from 'react-markdown';
@@ -611,68 +611,92 @@ const MultiRoundInterview: React.FC = () => {
 
   if (!isInterviewStarted) {
     return (
-      <div className="min-h-screen bg-primary text-white p-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center mb-8">
+      <div className="min-h-screen bg-black text-white p-4 md:p-8 flex flex-col justify-center">
+        <div className="max-w-3xl mx-auto w-full">
+          <div className="flex items-center mb-6">
             <button
               onClick={() => navigate('/dashboard')}
-              className="p-2 hover:bg-white/10 rounded-lg transition-colors mr-4"
+              className="p-2 hover:bg-white/10 rounded-xl transition-all mr-4 border border-white/5"
               title="Back to dashboard"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
-            <h1 className="text-3xl font-bold">Multi-Round Interview Setup</h1>
+            <div>
+              <h1 className="text-2xl font-black uppercase tracking-tighter">
+                NERV <span className="text-white/30">/</span> Setup
+              </h1>
+              <p className="text-[8px] font-bold uppercase tracking-[0.3em] text-gray-600 mt-0.5">Protocol Initialization</p>
+            </div>
           </div>
 
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8">
-            <h2 className="text-2xl font-semibold mb-6">Configure Your Interview</h2>
+          <div className="bg-white/[0.01] backdrop-blur-xl rounded-3xl p-6 md:p-8">
+            <h2 className="text-xs font-bold uppercase tracking-[0.2em] mb-6 pb-2 border-b border-white/5 text-gray-500 text-center">Configure Session Parameters</h2>
 
             <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Total Interview Duration (minutes)
-                </label>
+              {/* Duration Slider */}
+              <div className="bg-white/[0.03] p-6 rounded-2xl border border-white/5">
+                <div className="flex justify-between items-end mb-4">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                    Total Duration
+                  </label>
+                  <span className="text-xl font-black">{totalDuration} <span className="text-[8px] text-gray-600 uppercase">min</span></span>
+                </div>
                 <input
                   type="range"
                   min="3"
                   max="60"
+                  step="3"
                   value={totalDuration}
                   onChange={(e) => {
                     const duration = parseInt(e.target.value);
                     setTotalDuration(duration);
                     setRoundDuration(Math.max(1, Math.floor(duration / 3)));
                   }}
-                  className="w-full"
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-white"
                   aria-label="Total interview duration in minutes"
                 />
-                <div className="flex justify-between text-sm text-gray-400 mt-1">
-                  <span>1 min per round</span>
-                  <span className="font-medium">{totalDuration} minutes total ({roundDuration} min per round)</span>
-                  <span>20 min per round</span>
+                <div className="flex justify-between text-[8px] font-bold text-white-700 uppercase tracking-widest mt-3">
+                  <span>Fast (3m)</span>
+                  <span>{roundDuration}m/round</span>
+                  <span>Deep (60m)</span>
                 </div>
               </div>
 
+              {/* Round Preview Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {Object.entries(ROUND_CONFIGS).map(([key, config]) => (
-                  <div key={key} className={`p-4 rounded-lg border-2 ${currentRound === key ? 'border-white' : 'border-white/20'
-                    }`}>
-                    <div className="flex items-center mb-2">
-                      {config.icon}
-                      <h3 className="ml-2 font-medium">{config.name}</h3>
+                  <div 
+                    key={key} 
+                    className={`relative overflow-hidden p-4 rounded-xl transition-all duration-300 ${
+                      currentRound === key 
+                        ? 'bg-white/10 ring-1 ring-white/20' 
+                        : 'bg-white/[0.02] opacity-40'
+                    }`}
+                  >
+                    <div className="relative z-10 text-center md:text-left">
+                      <div className={`p-2 rounded-lg w-fit mx-auto md:mx-0 mb-3 ${
+                        key === 'technical' ? 'bg-blue-500/20 text-blue-400' :
+                        key === 'core' ? 'bg-purple-500/20 text-purple-400' :
+                        'bg-pink-500/20 text-pink-400'
+                      }`}>
+                        {React.cloneElement(config.icon as React.ReactElement, { className: 'h-4 w-4' })}
+                      </div>
+                      <h3 className="font-bold text-[11px] uppercase tracking-tight mb-1">{config.name}</h3>
+                      <p className="text-[9px] text-gray-500 font-medium leading-tight">{config.description}</p>
                     </div>
-                    <p className="text-sm text-gray-400 mb-2">{config.description}</p>
-                    <p className="text-xs text-gray-500">
-                      Duration: {Math.floor(totalDuration / 3)} minutes
-                    </p>
                   </div>
                 ))}
               </div>
 
               <button
                 onClick={startInterview}
-                className="w-full py-3 bg-white text-black rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                className="w-full relative group overflow-hidden bg-white text-black py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] transition-all hover:scale-[1.01] active:scale-[0.99] shadow-xl shadow-white/5"
               >
-                Start Multi-Round Interview
+                <span className="relative z-10 flex items-center justify-center">
+                  Initialize Assessment
+                  <ArrowRight className="ml-2 h-4 w-4 transform group-hover:translate-x-1 transition-transform" />
+                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-black/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
               </button>
             </div>
           </div>

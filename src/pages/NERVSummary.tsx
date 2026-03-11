@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Brain, BarChart3, MessageSquare, Eye, User, TrendingUp, Clock, Star, Target, Award, Download, Share2, Activity, Lightbulb, AlertCircle, CheckCircle2, BarChart, ExternalLink } from 'lucide-react';
-import { youtubeService, type YouTubeResource } from '../services/youtubeService';
+import { ArrowLeft, Brain, BarChart3, MessageSquare, User, Clock, Target, Download, Share2, Activity, AlertCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { useAuth } from '../contexts/AuthContext';
+import { supabaseInterviewService } from '../services/supabaseInterviewService';
 
 interface Message {
   id: string;
   text: string;
   sender: 'user' | 'ai';
-  timestamp: Date;
+  timestamp: string;
   round?: string;
 }
 
@@ -39,6 +40,7 @@ interface RoundData {
 const NERVSummary: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { currentUser } = useAuth();
 
   const [roundsData, setRoundsData] = useState<RoundData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,9 +54,22 @@ const NERVSummary: React.FC = () => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [roundPerformance, setRoundPerformance] = useState<any[]>([]);
   const [questionConfidence, setQuestionConfidence] = useState<any[]>([]);
-  const [learningResources, setLearningResources] = useState<YouTubeResource[]>([]);
-  const [isFetchingResources, setIsFetchingResources] = useState(false);
-  const printableRef = useRef<HTMLDivElement>(null);
+  const hasSavedToSupabase = useRef(false);
+
+  // Helper to parse summary into sections for card display
+  const parseSummaryToSections = (markdown: string) => {
+    if (!markdown) return [];
+    // Split by headers (both # and ##)
+    const sections = markdown.split(/\n(?=#{1,2}\s)/g);
+    return sections.map(section => {
+      const lines = section.trim().split('\n');
+      const title = lines[0].replace(/^#+\s+/, '').trim();
+      const content = lines.slice(1).join('\n').trim();
+      return { title, content };
+    }).filter(s => s.title && s.content);
+  };
+
+  const summarySections = parseSummaryToSections(generatedSummary);
 
   const handleDownloadPDF = async () => {
     try {
@@ -101,12 +116,74 @@ const NERVSummary: React.FC = () => {
     console.log('DEBUG: generatedSummary state updated:', generatedSummary.substring(0, 100) + (generatedSummary.length > 100 ? '...' : ''));
   }, [generatedSummary]);
 
+  // Save to Supabase when summary is ready
+  useEffect(() => {
+    if (generatedSummary && roundsData.length > 0 && currentUser && !hasSavedToSupabase.current) {
+      if (generatedSummary.includes('No Interview Data Available')) return; // Don't save empty states
+
+      const totalDur = roundsData.reduce((sum, round) => sum + round.duration, 0);
+      
+      const allEms = roundsData.flatMap(round => round.emotions);
+      const avgConf = allEms.length > 0 ? (allEms.reduce((sum, emotion) => {
+        const confidence = emotion.emotions.find((e: any) => e.name === 'Confidence')?.score || 0;
+        return sum + confidence;
+      }, 0) / allEms.length) * 100 : 0;
+
+      console.log('Saving interview to Supabase for user:', currentUser.uid);
+      
+      supabaseInterviewService.saveInterviewSummary({
+        user_id: currentUser.uid,
+        total_duration_minutes: Math.round(totalDur),
+        overall_confidence: Math.round(avgConf),
+        summary_markdown: generatedSummary,
+        questions_data: roundsData,
+        metrics: {
+          atsScore,
+          skillGaps,
+          suggestions
+        }
+      }).then(() => console.log('Successfully saved interview to Supabase'))
+        .catch(err => console.error('Failed to save to Supabase:', err));
+
+      hasSavedToSupabase.current = true;
+    }
+  }, [generatedSummary, roundsData, currentUser, atsScore, skillGaps, suggestions]);
+
 
   // Fetch data from all three rounds
   useEffect(() => {
     const fetchAllRoundsData = async () => {
       try {
         setIsLoading(true);
+
+        // Handle historical data from Supabase
+        if (passedData?.isHistorical && passedData?.interviewData) {
+          const data = passedData.interviewData;
+          console.log('Loading historical interview data:', data);
+
+          const rData = data.questions_data || [];
+          setRoundsData(rData);
+          setGeneratedSummary(data.summary_markdown || data.summary || '');
+          
+          if (data.metrics) {
+            setAtsScore(data.metrics.atsScore || 0);
+            setSkillGaps(data.metrics.skillGaps || []);
+            setSuggestions(data.metrics.suggestions || []);
+          }
+
+          // Calculate confidence and performance for historical data if not explicitly stored
+          const calculatedQuestionConfidence = calculateQuestionConfidence(rData);
+          const calculatedRoundPerformance = calculateRoundPerformance(rData, calculatedQuestionConfidence);
+          
+          setQuestionConfidence(calculatedQuestionConfidence);
+          setRoundPerformance(calculatedRoundPerformance);
+
+          // Mark as already saved to avoid re-saving to Supabase
+          hasSavedToSupabase.current = true;
+          
+          setIsLoading(false);
+          return;
+        }
 
         // If data was passed from interview rounds, use it first
         if (passedData && (passedData.messages || passedData.summary || passedData.questionExpressions)) {
@@ -125,7 +202,7 @@ const NERVSummary: React.FC = () => {
             if (technicalExpressions && technicalExpressions.length > 0) {
               processedRounds.push({
                 round: 'Technical Round',
-                messages: passedData.messages || [],
+                messages: (passedData.messages || []).filter((msg: any) => msg.round === 'technical'),
                 emotions: technicalExpressions.map(([questionId, expression]: [string, any], index: number) => {
                   const questionText = (passedData.messages || []).find((m: any) => m.id === questionId)?.text
                     || findQuestionTextAnywhere(questionId)
@@ -189,7 +266,7 @@ const NERVSummary: React.FC = () => {
             if (coreExpressions && coreExpressions.length > 0) {
               processedRounds.push({
                 round: 'Core Round',
-                messages: passedData.coreMessages || [],
+                messages: (passedData.messages || []).filter((msg: any) => msg.round === 'core'),
                 emotions: coreExpressions.map(([questionId, expression]: [string, any], index: number) => {
                   const questionText = (passedData.coreMessages || []).find((m: any) => m.id === questionId)?.text
                     || findQuestionTextAnywhere(questionId)
@@ -247,7 +324,7 @@ const NERVSummary: React.FC = () => {
             if (hrExpressions && hrExpressions.length > 0) {
               processedRounds.push({
                 round: 'HR Round',
-                messages: passedData.hrMessages || [],
+                messages: (passedData.messages || []).filter((msg: any) => msg.round === 'hr'),
                 emotions: hrExpressions.map(([questionId, expression]: [string, any], index: number) => {
                   const questionText = (passedData.hrMessages || []).find((m: any) => m.id === questionId)?.text
                     || findQuestionTextAnywhere(questionId)
@@ -416,8 +493,6 @@ const NERVSummary: React.FC = () => {
             'Consider contributing to open source to demonstrate skills'
           ];
           setSuggestions(generatedSuggestions);
-          // Kick off learning resources fetch in background
-          fetchLearningResources(skillGapAnalysis.gaps);
 
           // If a summary is already provided in passedData, use it directly
           if (passedData?.summary) {
@@ -526,19 +601,7 @@ const NERVSummary: React.FC = () => {
     return Math.min(maxScore, score);
   };
 
-  // Fetch learning resources from YouTube based on skill gaps
-  const fetchLearningResources = async (gaps: string[]) => {
-    try {
-      if (!gaps || gaps.length === 0) return;
-      setIsFetchingResources(true);
-      const resources = await youtubeService.searchByTopics(gaps, 2);
-      setLearningResources(resources);
-    } catch (e) {
-      console.warn('Failed to fetch learning resources:', e);
-    } finally {
-      setIsFetchingResources(false);
-    }
-  };
+
 
   // Deterministic string hash for seeding variations (reduces collisions)
   const hashString = (input: string) => {
@@ -783,13 +846,13 @@ const NERVSummary: React.FC = () => {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <div className="text-center">
-          <div className="h-12 w-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-2xl">❌</span>
+          <div className="h-12 w-12 bg-white/5 border border-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-6 h-6 text-red-500" />
           </div>
-          <p className="text-red-400">{error}</p>
+          <p className="text-gray-400">{error}</p>
           <button
             onClick={() => navigate('/dashboard')}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="mt-4 px-4 py-2 bg-white text-black rounded-lg hover:bg-gray-200"
           >
             Back to Dashboard
           </button>
@@ -798,85 +861,69 @@ const NERVSummary: React.FC = () => {
     );
   }
 
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 text-white">
-      {/* Animated Background */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
-      </div>
-
+    <div className="min-h-screen bg-black text-white selection:bg-white selection:text-black">
       {/* Header */}
-      <div className="relative bg-gradient-to-r from-gray-900/95 to-gray-800/95 backdrop-blur-sm border-b border-gray-700/50 px-6 py-6">
-        <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-50 bg-black/80 backdrop-blur-md border-b border-white/10 px-6 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex items-center space-x-3 text-gray-300 hover:text-white transition-all duration-300 hover:scale-105 group"
+            className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors group"
           >
-            <div className="p-2 rounded-lg bg-gray-800 group-hover:bg-blue-600 transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-            </div>
-            <span className="font-medium">Back to Dashboard</span>
+            <ArrowLeft className="w-4 h-4" />
+            <span className="text-sm font-medium">Dashboard</span>
           </button>
 
-          <div className="text-center">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-              NERV OS v2.4 - Interview Analysis
+          <div className="text-center absolute left-1/2 -translate-x-1/2">
+            <h1 className="text-lg font-bold tracking-tight uppercase">
+              Interview Analysis
             </h1>
-            <p className="text-gray-400 mt-1">Comprehensive Performance Evaluation</p>
           </div>
 
-          <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2 px-4 py-2 bg-green-500/20 rounded-full border border-green-500/30">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm font-medium text-green-400">Analysis Complete</span>
-            </div>
+          <div className="flex items-center space-x-2">
             <button
               onClick={handleDownloadPDF}
-              className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors"
-              title="Download (Save as PDF)"
+              className="p-2 text-gray-400 hover:text-white transition-colors"
+              title="Download PDF"
             >
-              <Download className="w-5 h-5" />
+              <Download className="w-4 h-4" />
             </button>
             <button
               onClick={handleShare}
-              className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors"
-              title="Share Summary"
+              className="p-2 text-gray-400 hover:text-white transition-colors"
+              title="Share"
             >
-              <Share2 className="w-5 h-5" />
+              <Share2 className="w-4 h-4" />
             </button>
           </div>
         </div>
       </div>
 
       {/* Navigation Tabs */}
-      <div className="sticky top-0 z-10 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700/50">
-        <div className="flex space-x-1 px-6">
-          {[
-            { id: 'overview', label: 'Overview', icon: BarChart3, color: 'blue' },
-            { id: 'rounds', label: 'Round Analysis', icon: MessageSquare, color: 'green' },
-            { id: 'emotions', label: 'Emotion Analysis', icon: Brain, color: 'purple' },
-            { id: 'confidence', label: 'Confidence Tracking', icon: Activity, color: 'yellow' },
-            { id: 'skills', label: 'Skill Analysis', icon: Target, color: 'red' },
-            { id: 'transcript', label: 'Full Transcript', icon: Eye, color: 'indigo' },
-            { id: 'summary', label: 'AI Summary', icon: User, color: 'pink' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center space-x-2 py-4 px-4 rounded-t-lg transition-all duration-300 group ${activeTab === tab.id
-                ? `bg-${tab.color}-500/20 text-${tab.color}-400 border-b-2 border-${tab.color}-500`
-                : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
-                }`}
-            >
-              <tab.icon className="w-5 h-5" />
-              <span className="font-medium">{tab.label}</span>
-              {activeTab === tab.id && (
-                <div className="w-2 h-2 bg-current rounded-full animate-pulse"></div>
-              )}
-            </button>
-          ))}
+      <div className="bg-black border-b border-white/10 overflow-x-auto">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex space-x-8">
+            {[
+              { id: 'overview', label: 'Overview', icon: BarChart3 },
+              { id: 'rounds', label: 'Transcript', icon: MessageSquare },
+              { id: 'emotions', label: 'Emotions', icon: Brain },
+              { id: 'confidence', label: 'Confidence', icon: Activity },
+              { id: 'skills', label: 'Skills', icon: Target },
+              { id: 'summary', label: 'AI Report', icon: User }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center space-x-2 py-4 text-sm font-medium transition-colors border-b-2 -mb-[2px] ${activeTab === tab.id
+                  ? 'border-white text-white'
+                  : 'border-transparent text-gray-500 hover:text-gray-300'
+                  }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -886,112 +933,89 @@ const NERVSummary: React.FC = () => {
           <div className="space-y-8">
             {/* No Data Message */}
             {totalQuestions === 0 ? (
-              <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-6 text-center">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-8 text-center">
                 <div className="flex items-center justify-center mb-4">
-                  <div className="w-12 h-12 bg-yellow-500/20 rounded-full flex items-center justify-center">
-                    <span className="text-2xl">⚠️</span>
+                  <div className="w-12 h-12 bg-white/5 border border-white/10 rounded-full flex items-center justify-center">
+                    <AlertCircle className="w-6 h-6 text-gray-400" />
                   </div>
                 </div>
-                <h3 className="text-xl font-semibold text-yellow-400 mb-2">No Interview Data Found</h3>
-                <p className="text-gray-300 mb-4">
-                  It looks like no interview data has been recorded yet. Please complete an interview first to see the analysis.
+                <h3 className="text-lg font-semibold text-white mb-2">No Data</h3>
+                <p className="text-gray-400 mb-6 text-sm max-w-md mx-auto">
+                  No interview metrics recorded. Please complete an interview session.
                 </p>
                 <div className="flex space-x-4 justify-center">
                   <button
                     onClick={() => navigate('/dashboard')}
-                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                    className="px-4 py-2 bg-white text-black text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors"
                   >
-                    Go to Dashboard
+                    Dashboard
                   </button>
                   <button
                     onClick={() => window.location.reload()}
-                    className="px-6 py-3 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors"
+                    className="px-4 py-2 bg-white/5 border border-white/10 text-white text-sm font-medium rounded-lg hover:bg-white/10 transition-colors"
                   >
-                    Refresh Data
+                    Refresh
                   </button>
                 </div>
               </div>
             ) : (
               <>
                 {/* Hero Stats Section */}
-                <div className="relative overflow-hidden bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-2xl p-8 border border-gray-700/50">
-                  <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-purple-500/5"></div>
-                  <div className="relative">
-                    <div className="flex items-center justify-between mb-6">
-                      <div>
-                        <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                          Interview Performance Dashboard
-                        </h2>
-                        <p className="text-gray-400 mt-2">Comprehensive analysis of your interview performance</p>
-                      </div>
-                      <div className="flex items-center space-x-2 px-4 py-2 bg-green-500/20 rounded-full border border-green-500/30">
-                        <Award className="w-5 h-5 text-green-400" />
-                        <span className="text-green-400 font-medium">Performance Complete</span>
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <h2 className="text-2xl font-bold uppercase tracking-tight">
+                        Performance Overview
+                      </h2>
+                      <p className="text-gray-500 text-sm mt-1 uppercase tracking-wider font-medium">Session Metrics</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className="bg-black/40 rounded-xl p-6 border border-white/5 hover:border-white/20 transition-all group">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="p-2 bg-white/5 rounded-lg group-hover:bg-white/10 transition-colors">
+                          <MessageSquare className="w-4 h-4 text-gray-400" />
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-white tracking-tight">{totalQuestions}</p>
+                          <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mt-1">Questions</p>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 hover:border-blue-500/50 transition-all duration-300 group">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="p-3 bg-blue-500/20 rounded-lg group-hover:bg-blue-500/30 transition-colors">
-                            <MessageSquare className="w-6 h-6 text-blue-400" />
-                          </div>
-                          <div className="text-right">
-                            <p className="text-3xl font-bold text-white">{totalQuestions}</p>
-                            <p className="text-sm text-gray-400">Questions</p>
-                          </div>
+                    <div className="bg-black/40 rounded-xl p-6 border border-white/5 hover:border-white/20 transition-all group">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="p-2 bg-white/5 rounded-lg group-hover:bg-white/10 transition-colors">
+                          <Clock className="w-4 h-4 text-gray-400" />
                         </div>
-                        <div className="flex items-center text-sm text-gray-400">
-                          <TrendingUp className="w-4 h-4 mr-1" />
-                          <span>Across {roundsData.length} rounds</span>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-white tracking-tight">{totalDuration}m</p>
+                          <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mt-1">Duration</p>
                         </div>
                       </div>
+                    </div>
 
-                      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 hover:border-green-500/50 transition-all duration-300 group">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="p-3 bg-green-500/20 rounded-lg group-hover:bg-green-500/30 transition-colors">
-                            <Clock className="w-6 h-6 text-green-400" />
-                          </div>
-                          <div className="text-right">
-                            <p className="text-3xl font-bold text-white">{totalDuration}m</p>
-                            <p className="text-sm text-gray-400">Duration</p>
-                          </div>
+                    <div className="bg-black/40 rounded-xl p-6 border border-white/5 hover:border-white/20 transition-all group">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="p-2 bg-white/5 rounded-lg group-hover:bg-white/10 transition-colors">
+                          <Target className="w-4 h-4 text-gray-400" />
                         </div>
-                        <div className="flex items-center text-sm text-gray-400">
-                          <Activity className="w-4 h-4 mr-1" />
-                          <span>Total interview time</span>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-white tracking-tight">{Math.round(avgConfidence)}%</p>
+                          <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mt-1">Confidence</p>
                         </div>
                       </div>
+                    </div>
 
-                      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 hover:border-yellow-500/50 transition-all duration-300 group">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="p-3 bg-yellow-500/20 rounded-lg group-hover:bg-yellow-500/30 transition-colors">
-                            <Target className="w-6 h-6 text-yellow-400" />
-                          </div>
-                          <div className="text-right">
-                            <p className="text-3xl font-bold text-white">{Math.round(avgConfidence)}%</p>
-                            <p className="text-sm text-gray-400">Confidence</p>
-                          </div>
+                    <div className="bg-black/40 rounded-xl p-6 border border-white/5 hover:border-white/20 transition-all group">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="p-2 bg-white/5 rounded-lg group-hover:bg-white/10 transition-colors">
+                          <Activity className="w-4 h-4 text-gray-400" />
                         </div>
-                        <div className="flex items-center text-sm text-gray-400">
-                          <Brain className="w-4 h-4 mr-1" />
-                          <span>Average confidence</span>
-                        </div>
-                      </div>
-
-                      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 hover:border-purple-500/50 transition-all duration-300 group">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="p-3 bg-purple-500/20 rounded-lg group-hover:bg-purple-500/30 transition-colors">
-                            <BarChart3 className="w-6 h-6 text-purple-400" />
-                          </div>
-                          <div className="text-right">
-                            <p className="text-3xl font-bold text-white">{atsScore}</p>
-                            <p className="text-sm text-gray-400">ATS Score</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center text-sm text-gray-400">
-                          <Star className="w-4 h-4 mr-1" />
-                          <span>Resume quality</span>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-white tracking-tight">{atsScore}</p>
+                          <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mt-1">ATS Match</p>
                         </div>
                       </div>
                     </div>
@@ -1000,15 +1024,11 @@ const NERVSummary: React.FC = () => {
 
                 {/* Round Performance Overview */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
-                    <div className="flex items-center justify-between mb-6">
-                      <h3 className="text-xl font-semibold flex items-center">
-                        <BarChart className="w-5 h-5 mr-2 text-blue-400" />
-                        Round Performance Analysis
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+                    <div className="flex items-center justify-between mb-8">
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">
+                        Round Performance
                       </h3>
-                      <div className="text-sm text-gray-400">
-                        {roundPerformance.length} rounds completed
-                      </div>
                     </div>
                     <div className="space-y-4">
                       {roundPerformance.map((round, index) => {
@@ -1016,40 +1036,39 @@ const NERVSummary: React.FC = () => {
                           round.round.includes('Core') || round.round.includes('Project') ? 'Project/Core' :
                             round.round.includes('HR') ? 'HR/Behavioral' : round.round;
                         return (
-                          <div key={index} className="flex items-center justify-between p-4 bg-gray-700/30 rounded-lg border border-gray-600/30">
-                            <div className="flex items-center space-x-3">
-                              <div className={`w-3 h-3 rounded-full ${round.performance === 'Excellent' ? 'bg-green-500' :
-                                round.performance === 'Good' ? 'bg-blue-500' :
-                                  round.performance === 'Fair' ? 'bg-yellow-500' : 'bg-red-500'
-                                }`}></div>
+                          <div key={index} className="p-4 bg-white/5 border border-white/5 rounded-lg hover:border-white/10 transition-colors">
+                            <div className="flex items-center justify-between mb-4">
                               <div>
-                                <p className="font-medium">{roundType} Round</p>
-                                <p className="text-sm text-gray-400">{round.questions} questions • {round.duration}m</p>
-                                <p className="text-xs text-gray-500">{round.emotions} emotions tracked</p>
-                                <div className="mt-2 grid grid-cols-5 gap-2 text-xs">
-                                  <div className="flex items-center justify-between"><span className="text-gray-400">Conf.</span><span className="font-semibold">{round.breakdown?.Confidence ?? 0}%</span></div>
-                                  <div className="flex items-center justify-between"><span className="text-gray-400">Joy</span><span className="font-semibold">{round.breakdown?.Joy ?? 0}%</span></div>
-                                  <div className="flex items-center justify-between"><span className="text-gray-400">Calm</span><span className="font-semibold">{round.breakdown?.Calmness ?? 0}%</span></div>
-                                  <div className="flex items-center justify-between"><span className="text-gray-400">Nerv.</span><span className="font-semibold">{round.breakdown?.Nervous ?? 0}%</span></div>
-                                  <div className="flex items-center justify-between"><span className="text-gray-400">Excite</span><span className="font-semibold">{round.breakdown?.Excitement ?? 0}%</span></div>
-                                </div>
-                                <p className="text-xs text-gray-500 mt-1">Dominant: <span className="text-gray-300">{round.breakdown?.dominant ?? '—'}</span> ({round.breakdown?.dominantScore ?? 0}%)</p>
+                                <p className="text-sm font-bold uppercase tracking-tight">{roundType}</p>
+                                <p className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-widest">{round.questions} Questions • {round.duration}m</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-lg font-bold tracking-tight">{round.confidence}%</p>
+                                <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">{round.performance}</p>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className="text-lg font-bold">{round.confidence}%</p>
-                              <p className="text-xs text-gray-400">{round.performance}</p>
-                              <div className="mt-1">
-                                <div className="w-16 bg-gray-600 rounded-full h-1">
-                                  <div
-                                    className={`h-1 rounded-full ${round.confidence >= 80 ? 'bg-green-500' :
-                                      round.confidence >= 60 ? 'bg-blue-500' :
-                                        round.confidence >= 40 ? 'bg-yellow-500' : 'bg-red-500'
-                                      }`}
-                                    style={{ width: `${round.confidence}%` }}
-                                  ></div>
+                            
+                            {/* Simple Progress Bar */}
+                            <div className="w-full bg-white/5 rounded-full h-1 mb-4">
+                              <div
+                                className="h-1 bg-white rounded-full transition-all duration-500"
+                                style={{ width: `${round.confidence}%`, opacity: round.confidence / 100 }}
+                              ></div>
+                            </div>
+
+                            <div className="grid grid-cols-5 gap-2">
+                              {[
+                                { label: 'CONF', val: round.breakdown?.Confidence },
+                                { label: 'JOY', val: round.breakdown?.Joy },
+                                { label: 'CALM', val: round.breakdown?.Calmness },
+                                { label: 'NERV', val: round.breakdown?.Nervous },
+                                { label: 'EXCT', val: round.breakdown?.Excitement }
+                              ].map((item, i) => (
+                                <div key={i} className="text-center">
+                                  <p className="text-[9px] text-gray-600 font-bold tracking-tighter mb-1">{item.label}</p>
+                                  <p className="text-[11px] font-mono text-gray-300">{item.val ?? 0}%</p>
                                 </div>
-                              </div>
+                              ))}
                             </div>
                           </div>
                         );
@@ -1057,33 +1076,24 @@ const NERVSummary: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
-                    <div className="flex items-center justify-between mb-6">
-                      <h3 className="text-xl font-semibold flex items-center">
-                        <Brain className="w-5 h-5 mr-2 text-purple-400" />
-                        Emotion Analysis
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+                    <div className="flex items-center justify-between mb-8">
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">
+                        Sentiment distribution
                       </h3>
-                      <div className="text-sm text-gray-400">
-                        {allEmotions.length} emotions tracked
-                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="text-center p-4 bg-gray-700/30 rounded-lg">
-                        <p className="text-2xl font-bold text-green-400">{confidentQuestions}</p>
-                        <p className="text-sm text-gray-400">Confident</p>
-                      </div>
-                      <div className="text-center p-4 bg-gray-700/30 rounded-lg">
-                        <p className="text-2xl font-bold text-yellow-400">{nervousQuestions}</p>
-                        <p className="text-sm text-gray-400">Nervous</p>
-                      </div>
-                      <div className="text-center p-4 bg-gray-700/30 rounded-lg">
-                        <p className="text-2xl font-bold text-blue-400">{mostCommonEmotion}</p>
-                        <p className="text-sm text-gray-400">Dominant</p>
-                      </div>
-                      <div className="text-center p-4 bg-gray-700/30 rounded-lg">
-                        <p className="text-2xl font-bold text-purple-400">{Math.round(avgConfidence)}%</p>
-                        <p className="text-sm text-gray-400">Average</p>
-                      </div>
+                      {[
+                        { label: 'Confident', val: confidentQuestions, color: 'text-white' },
+                        { label: 'Nervous', val: nervousQuestions, color: 'text-gray-400' },
+                        { label: 'Dominant', val: mostCommonEmotion, color: 'text-white' },
+                        { label: 'Average', val: `${Math.round(avgConfidence)}%`, color: 'text-white' }
+                      ].map((item, i) => (
+                        <div key={i} className="p-6 bg-white/5 border border-white/5 rounded-lg text-center">
+                          <p className={`text-2xl font-bold tracking-tight mb-1 ${item.color}`}>{item.val}</p>
+                          <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">{item.label}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -1094,27 +1104,29 @@ const NERVSummary: React.FC = () => {
 
 
         {activeTab === 'rounds' && (
-          <div className="space-y-8">
+          <div className="space-y-12">
             {roundsData.map((round, index) => (
-              <div key={index} className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <h3 className="text-xl font-semibold mb-4">{round.round}</h3>
+              <div key={index} className="space-y-6">
+                <div className="flex items-center space-x-4">
+                  <h3 className="text-sm font-bold uppercase tracking-widest text-white">{round.round}</h3>
+                  <div className="h-[1px] flex-1 bg-white/10"></div>
+                </div>
                 <div className="space-y-4">
                   {round.messages.map((message, msgIndex) => (
                     <div key={msgIndex} className={`flex ${message.sender === 'ai' ? 'justify-start' : 'justify-end'}`}>
-                      <div className={`max-w-3xl px-4 py-2 rounded-lg ${message.sender === 'ai'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-700 text-white'
+                      <div className={`max-w-2xl px-6 py-4 rounded-2xl border ${message.sender === 'ai'
+                        ? 'bg-white/5 border-white/10'
+                        : 'bg-white text-black border-transparent'
                         }`}>
-                        <div className="prose prose-invert max-w-none">
+                        <div className={`prose prose-sm max-w-none ${message.sender === 'ai' ? 'prose-invert' : 'prose-neutral'}`}>
                           <ReactMarkdown components={{
-                            p: ({ children }) => <p className="text-gray-300 mb-2">{children}</p>,
-                            strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                            em: ({ children }) => <em className="text-gray-400 italic">{children}</em>,
-                            code: ({ children }) => <code className="bg-gray-700 px-1 py-0.5 rounded text-sm text-yellow-400">{children}</code>
+                            p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
+                            strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                            code: ({ children }) => <code className="bg-black/20 px-1 py-0.5 rounded text-[11px]">{children}</code>
                           }}>{message.text}</ReactMarkdown>
                         </div>
-                        <p className="text-xs opacity-70 mt-2">
-                          {new Date(message.timestamp).toLocaleTimeString()}
+                        <p className={`text-[10px] mt-2 font-bold tracking-widest uppercase opacity-40 ${message.sender === 'ai' ? 'text-gray-400' : 'text-black'}`}>
+                          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </p>
                       </div>
                     </div>
@@ -1126,187 +1138,108 @@ const NERVSummary: React.FC = () => {
         )}
 
         {activeTab === 'emotions' && (
-          <div className="space-y-8">
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
-              <h3 className="text-2xl font-semibold mb-6 flex items-center">
-                <Brain className="w-6 h-6 mr-3 text-purple-400" />
-                Emotion Analysis by Question
+          <div className="space-y-6">
+            <div className="px-2 mb-8">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500">
+                Emotion distribution by Question
               </h3>
-              <div className="space-y-6">
-                {questionConfidence.map((q, index) => (
-                  <div key={index} className="bg-gray-700/30 rounded-lg p-6 border border-gray-600/30">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex-1">
-                        <h4 className="font-medium text-white mb-1">Question {q.questionNumber}: {q.question}</h4>
-                        <div className="flex items-center space-x-4 text-sm text-gray-400">
-                          <span className="flex items-center">
-                            <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
-                            {q.round}
-                          </span>
-                          <span>Question #{index + 1}</span>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-white">{q.confidence}%</div>
-                        <div className="text-xs text-gray-400">Overall Confidence</div>
-                      </div>
-                    </div>
-
-                    {/* Emotion Breakdown */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center p-3 bg-gray-600/30 rounded-lg">
-                        <div className="text-lg font-bold text-green-400">{q.joy}%</div>
-                        <div className="text-xs text-gray-400">Joy</div>
-                      </div>
-                      <div className="text-center p-3 bg-gray-600/30 rounded-lg">
-                        <div className="text-lg font-bold text-blue-400">{q.calmness}%</div>
-                        <div className="text-xs text-gray-400">Calmness</div>
-                      </div>
-                      <div className="text-center p-3 bg-gray-600/30 rounded-lg">
-                        <div className="text-lg font-bold text-red-400">{q.nervous}%</div>
-                        <div className="text-xs text-gray-400">Nervous</div>
-                      </div>
-                      <div className="text-center p-3 bg-gray-600/30 rounded-lg">
-                        <div className="text-lg font-bold text-purple-400">{q.excitement}%</div>
-                        <div className="text-xs text-gray-400">Excitement</div>
-                      </div>
-                    </div>
-
-                    {/* Dominant Emotion */}
-                    <div className="mt-4 p-3 bg-gray-600/20 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-400">Dominant Emotion</span>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-lg font-bold text-yellow-400">{q.dominant}</span>
-                          <span className="text-sm text-gray-400">({q.dominantScore}%)</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'transcript' && (
-          <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-            <h3 className="text-lg font-semibold mb-4">Full Interview Transcript</h3>
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              {roundsData.flatMap(round =>
-                round.messages.map((message, index) => (
-                  <div key={`${round.round}-${index}`} className="flex items-start space-x-3">
-                    <div className="flex-shrink-0">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${message.sender === 'ai' ? 'bg-blue-600' : 'bg-gray-600'
-                        }`}>
-                        {message.sender === 'ai' ? 'AI' : 'U'}
-                      </div>
-                    </div>
+            <div className="grid grid-cols-1 gap-4">
+              {questionConfidence.map((q, index) => (
+                <div key={index} className="bg-white/5 border border-white/5 rounded-xl p-8 hover:border-white/10 transition-colors">
+                  <div className="flex items-center justify-between mb-8">
                     <div className="flex-1">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <span className="font-medium">
-                          {message.sender === 'ai' ? 'Interviewer' : 'Candidate'}
-                        </span>
-                        <span className="text-xs text-gray-400">{round.round}</span>
-                        <span className="text-xs text-gray-500">
-                          {new Date(message.timestamp).toLocaleTimeString()}
-                        </span>
+                      <div className="flex items-center space-x-3 mb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Question {q.questionNumber}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-700">/</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{q.round}</span>
                       </div>
-                      <div className="prose prose-invert max-w-none">
-                        <ReactMarkdown components={{
-                          p: ({ children }) => <p className="text-gray-300 mb-2">{children}</p>,
-                          strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                          em: ({ children }) => <em className="text-gray-400 italic">{children}</em>,
-                          code: ({ children }) => <code className="bg-gray-700 px-1 py-0.5 rounded text-sm text-yellow-400">{children}</code>
-                        }}>{message.text}</ReactMarkdown>
-                      </div>
+                      <h4 className="text-lg font-bold tracking-tight text-white">{q.question}</h4>
+                    </div>
+                    <div className="text-right ml-8">
+                      <div className="text-3xl font-bold tracking-tighter text-white">{q.confidence}%</div>
+                      <div className="text-[9px] font-bold uppercase tracking-widest text-gray-600 mt-1">Confidence</div>
                     </div>
                   </div>
-                ))
-              )}
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                    {[
+                      { label: 'Joy', val: q.joy },
+                      { label: 'Calmness', val: q.calmness },
+                      { label: 'Nervous', val: q.nervous },
+                      { label: 'Excitement', val: q.excitement }
+                    ].map((emo, i) => (
+                      <div key={i} className="py-4 border border-white/5 rounded-lg text-center">
+                        <p className="text-xl font-bold tracking-tight text-white mb-1">{emo.val}%</p>
+                        <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">{emo.label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between py-4 border-t border-white/5">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-gray-600">Primary Emotion</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm font-bold uppercase tracking-tight text-white">{q.dominant}</span>
+                      <span className="text-[10px] font-bold text-gray-500">({q.dominantScore}%)</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
+
+
 
         {/* Confidence Tracking Tab */}
         {activeTab === 'confidence' && (
-          <div className="space-y-8">
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
-              <h3 className="text-2xl font-semibold mb-6 flex items-center">
-                <Activity className="w-6 h-6 mr-3 text-yellow-400" />
-                Comprehensive Emotion & Confidence Analysis
+          <div className="space-y-6">
+            <div className="px-2 mb-8">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500">
+                Confidence Tracking
               </h3>
-              <div className="space-y-6">
-                {questionConfidence.map((q, index) => (
-                  <div key={index} className="bg-gray-700/30 rounded-lg p-6 border border-gray-600/30">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex-1">
-                        <h4 className="font-medium text-white mb-1">Q{q.questionNumber}: {q.question}</h4>
-                        <div className="flex items-center space-x-4 text-sm text-gray-400">
-                          <span className="flex items-center">
-                            <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
-                            {q.round}
-                          </span>
-                          <span>Question #{index + 1}</span>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-white">{q.confidence}%</div>
-                        <div className="text-xs text-gray-400">Overall Confidence</div>
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+              {questionConfidence.map((q, index) => (
+                <div key={index} className="bg-white/5 border border-white/5 rounded-xl p-8">
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex-1">
+                      <h4 className="text-lg font-bold tracking-tight text-white mb-2">Q{q.questionNumber}: {q.question}</h4>
+                      <div className="flex items-center space-x-3 text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                        <span>{q.round}</span>
+                        <span className="text-gray-700">/</span>
+                        <span>Question #{index + 1}</span>
                       </div>
                     </div>
-
-                    {/* Confidence Progress Bar */}
-                    <div className="mb-4">
-                      <div className="flex items-center justify-between text-sm mb-2">
-                        <span className="text-gray-400">Confidence Level</span>
-                        <span className="text-white font-medium">{q.confidence}%</span>
-                      </div>
-                      <div className="w-full bg-gray-600 rounded-full h-3">
-                        <div
-                          className={`h-3 rounded-full transition-all duration-700 ${q.confidence >= 80 ? 'bg-gradient-to-r from-green-500 to-green-400' :
-                            q.confidence >= 60 ? 'bg-gradient-to-r from-yellow-500 to-green-500' :
-                              q.confidence >= 40 ? 'bg-gradient-to-r from-orange-500 to-yellow-500' :
-                                'bg-gradient-to-r from-red-500 to-orange-500'
-                            }`}
-                          style={{ width: `${q.confidence}%` }}
-                        ></div>
-                      </div>
-                    </div>
-
-                    {/* Emotion Breakdown */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center p-3 bg-gray-600/30 rounded-lg">
-                        <div className="text-lg font-bold text-green-400">{q.joy}%</div>
-                        <div className="text-xs text-gray-400">Joy</div>
-                      </div>
-                      <div className="text-center p-3 bg-gray-600/30 rounded-lg">
-                        <div className="text-lg font-bold text-blue-400">{q.calmness}%</div>
-                        <div className="text-xs text-gray-400">Calmness</div>
-                      </div>
-                      <div className="text-center p-3 bg-gray-600/30 rounded-lg">
-                        <div className="text-lg font-bold text-red-400">{q.nervous}%</div>
-                        <div className="text-xs text-gray-400">Nervous</div>
-                      </div>
-                      <div className="text-center p-3 bg-gray-600/30 rounded-lg">
-                        <div className="text-lg font-bold text-purple-400">{q.excitement}%</div>
-                        <div className="text-xs text-gray-400">Excitement</div>
-                      </div>
-                    </div>
-
-                    {/* Dominant Emotion */}
-                    <div className="mt-4 p-3 bg-gray-600/20 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-400">Dominant Emotion</span>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-lg font-bold text-yellow-400">{q.dominant}</span>
-                          <span className="text-sm text-gray-400">({q.dominantScore}%)</span>
-                        </div>
-                      </div>
+                    <div className="text-right ml-8">
+                      <div className="text-3xl font-bold tracking-tighter text-white">{q.confidence}%</div>
                     </div>
                   </div>
-                ))}
-              </div>
+
+                  <div className="space-y-6">
+                    <div className="w-full bg-white/5 rounded-full h-1 overflow-hidden">
+                      <div
+                        className="h-1 bg-white rounded-full transition-all duration-1000"
+                        style={{ width: `${q.confidence}%`, opacity: q.confidence / 100 }}
+                      ></div>
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      {[
+                        { label: 'Joy', val: q.joy },
+                        { label: 'Calmness', val: q.calmness },
+                        { label: 'Nervous', val: q.nervous },
+                        { label: 'Excitement', val: q.excitement }
+                      ].map((emo, i) => (
+                        <div key={i} className="flex items-center justify-between py-2 border-b border-white/5">
+                          <span className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">{emo.label}</span>
+                          <span className="text-xs font-mono font-bold text-gray-300">{emo.val}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -1315,184 +1248,92 @@ const NERVSummary: React.FC = () => {
         {activeTab === 'skills' && (
           <div className="space-y-8">
             {/* Skill Coverage Overview */}
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
-              <h3 className="text-2xl font-semibold mb-6 flex items-center">
-                <Target className="w-6 h-6 mr-3 text-blue-400" />
-                Skill Coverage Analysis
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-8">
+                Skill analysis
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="text-center p-4 bg-gray-700/30 rounded-lg">
-                  <div className="text-3xl font-bold text-green-400">
-                    {skillGapAnalysis ? Math.round((skillGapAnalysis.mentionedCount / skillGapAnalysis.totalSkills) * 100) : 0}%
+                {[
+                  { label: 'Discussed', val: skillGapAnalysis ? `${Math.round((skillGapAnalysis.mentionedCount / skillGapAnalysis.totalSkills) * 100)}%` : '0%' },
+                  { label: 'Missing', val: skillGaps.length },
+                  { label: 'Improvement', val: suggestions.length }
+                ].map((stat, i) => (
+                  <div key={i} className="text-center p-6 bg-white/5 border border-white/5 rounded-lg">
+                    <div className="text-2xl font-bold text-white mb-2">{stat.val}</div>
+                    <div className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">{stat.label}</div>
                   </div>
-                  <div className="text-sm text-gray-400">Skills Discussed</div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {skillGapAnalysis ? `${skillGapAnalysis.mentionedCount}/${skillGapAnalysis.totalSkills} skills` : '0/0 skills'}
-                  </div>
-                </div>
-                <div className="text-center p-4 bg-gray-700/30 rounded-lg">
-                  <div className="text-3xl font-bold text-yellow-400">{skillGaps.length}</div>
-                  <div className="text-sm text-gray-400">Skills Not Discussed</div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {skillGapAnalysis ? `${skillGapAnalysis.totalSkills - skillGapAnalysis.mentionedCount} missing` : '0 missing'}
-                  </div>
-                </div>
-                <div className="text-center p-4 bg-gray-700/30 rounded-lg">
-                  <div className="text-3xl font-bold text-blue-400">{suggestions.length}</div>
-                  <div className="text-sm text-gray-400">Improvement Areas</div>
-                  <div className="text-xs text-gray-500 mt-1">Personalized suggestions</div>
-                </div>
+                ))}
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
-                <h3 className="text-2xl font-semibold mb-6 flex items-center">
-                  <CheckCircle2 className="w-6 h-6 mr-3 text-green-400" />
-                  Skills Discussed (Real Conversation)
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-6">
+                  Identified skills
                 </h3>
                 <div className="space-y-3">
                   {skillGapAnalysis && skillGapAnalysis.mentioned && skillGapAnalysis.mentioned.length > 0 ? (
                     skillGapAnalysis.mentioned.map((skill: string, index: number) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-green-500/10 rounded-lg border border-green-500/20">
-                        <div className="flex items-center space-x-3">
-                          <CheckCircle2 className="w-4 h-4 text-green-400" />
-                          <span className="text-green-300 font-medium">{skill}</span>
-                        </div>
-                        <span className="text-xs text-green-400 bg-green-500/20 px-2 py-1 rounded">Discussed</span>
+                      <div key={index} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
+                        <span className="text-xs font-medium text-white uppercase tracking-tight">{skill}</span>
+                        <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
                       </div>
                     ))
                   ) : (
-                    <div className="text-center py-8 text-gray-400">No skills discussed were detected in the conversation.</div>
+                    <div className="text-center py-8 text-gray-600 text-[10px] font-bold uppercase tracking-widest">No data</div>
                   )}
                 </div>
               </div>
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
-                <h3 className="text-2xl font-semibold mb-6 flex items-center">
-                  <AlertCircle className="w-6 h-6 mr-3 text-red-400" />
-                  Skills Not Discussed
+              
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-6">
+                  Skill Gaps
                 </h3>
                 <div className="space-y-3">
                   {skillGaps.length > 0 ? (
                     skillGaps.map((skill: string, index: number) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-red-500/10 rounded-lg border border-red-500/20">
-                        <div className="flex items-center space-x-3">
-                          <AlertCircle className="w-4 h-4 text-red-400" />
-                          <span className="text-red-300 font-medium">{skill}</span>
-                        </div>
-                        <span className="text-xs text-red-400 bg-red-500/20 px-2 py-1 rounded">Not discussed</span>
+                      <div key={index} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
+                        <span className="text-xs font-medium text-gray-400 uppercase tracking-tight">{skill}</span>
                       </div>
                     ))
                   ) : (
                     <div className="text-center py-8">
-                      <CheckCircle2 className="w-12 h-12 text-green-400 mx-auto mb-4" />
-                      <p className="text-green-400 font-medium">Excellent! All skills were discussed</p>
-                      <p className="text-gray-400 text-sm">You effectively showcased your technical abilities</p>
+                      <p className="text-[10px] text-white font-bold uppercase tracking-widest">No Gaps Detected</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
-                <h3 className="text-2xl font-semibold mb-6 flex items-center">
-                  <Lightbulb className="w-6 h-6 mr-3 text-yellow-400" />
-                  Personalized Improvement Plan
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-6">
+                  Action items
                 </h3>
                 <div className="space-y-4">
                   {suggestions.map((suggestion, index) => (
-                    <div key={index} className="flex items-start space-x-3 p-4 bg-gray-700/30 rounded-lg border border-gray-600/30">
-                      <div className="flex-shrink-0 w-6 h-6 bg-yellow-500/20 rounded-full flex items-center justify-center">
-                        <span className="text-yellow-400 text-xs font-bold">{index + 1}</span>
-                      </div>
-                      <div>
-                        <p className="text-gray-300 text-sm leading-relaxed">{suggestion}</p>
-                      </div>
+                    <div key={index} className="flex items-start space-x-4">
+                      <div className="text-[10px] font-bold text-gray-600 mt-1">{(index + 1).toString().padStart(2, '0')}</div>
+                      <p className="text-xs leading-relaxed text-gray-400">{suggestion}</p>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Learning Resources */}
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
-              <h3 className="text-2xl font-semibold mb-6 flex items-center">
-                <Star className="w-6 h-6 mr-3 text-purple-400" />
-                Targeted Learning Resources
-              </h3>
-              {isFetchingResources ? (
-                <div className="text-gray-400">Fetching recommended videos...</div>
-              ) : learningResources.length === 0 ? (
-                <div className="text-gray-400">No recommendations yet. Complete an interview or ensure the API key is set.</div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {learningResources.map((res, idx) => (
-                    <a key={`${res.videoId}-${idx}`} href={res.url} target="_blank" rel="noopener noreferrer" className="group block bg-gray-700/30 rounded-lg overflow-hidden border border-gray-600/30 hover:border-purple-500/50 transition-all">
-                      <div className="aspect-video bg-gray-900">
-                        {res.thumbnailUrl ? (
-                          <img src={res.thumbnailUrl} alt={res.title} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-600">No thumbnail</div>
-                        )}
-                      </div>
-                      <div className="p-4">
-                        <div className="text-xs text-purple-300 mb-1">{res.topic}</div>
-                        <div className="font-semibold text-white line-clamp-2 group-hover:text-purple-300">{res.title}</div>
-                        <div className="text-xs text-gray-400 mt-1">{res.channelTitle}</div>
-                        <div className="flex items-center text-xs text-blue-400 mt-2">Watch <ExternalLink className="w-3 h-3 ml-1" /></div>
-                      </div>
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
-              <h3 className="text-2xl font-semibold mb-6 flex items-center">
-                <Star className="w-6 h-6 mr-3 text-purple-400" />
-                ATS Resume Score
-              </h3>
-              <div className="flex items-center justify-center">
-                <div className="relative w-48 h-48">
-                  <svg className="w-48 h-48 transform -rotate-90" viewBox="0 0 100 100">
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="40"
-                      stroke="currentColor"
-                      strokeWidth="8"
-                      fill="none"
-                      className="text-gray-700"
-                    />
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="40"
-                      stroke="url(#gradient)"
-                      strokeWidth="8"
-                      fill="none"
-                      strokeDasharray={`${atsScore * 2.51} 251`}
-                      className="transition-all duration-1000 ease-out"
-                    />
-                    <defs>
-                      <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#3B82F6" />
-                        <stop offset="100%" stopColor="#8B5CF6" />
-                      </linearGradient>
-                    </defs>
+            {/* ATS Score */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-12">
+              <div className="max-w-xs mx-auto text-center">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-12">Resume score</h3>
+                <div className="relative w-48 h-48 mx-auto mb-8">
+                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="48" stroke="currentColor" strokeWidth="2" fill="none" className="text-white/5" />
+                    <circle cx="50" cy="50" r="48" stroke="white" strokeWidth="2" fill="none" strokeDasharray={`${atsScore * 3.01} 301`} strokeLinecap="round" className="transition-all duration-1000" />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="text-center">
-                      <p className="text-4xl font-bold text-white">{atsScore}</p>
-                      <p className="text-sm text-gray-400">ATS Score</p>
-                    </div>
+                    <span className="text-5xl font-bold tracking-tighter">{atsScore}</span>
                   </div>
                 </div>
-              </div>
-              <div className="mt-6 text-center">
-                <p className="text-gray-400 text-sm">
-                  {atsScore >= 80 ? 'Excellent resume quality!' :
-                    atsScore >= 60 ? 'Good resume, room for improvement' :
-                      'Consider enhancing your resume'}
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                  {atsScore >= 80 ? 'Optimal match' : atsScore >= 60 ? 'Competitive' : 'Requires optimization'}
                 </p>
               </div>
             </div>
@@ -1500,174 +1341,78 @@ const NERVSummary: React.FC = () => {
         )}
 
         {activeTab === 'summary' && (
-          <div className="space-y-8">
-            {/* Summary Header */}
-            <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-2xl p-8 border border-gray-700/50">
-              <div className="text-center">
-                <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent mb-4">
-                  Comprehensive Interview Analysis Report
+          <div className="space-y-8 pb-12">
+            {/* Header - More Compact */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-white/10 pb-8 gap-4">
+              <div>
+                <h2 className="text-2xl font-bold tracking-tight uppercase">
+                  Session analysis report
                 </h2>
-                <p className="text-gray-400 text-lg">Detailed Performance Evaluation & Recommendations</p>
-                <div className="mt-6 flex items-center justify-center space-x-6 text-sm text-gray-400">
-                  <span>Generated on {new Date().toLocaleDateString()}</span>
-                  <span>•</span>
-                  <span>{totalQuestions} Questions Analyzed</span>
-                  <span>•</span>
-                  <span>{roundsData.length} Rounds Completed</span>
+                <div className="flex items-center space-x-4 text-[10px] font-bold tracking-widest text-gray-600 uppercase mt-2">
+                  <span>{new Date().toLocaleDateString()}</span>
+                  <span>/</span>
+                  <span>{totalQuestions} Questions</span>
+                  <span>/</span>
+                  <span>{roundsData.length} Rounds</span>
                 </div>
+              </div>
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleDownloadPDF}
+                  className="flex items-center space-x-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-colors"
+                >
+                  <Download className="w-3 h-3" />
+                  <span>PDF Export</span>
+                </button>
+                                <button
+                  onClick={handleShare}
+                  className="flex items-center space-x-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-colors"
+               >
+                  <Share2 className="w-3 h-3" />
+                  <span>Share</span>
+                </button>
               </div>
             </div>
 
-            {/* Executive Summary */}
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-8 border border-gray-700/50">
-              <h3 className="text-2xl font-bold mb-6 flex items-center">
-                <Award className="w-6 h-6 mr-3 text-yellow-400" />
-                Executive Summary
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div className="text-center p-6 bg-gray-700/30 rounded-lg">
-                  <div className="text-3xl font-bold text-green-400 mb-2">{Math.round(avgConfidence)}%</div>
-                  <div className="text-sm text-gray-400">Overall Confidence</div>
-                  <div className="text-xs text-gray-500 mt-1">Based on emotion analysis</div>
-                </div>
-                <div className="text-center p-6 bg-gray-700/30 rounded-lg">
-                  <div className="text-3xl font-bold text-blue-400 mb-2">{atsScore}/100</div>
-                  <div className="text-sm text-gray-400">ATS Resume Score</div>
-                  <div className="text-xs text-gray-500 mt-1">Resume quality assessment</div>
-                </div>
-                <div className="text-center p-6 bg-gray-700/30 rounded-lg">
-                  <div className="text-3xl font-bold text-purple-400 mb-2">{skillGaps.length}</div>
-                  <div className="text-sm text-gray-400">Skill Gaps Identified</div>
-                  <div className="text-xs text-gray-500 mt-1">Areas for improvement</div>
-                </div>
-              </div>
-
-              <div className="prose prose-invert max-w-none">
-                <div className="bg-gray-700/20 rounded-lg p-6 border-l-4 border-blue-500">
-                  <h4 className="text-lg font-semibold text-blue-400 mb-3">Key Findings</h4>
-                  <ul className="space-y-2 text-gray-300">
-                    <li>• <strong>Technical Performance:</strong> {roundPerformance.find(r => r.round.includes('Technical'))?.performance || 'Good'} - Strong foundation with room for advanced concepts</li>
-                    <li>• <strong>Project Discussion:</strong> {roundPerformance.find(r => r.round.includes('Core') || r.round.includes('Project'))?.performance || 'Good'} - Excellent articulation of real-world experience</li>
-                    <li>• <strong>Behavioral Assessment:</strong> {roundPerformance.find(r => r.round.includes('HR'))?.performance || 'Good'} - Strong communication and leadership skills</li>
-                    <li>• <strong>Emotional Intelligence:</strong> {mostCommonEmotion} dominant emotion indicates {mostCommonEmotion === 'Confidence' ? 'high self-assurance' : mostCommonEmotion === 'Calmness' ? 'composed demeanor' : 'mixed emotional state'}</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            {/* Detailed AI Summary */}
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-8 border border-gray-700/50">
-              <h3 className="text-2xl font-bold mb-6 flex items-center">
-                <User className="w-6 h-6 mr-3 text-pink-400" />
-                Detailed Analysis Report
-              </h3>
-              <div className="prose prose-invert max-w-none">
-                <div className="bg-gray-700/20 rounded-lg p-6">
-                  <div className="prose prose-invert max-w-none">
-                    {/* 2. Expression Analysis for Each Question */}
-                    <h2 className="text-xl font-semibold text-blue-400 mb-3">2. Expression Analysis for Each Question</h2>
-                    <div className="overflow-x-auto rounded-lg border border-gray-700/50 mb-6">
-                      <table className="min-w-full divide-y divide-gray-700">
-                        <thead className="bg-gray-800/60">
-                          <tr>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Question ID</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Round</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Dominant Emotion</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Confidence Score</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Observed Expression Traits</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-gray-900/30 divide-y divide-gray-800">
-                          {roundsData.flatMap(r => r.emotions.map((q) => ({ round: r.round, q }))).map(({ round, q }, idx) => {
-                            const dominant = q.emotions.reduce((max, e) => e.score > max.score ? e : max, q.emotions[0]);
-                            const confScore = (q.emotions.find(e => e.name === 'Confidence')?.score ?? 0);
-                            const confPct = confScore.toFixed(2);
-                            // Derive readable traits similar to your example
-                            const nervous = q.emotions.find(e => e.name === 'Nervous')?.score || 0;
-                            const calm = q.emotions.find(e => e.name === 'Calmness')?.score || 0;
-                            const joy = q.emotions.find(e => e.name === 'Joy')?.score || 0;
-                            const excite = q.emotions.find(e => e.name === 'Excitement')?.score || 0;
-                            const traits: string[] = [];
-                            if (calm > 0.55) traits.push('Calm');
-                            if (nervous > 0.35) traits.push('some confusion/awkwardness');
-                            if (nervous > 0.45) traits.push('moderate doubt');
-                            if (joy < 0.25 && calm < 0.45) traits.push('slight disappointment');
-                            if (excite < 0.25) traits.push('boredom');
-                            if (joy >= 0.3) traits.push('interest');
-                            if (confScore < 0.6) traits.push('not fully confident');
-                            const observed = traits.length ? traits.join(', ') : '—';
-                            return (
-                              <tr key={q.questionId || idx} className="hover:bg-gray-800/40">
-                                <td className="px-4 py-3 text-sm text-gray-300 font-mono">{q.questionId || '—'}</td>
-                                <td className="px-4 py-3 text-sm text-gray-300">{round}</td>
-                                <td className="px-4 py-3 text-sm text-gray-300">{dominant?.name || '—'}</td>
-                                <td className="px-4 py-3 text-sm text-gray-300">{confScore.toFixed(2)}</td>
-                                <td className="px-4 py-3 text-sm text-gray-300">{observed}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+            {/* AI Report Content Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {summarySections.map((section, idx) => (
+                <div 
+                  key={idx} 
+                  className={`bg-white/[0.02] border border-white/10 rounded-2xl p-8 transition-all hover:bg-white/[0.04] ring-1 ring-white/5 ${
+                    idx === 0 ? 'md:col-span-2 bg-gradient-to-br from-white/[0.05] to-transparent' : ''
+                  }`}
+                >
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50 mb-6 pb-2 border-b border-white/5">
+                    {section.title}
+                  </h3>
+                  <div className="space-y-4">
                     <ReactMarkdown components={{
-                      // Custom components to ensure no className issues
-                      p: ({ children }) => <p className="text-gray-300 mb-4">{children}</p>,
-                      h1: ({ children }) => <h1 className="text-2xl font-bold text-white mb-4">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-xl font-semibold text-blue-400 mb-3">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-lg font-medium text-green-400 mb-2">{children}</h3>,
-                      ul: ({ children }) => <ul className="list-disc list-inside text-gray-300 mb-4">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside text-gray-300 mb-4">{children}</ol>,
-                      li: ({ children }) => <li className="mb-2">{children}</li>,
-                      strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                      em: ({ children }) => <em className="text-gray-400 italic">{children}</em>,
-                      code: ({ children }) => <code className="bg-gray-700 px-2 py-1 rounded text-sm text-yellow-400">{children}</code>,
-                      pre: ({ children }) => <pre className="bg-gray-800 p-4 rounded-lg overflow-x-auto mb-4">{children}</pre>,
-                      blockquote: ({ children }) => <blockquote className="border-l-4 border-blue-500 pl-4 italic text-gray-400 mb-4">{children}</blockquote>
-                    }}>
-                      {generatedSummary || 'No detailed analysis available. Please complete an interview to generate a comprehensive report.'}
-                    </ReactMarkdown>
+                      h1: ({ children }) => <h1 className="hidden">{children}</h1>,
+                      h2: ({ children }) => <h2 className="hidden">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-xs font-bold uppercase tracking-widest text-white mb-3">{children}</h3>,
+                      p: ({ children }) => <p className="text-gray-400 leading-relaxed text-[11px] mb-4">{children}</p>,
+                      ul: ({ children }) => <ul className="space-y-3 mb-4">{children}</ul>,
+                      li: ({ children }) => (
+                        <li className="flex items-start text-[11px]">
+                          <div className="w-1 h-1 rounded-full bg-white/20 mt-1.5 mr-3 flex-shrink-0" />
+                          <span className="text-gray-400 group-hover:text-gray-200 transition-colors">{children}</span>
+                        </li>
+                      ),
+                      strong: ({ children }) => <strong className="text-white font-bold">{children}</strong>,
+                      code: ({ children }) => <code className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] font-mono">{children}</code>
+                    }}>{section.content}</ReactMarkdown>
                   </div>
                 </div>
-              </div>
+              ))}
             </div>
 
-            {/* Recommendations Section */}
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-8 border border-gray-700/50">
-              <h3 className="text-2xl font-bold mb-6 flex items-center">
-                <Lightbulb className="w-6 h-6 mr-3 text-yellow-400" />
-                Strategic Recommendations
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h4 className="text-lg font-semibold text-green-400 mb-4">Strengths to Leverage</h4>
-                  <ul className="space-y-2 text-gray-300">
-                    <li className="flex items-start space-x-2">
-                      <CheckCircle2 className="w-4 h-4 text-green-400 mt-1 flex-shrink-0" />
-                      <span>Strong technical communication skills</span>
-                    </li>
-                    <li className="flex items-start space-x-2">
-                      <CheckCircle2 className="w-4 h-4 text-green-400 mt-1 flex-shrink-0" />
-                      <span>Excellent project experience articulation</span>
-                    </li>
-                    <li className="flex items-start space-x-2">
-                      <CheckCircle2 className="w-4 h-4 text-green-400 mt-1 flex-shrink-0" />
-                      <span>Good emotional regulation during interviews</span>
-                    </li>
-                  </ul>
-                </div>
-                <div>
-                  <h4 className="text-lg font-semibold text-orange-400 mb-4">Areas for Development</h4>
-                  <ul className="space-y-2 text-gray-300">
-                    {suggestions.slice(0, 3).map((suggestion, index) => (
-                      <li key={index} className="flex items-start space-x-2">
-                        <AlertCircle className="w-4 h-4 text-orange-400 mt-1 flex-shrink-0" />
-                        <span>{suggestion}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+            {/* Empty State for Summary */}
+            {summarySections.length === 0 && (
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-12 text-center text-gray-500 uppercase text-[10px] tracking-widest font-bold">
+                No analysis data generated for this session
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>

@@ -3,9 +3,10 @@ import { InterviewerAvatar } from '../components/InterviewerAvatar';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  Mic, MicOff, Camera, CameraOff,
-  Clock, Briefcase, X
+import { 
+  Mic, MicOff, Camera, CameraOff, 
+  Clock, Brain, X,
+  ArrowLeft, ArrowRight, Briefcase
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -21,6 +22,7 @@ interface Message {
   text: string;
   sender: 'user' | 'ai';
   timestamp: Date;
+  round?: string;
 }
 
 interface UserExpression {
@@ -83,6 +85,7 @@ const CoreRound: React.FC = (): JSX.Element => {
   const [isInterviewComplete, setIsInterviewComplete] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [conversationId, setConversationId] = useState<string>('');
+  const [shouldStartRound, setShouldStartRound] = useState(false);
 
   // Generate conversation ID
   useEffect(() => {
@@ -139,6 +142,8 @@ const CoreRound: React.FC = (): JSX.Element => {
     return () => clearInterval(timer);
   }, [isInterviewStarted, isInterviewComplete]);
 
+
+
   // Emotion capture effect
   useEffect(() => {
     if (isCameraOn && isCapturingExpression) {
@@ -158,11 +163,6 @@ const CoreRound: React.FC = (): JSX.Element => {
     };
   }, [isCameraOn, isCapturingExpression]);
 
-  const startInterview = () => {
-    setIsInterviewStarted(true);
-    setTimeRemaining(roundDuration * 60);
-    startCurrentRound();
-  };
 
   const startCurrentRound = async () => {
     try {
@@ -221,7 +221,8 @@ const CoreRound: React.FC = (): JSX.Element => {
         id: questionId,
         text: question,
         sender: 'ai',
-        timestamp: new Date()
+        timestamp: new Date(),
+        round: 'core'
       };
       setMessages(prev => [...prev, questionMessage]);
       setPreviousQuestions(prev => [...prev, question]);
@@ -245,6 +246,16 @@ const CoreRound: React.FC = (): JSX.Element => {
     }
   };
 
+  // Call startCurrentRound once the flag is set (after function is defined)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (shouldStartRound) {
+      setShouldStartRound(false);
+      startCurrentRound();
+    }
+  }, [shouldStartRound]);
+
+
   const handleUserResponse = async (transcription: string) => {
     let safeText = (typeof transcription === 'string') ? transcription.trim() : '';
     if (!safeText || safeText.toLowerCase() === 'undefined' || safeText.toLowerCase() === 'null') {
@@ -256,7 +267,8 @@ const CoreRound: React.FC = (): JSX.Element => {
         id: Date.now().toString(),
         text: safeText,
         sender: 'user',
-        timestamp: new Date()
+        timestamp: new Date(),
+        round: 'core'
       };
       setMessages(prev => [...prev, userMessage]);
 
@@ -313,7 +325,8 @@ const CoreRound: React.FC = (): JSX.Element => {
         id: nextQuestionId,
         text: nextQuestion,
         sender: 'ai',
-        timestamp: new Date()
+        timestamp: new Date(),
+        round: 'core'
       };
       setMessages(prev => [...prev, aiMessage]);
       setPreviousQuestions(prev => [...prev, nextQuestion]);
@@ -541,45 +554,106 @@ const CoreRound: React.FC = (): JSX.Element => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+
+  // startInterview function
+  const startInterview = () => {
+    setIsInterviewStarted(true);
+    setTimeRemaining(roundDuration * 60);
+    setShouldStartRound(true);
+  };
+
   if (!isInterviewStarted) {
     return (
-      <div className="min-h-screen bg-primary text-white p-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center mb-8">
-            <h1 className="text-3xl font-bold">Core Round - Technical Subjects</h1>
+      <div className="min-h-screen bg-black text-white p-4 md:p-8 flex flex-col justify-center">
+        <div className="max-w-3xl mx-auto w-full">
+          <div className="flex items-center mb-6">
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="p-2 hover:bg-white/10 rounded-xl transition-all mr-4 border border-white/5"
+              title="Back to dashboard"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div>
+              <h1 className="text-2xl font-black uppercase tracking-tighter">
+                NERV <span className="text-white/30">/</span> Core
+              </h1>
+              <p className="text-[8px] font-bold uppercase tracking-[0.3em] text-purple-500/60 mt-0.5">Round 02: Fundamentals & CS</p>
+            </div>
           </div>
 
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8">
-            <h2 className="text-2xl font-semibold mb-6">Core Round Setup</h2>
+          <div className="bg-white/[0.01] backdrop-blur-xl rounded-2xl p-6 md:p-10 relative overflow-hidden ring-1 ring-white/5">
+            {/* Background Glow */}
+            <div className="absolute -top-24 -left-24 w-48 h-48 bg-purple-600/10 blur-[100px]" />
+            
+            <h2 className="text-xs font-bold uppercase tracking-[0.2em] mb-8 pb-3 border-b border-white/5 text-gray-500 text-center">Protocol Initialization</h2>
 
-            <div className="space-y-6">
-              <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4">
-                <h3 className="text-lg font-semibold mb-2">Round Details</h3>
-                <p className="text-gray-300">
-                  This round covers core computer science subjects: DBMS, OOP, Operating Systems,
-                  System Design, and your resume skills/projects.
-                </p>
-                <p className="text-sm text-gray-400 mt-2">Duration: {roundDuration} minutes</p>
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white/[0.03] p-6 rounded-2xl border border-white/5 relative group">
+                  <div className="absolute top-4 right-4 p-2 bg-purple-500/10 rounded-lg">
+                    <Brain className="h-4 w-4 text-purple-400" />
+                  </div>
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-purple-400 mb-3">Focus Areas</h3>
+                  <ul className="space-y-2">
+                    {['CS Fundamentals', 'Operating Systems', 'Database Management', 'Networking Basics'].map((item, i) => (
+                      <li key={i} className="flex items-center text-[11px] font-medium text-gray-300">
+                        <div className="w-1 h-1 bg-purple-500 rounded-full mr-2" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="bg-white/[0.03] p-6 rounded-2xl border border-white/5 relative group">
+                  <div className="absolute top-4 right-4 p-2 bg-purple-500/10 rounded-lg">
+                    <Clock className="h-4 w-4 text-purple-400" />
+                  </div>
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-purple-400 mb-3">Parameters</h3>
+                  <div className="space-y-4 mt-2">
+                    <div>
+                      <p className="text-[8px] uppercase tracking-widest text-gray-500 mb-1">Duration</p>
+                      <p className="text-xl font-black">{roundDuration} <span className="text-[10px] text-gray-600 uppercase">min</span></p>
+                    </div>
+                    <div>
+                      <p className="text-[8px] uppercase tracking-widest text-gray-500 mb-1">Environment</p>
+                      <p className="text-[11px] font-bold text-gray-300">Live Voice + Chat Assessment</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {resumeData && (
-                <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold mb-2">Your Skills</h3>
+                <div className="bg-white/[0.02] p-6 rounded-2xl border border-white/5">
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-purple-400 mb-4 flex items-center">
+                    <Briefcase className="h-3 w-3 mr-2" />
+                    Knowledge Profile
+                  </h3>
                   <div className="flex flex-wrap gap-2">
-                    {resumeData.skills.map((skill, index) => (
-                      <span key={index} className="text-sm bg-white/10 px-3 py-1 rounded-full text-gray-200">
-                        {typeof skill === 'string' ? skill : JSON.stringify(skill)}
+                    {(resumeData.skills || []).slice(0, 8).map((skill, index) => (
+                      <span key={index} className="text-[10px] font-bold bg-purple-500/5 px-3 py-1.5 rounded-lg text-purple-300/70 border border-purple-500/10">
+                        {typeof skill === 'string' ? skill : (skill as any).name}
                       </span>
                     ))}
                   </div>
                 </div>
               )}
 
+              <div className="bg-purple-500/5 p-4 rounded-xl border border-purple-500/10 text-center">
+                <p className="text-[9px] font-medium text-purple-400/80 uppercase tracking-widest leading-relaxed">
+                  Proctoring protocols are active. Standard CS Evaluation parameters initialized.
+                </p>
+              </div>
+
               <button
                 onClick={startInterview}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-lg transition-colors"
+                className="w-full relative group overflow-hidden bg-white text-black py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all hover:scale-[1.01] active:scale-[0.99] shadow-xl shadow-purple-500/5"
               >
-                Start Core Round
+                <span className="relative z-10 flex items-center justify-center">
+                  Initialize Core Assessment
+                  <ArrowRight className="ml-2 h-4 w-4 transform group-hover:translate-x-1 transition-transform" />
+                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-black/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
               </button>
             </div>
           </div>
@@ -932,7 +1006,9 @@ const CoreRound: React.FC = (): JSX.Element => {
                         resumeData,
                         roundDuration,
                         conversationId,
-                        roundType: 'core'
+                        roundType: 'core',
+                        technicalMessages: location.state?.technicalMessages || location.state?.messages || [],
+                        technicalQuestionExpressions: location.state?.technicalQuestionExpressions || location.state?.questionExpressions || [],
                       }
                     });
                   }}
