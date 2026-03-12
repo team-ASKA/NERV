@@ -14,6 +14,7 @@ class SarvamTTSService {
   private apiUrl: string = 'https://api.sarvam.ai/text-to-speech';
   private audioContext: AudioContext | null = null;
   private isSpeaking: boolean = false;
+  private currentSource: AudioBufferSourceNode | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -21,13 +22,29 @@ class SarvamTTSService {
     }
   }
 
+  stop(): void {
+    this.isSpeaking = false;
+    if (this.currentSource) {
+      try {
+        this.currentSource.stop();
+      } catch (e) {
+        // Ignore if already stopped
+      }
+      this.currentSource = null;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  }
+
   async speak(text: string, round: string = 'technical', settings: TTSSettings = {}): Promise<void> {
+    this.stop(); // Stop any currently playing audio before starting new
+
     if (!this.apiKey) {
       console.warn('Sarvam API Key missing, falling back to browser TTS');
       return this.fallbackSpeak(text);
     }
 
-    if (this.isSpeaking) return;
     this.isSpeaking = true;
 
     try {
@@ -52,11 +69,16 @@ class SarvamTTSService {
 
       if (response.data && response.data.audios && response.data.audios.length > 0) {
         const audioBase64 = response.data.audios[0];
-        await this.playAudioFromBase64(audioBase64);
+        // Only play if we haven't been forcefully stopped during the fetch
+        if (this.isSpeaking) {
+          await this.playAudioFromBase64(audioBase64);
+        }
       }
     } catch (error) {
-      console.error('Sarvam TTS error:', error);
-      await this.fallbackSpeak(text);
+      if (this.isSpeaking) {
+        console.error('Sarvam TTS error:', error);
+        await this.fallbackSpeak(text);
+      }
     } finally {
       this.isSpeaking = false;
     }
@@ -75,11 +97,17 @@ class SarvamTTSService {
 
       const audioBuffer = await this.audioContext.decodeAudioData(bytes.buffer);
       const source = this.audioContext.createBufferSource();
+      this.currentSource = source;
       source.buffer = audioBuffer;
       source.connect(this.audioContext.destination);
       
       return new Promise((resolve) => {
-        source.onended = () => resolve();
+        source.onended = () => {
+          if (this.currentSource === source) {
+             this.currentSource = null;
+          }
+          resolve();
+        };
         source.start(0);
       });
     } catch (error) {

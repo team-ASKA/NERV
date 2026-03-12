@@ -98,9 +98,13 @@ const MultiRoundInterview: React.FC = () => {
   const [showSummary, setShowSummary] = useState<boolean>(false);
   const [interviewSummary, setInterviewSummary] = useState<any>(null);
 
-  // Avatar state
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
   const [isUserSpeaking, setIsUserSpeaking] = useState<boolean>(false);
+
+  // Stop TTS on unmount
+  useEffect(() => {
+    return () => azureTTS.stop();
+  }, []);
 
   // Sync user speaking with recording state
   useEffect(() => {

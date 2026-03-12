@@ -52,6 +52,11 @@ const TechnicalRound: React.FC = () => {
   const location = useLocation();
   const { currentUser } = useAuth();
 
+  // Stop TTS on unmount
+  useEffect(() => {
+    return () => azureTTS.stop();
+  }, []);
+
   // Get round duration from location state
   const roundDuration = location.state?.roundDuration || 3;
 
@@ -96,16 +101,16 @@ const TechnicalRound: React.FC = () => {
   )[0];
   const [conversationId, setConversationId] = useState<string>('');
 
-  // ── Helper: detect if question requires coding ─────────────────────────
   const isProgrammingQuestion = useCallback((text: string): boolean => {
     const lower = text.toLowerCase();
+    // Only open the code editor when the AI explicitly asks for code to be written
     const codingKeywords = [
-      'write a function', 'implement', 'write code', 'write a program',
-      'write an algorithm', 'code a', 'solve the following', 'find two numbers',
-      'return the', 'given an array', 'given a string', 'given a list',
-      'two sum', 'binary search', 'linked list', 'sort the', 'reverse a',
-      'fibonacci', 'factorial', 'palindrome', 'anagram', 'stack', 'queue',
-      'tree traversal', 'graph', 'dynamic programming', 'recursion problem'
+      'write a function', 'write a program', 'write code', 'write an algorithm',
+      'implement a function', 'implement the function', 'implement this', 'implement a solution',
+      'code a ', 'code this', 'code the',
+      'your solution', 'write your solution', 'write the code',
+      'given the following code', 'complete the following',
+      'write the implementation',
     ];
     return codingKeywords.some(kw => lower.includes(kw));
   }, []);

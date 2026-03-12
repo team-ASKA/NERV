@@ -204,9 +204,13 @@ const NERVSummary: React.FC = () => {
                 round: 'Technical Round',
                 messages: (passedData.messages || []).filter((msg: any) => msg.round === 'technical'),
                 emotions: technicalExpressions.map(([questionId, expression]: [string, any], index: number) => {
-                  const questionText = (passedData.messages || []).find((m: any) => m.id === questionId)?.text
-                    || findQuestionTextAnywhere(questionId)
-                    || questionId;
+                  const allMessages = [
+                    ...(passedData.messages || []),
+                    ...(passedData.coreMessages || []),
+                    ...(passedData.hrMessages || [])
+                  ];
+                  const questionText = allMessages.find((m: any) => m.id === questionId && m.sender === 'ai')?.text
+                    || `Question ${index + 1}`;
                   // Prefer real Hume breakdown when available
                   let breakdown = Array.isArray(expression?.emotionBreakdown) ? expression.emotionBreakdown : null;
 
@@ -268,9 +272,13 @@ const NERVSummary: React.FC = () => {
                 round: 'Core Round',
                 messages: (passedData.messages || []).filter((msg: any) => msg.round === 'core'),
                 emotions: coreExpressions.map(([questionId, expression]: [string, any], index: number) => {
-                  const questionText = (passedData.coreMessages || []).find((m: any) => m.id === questionId)?.text
-                    || findQuestionTextAnywhere(questionId)
-                    || questionId;
+                  const allMessages = [
+                    ...(passedData.coreMessages || []),
+                    ...(passedData.messages || []),
+                    ...(passedData.hrMessages || [])
+                  ];
+                  const questionText = allMessages.find((m: any) => m.id === questionId && m.sender === 'ai')?.text
+                    || `Question ${index + 1}`;
                   let breakdown = Array.isArray(expression?.emotionBreakdown) ? expression.emotionBreakdown : null;
                   const normalizeName = (n: string) => {
                     const name = (n || '').toLowerCase();
@@ -326,9 +334,13 @@ const NERVSummary: React.FC = () => {
                 round: 'HR Round',
                 messages: (passedData.messages || []).filter((msg: any) => msg.round === 'hr'),
                 emotions: hrExpressions.map(([questionId, expression]: [string, any], index: number) => {
-                  const questionText = (passedData.hrMessages || []).find((m: any) => m.id === questionId)?.text
-                    || findQuestionTextAnywhere(questionId)
-                    || questionId;
+                  const allMessages = [
+                    ...(passedData.hrMessages || []),
+                    ...(passedData.messages || []),
+                    ...(passedData.coreMessages || [])
+                  ];
+                  const questionText = allMessages.find((m: any) => m.id === questionId && m.sender === 'ai')?.text
+                    || `Question ${index + 1}`;
                   let breakdown = Array.isArray(expression?.emotionBreakdown) ? expression.emotionBreakdown : null;
                   const normalizeName = (n: string) => {
                     const name = (n || '').toLowerCase();
@@ -382,9 +394,13 @@ const NERVSummary: React.FC = () => {
               round: 'Interview Round',
               messages: passedData.messages || [],
               emotions: combinedExpressions.map(([questionId, expression]: [string, any], index: number) => {
-                const questionText = (passedData.messages || []).find((m: any) => m.id === questionId)?.text
-                  || findQuestionTextAnywhere(questionId)
-                  || questionId;
+                const allMessages = [
+                    ...(passedData.messages || []),
+                    ...(passedData.coreMessages || []),
+                    ...(passedData.hrMessages || [])
+                  ];
+                const questionText = allMessages.find((m: any) => m.id === questionId && m.sender === 'ai')?.text
+                  || `Question ${index + 1}`;
                 let breakdown = Array.isArray(expression?.emotionBreakdown) ? expression.emotionBreakdown : null;
                 const normalizeName = (n: string) => {
                   const name = (n || '').toLowerCase();
@@ -613,15 +629,6 @@ const NERVSummary: React.FC = () => {
     return Math.abs(hash);
   };
 
-  // Helper: find question text by id across all rounds as a fallback if round-local match fails
-  const findQuestionTextAnywhere = (qid: string): string | undefined => {
-    const pools: any[] = [
-      ...(passedData?.messages || []),
-      ...(passedData?.coreMessages || []),
-      ...(passedData?.hrMessages || [])
-    ];
-    return pools.find((m: any) => m && m.id === qid)?.text;
-  };
 
   // Calculate comprehensive skill gaps and analysis
   const calculateSkillGaps = (resumeData: any, roundsData: RoundData[]) => {

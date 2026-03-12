@@ -47,6 +47,11 @@ const HRRound: React.FC = (): JSX.Element => {
   const location = useLocation();
   const { currentUser } = useAuth();
 
+  // Stop TTS on unmount
+  useEffect(() => {
+    return () => azureTTS.stop();
+  }, []);
+
   // Get data from previous rounds
   const roundDuration = location.state?.roundDuration || 3;
   const previousMessages = location.state?.messages || [];

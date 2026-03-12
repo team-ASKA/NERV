@@ -127,17 +127,17 @@ CRITICAL RULES:
 
     if (context.previousQuestions.length === 0) {
       if (context.round === 'technical') {
-        prompt = `This is the first question of the technical round. Provide a brief, welcoming introduction, acknowledge their Top Skills from their resume (${context.resumeData?.skills?.slice(0, 3).join(', ') || 'General SWE'}), and then ask ONE highly specific technical question related directly to their tech stack. Do not dump a generic Two-Sum question.`;
+        prompt = `This is the first question of the technical round. Provide an EXTREMELY BRIEF introduction (max 1-2 short sentences to avoid TTS rate limits), acknowledge their Top Skills from their resume (${context.resumeData?.skills?.slice(0, 3).join(', ') || 'General SWE'}), and then IMMEDIATELY ask them a specific Data Structures and Algorithms (DSA) or coding logic question tied to their stack. Do not ask abstract questions.`;
       } else if (context.round === 'core') {
         const hasProjects = context.resumeData?.projects && context.resumeData.projects.length > 0;
         prompt = hasProjects 
-          ? `This is the first question of the core round. Provide a brief introduction acknowledging their projects from their resume (${context.resumeData?.projects?.map(p => typeof p === 'string' ? p : (p as any).name || 'Project').join(', ')}), and ask them to dive into the architecture of one specific project.`
-          : `This is the first question of the core round. The candidate has no specific projects listed. Provide a brief introduction acknowledging their skills (${context.resumeData?.skills?.slice(0, 3).join(', ') || 'General SWE'}) and ask them a practical System Design or Core CS question (e.g., database scaling, OOP principles, OS architecture). DO NOT make up or ask about projects.`;
+          ? `This is the first question of the core round. Provide an EXTREMELY BRIEF introduction (max 1-2 short sentences to avoid TTS rate limits) acknowledging their projects (${context.resumeData?.projects?.map(p => typeof p === 'string' ? p : (p as any).name || 'Project').join(', ')}), and ask them to dive into the architecture of one specific project.`
+          : `This is the first question of the core round. The candidate has no specific projects listed. Provide an EXTREMELY BRIEF introduction (max 1-2 short sentences) acknowledging their skills (${context.resumeData?.skills?.slice(0, 3).join(', ') || 'General SWE'}) and ask them a practical System Design or Core CS question (e.g., database scaling, OOP principles, OS architecture). DO NOT make up projects.`;
       } else if (context.round === 'hr') {
         const hasExperience = context.resumeData?.experience && context.resumeData.experience.length > 0;
         prompt = hasExperience
-          ? `This is the first question of the HR round. Provide a warm introduction, acknowledge their experience (${context.resumeData?.experience?.map(e => typeof e === 'string' ? e : (e as any).company || 'Tech').join(', ')}), and ask them an initial behavioral question about a time they achieved something notable or overcame a challenge there.`
-          : `This is the first question of the HR round. The candidate has no specific work experience listed. Provide a warm introduction and ask them an initial behavioral question about how they handle teamwork, learn new skills, or manage conflict in an academic or general setting.`;
+          ? `This is the first question of the HR round. Provide an EXTREMELY BRIEF warm introduction (max 1-2 short sentences to avoid TTS rate limits), acknowledge their experience (${context.resumeData?.experience?.map(e => typeof e === 'string' ? e : (e as any).company || 'Tech').join(', ')}), and ask an initial behavioral question about a time they achieved something notable or overcame a challenge there.`
+          : `This is the first question of the HR round. The candidate has no specific work experience listed. Provide an EXTREMELY BRIEF warm introduction (max 1-2 short sentences) and ask an initial behavioral question about how they handle teamwork, learn new skills, or manage conflict.`;
       }
     } else {
       prompt = `Generate an interview question for round ${context.round}. `;
