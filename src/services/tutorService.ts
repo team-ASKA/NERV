@@ -8,12 +8,21 @@ interface ChatMessage {
   content: string;
 }
 
+interface ResumeGraphData {
+  skills?: string[];
+  projects?: string[];
+  experience?: string[];
+  education?: string[];
+  achievements?: string[];
+}
+
 interface TutorContext {
   resumeSkills: string[];
   interviewSummary: string;
   skillMentions: Record<string, number>; // skill -> how many times asked in interview
   weakSkills: string[]; // skills mentioned < 2 times
   currentTopic: string | null;
+  resumeData?: ResumeGraphData;
 }
 
 async function callGroq(messages: ChatMessage[], maxRetries = 3): Promise<string> {
@@ -79,36 +88,54 @@ async function callGroqDirectly(messages: ChatMessage[]): Promise<string> {
 
 function buildTutorSystemPrompt(ctx: TutorContext): string {
   const weak = ctx.weakSkills.length > 0
-    ? `Skills that were NOT asked or barely covered in the interview (need most attention): ${ctx.weakSkills.join(', ')}.`
+    ? `Skills needing most attention (barely covered in interview): ${ctx.weakSkills.join(', ')}.`
     : 'All resume skills were well covered in the interview.';
 
   const currentTopicLine = ctx.currentTopic
     ? `The user is currently focusing on: **${ctx.currentTopic}**.`
     : '';
 
+  const rd = ctx.resumeData || {};
+  const projectsLine = rd.projects && rd.projects.length > 0
+    ? `Projects on their resume: ${rd.projects.slice(0, 6).join(' | ')}.`
+    : '';
+  const experienceLine = rd.experience && rd.experience.length > 0
+    ? `Work experience: ${rd.experience.slice(0, 4).join(' | ')}.`
+    : '';
+  const educationLine = rd.education && rd.education.length > 0
+    ? `Education: ${rd.education.slice(0, 3).join(' | ')}.`
+    : '';
+  const achievementsLine = rd.achievements && rd.achievements.length > 0
+    ? `Key achievements: ${rd.achievements.slice(0, 4).join(' | ')}.`
+    : '';
+
   return `You are NERV Tutor — an encouraging, world-class AI tutor helping a software engineering candidate improve after a real interview.
 
-CONTEXT:
-- Candidate's resume skills: ${ctx.resumeSkills.join(', ')}.
+CANDIDATE RESUME PROFILE:
+- Technical skills: ${ctx.resumeSkills.join(', ')}.
 - ${weak}
-- Interview summary: ${ctx.interviewSummary.substring(0, 600)}...
+${projectsLine ? `- ${projectsLine}` : ''}
+${experienceLine ? `- ${experienceLine}` : ''}
+${educationLine ? `- ${educationLine}` : ''}
+${achievementsLine ? `- ${achievementsLine}` : ''}
+- Interview summary: ${ctx.interviewSummary.substring(0, 500)}...
 ${currentTopicLine}
 
 YOUR ROLE:
-1. Be warm, patient, and encouraging — the opposite of an interviewer.
-2. When the user selects a skill node, explain that topic clearly with examples.
+1. Be warm, patient, and encouraging — reference their actual projects/experience when relevant.
+2. When the user selects a skill or project node, explain clearly with real-world examples referencing their background.
 3. Ask interactive questions to test understanding (don't just lecture).
-4. Give quizzes when requested: pose 3-4 multiple choice questions numbered clearly.
-5. When explaining concepts, use concrete real-world analogies and code snippets where helpful.
-6. EXTREMELY CRITICAL: Keep responses STRICTLY UNDER 30-40 WORDS (1-2 sentences maximum, unless giving a quiz). Verbose responses will break the TTS and STT rate limits. Do not use any filler phrases.
-7. After explaining a concept, ALWAYS end with a short, single-sentence follow-up question.
-8. Never say "Great question!" or use empty filler phrases. Be direct and heavily summarized.
+4. Give quizzes ONLY when explicitly requested: pose 3-4 multiple choice questions, strictly numbered (1. 2. 3. 4.) with A. B. C. D. options, one Answer: line, and one Explanation: line per question.
+5. When explaining concepts, use concrete analogies and brief code snippets where helpful.
+6. EXTREMELY CRITICAL: Keep conversational responses STRICTLY UNDER 30-40 WORDS (1-2 sentences maximum). Verbose responses break TTS/STT rate limits.
+7. After explaining a concept, ALWAYS end with a short follow-up question.
+8. Never say "Great question!" or use empty filler phrases. Be direct.
 
 FORMAT:
-- For explanations: 1-2 SHORT sentences + code snippet if needed + 1 short follow-up question.
-- For quizzes: numbered list of 3-4 MCQ questions with A/B/C/D options.
-- Keep TTS-friendly: no markdown symbols in spoken parts.
-- DO NOT use any emojis in your response. Only use professional, concise text.`;
+- Explanations: 1-2 SHORT sentences + optional code snippet + 1 follow-up question.
+- Quizzes (ONLY when asked): strict numbered MCQ format — no intro or outro text.
+- Keep TTS-friendly: no markdown symbols in conversational parts.
+- DO NOT use any emojis in your response.`;
 }
 
 export class TutorService {

@@ -29,56 +29,146 @@ interface QuizQuestion {
   explanation: string;
 }
 
+interface ResumeGraphData {
+  skills?: string[];
+  projects?: string[];
+  experience?: string[];
+  education?: string[];
+  achievements?: string[];
+}
+
 interface TrainingSessionState {
   interviewId?: string;
   summaryMarkdown?: string;
   resumeSkills?: string[];
   skillMentions?: Record<string, number>;
   totalQuestions?: number;
+  resumeData?: ResumeGraphData;
 }
 
-function buildSkillGraph(
-  skills: string[],
+/** Shorten long labels so they fit neatly in a graph node */
+function truncateLabel(label: string, max = 28): string {
+  return label.length > max ? label.slice(0, max - 1) + '…' : label;
+}
+
+/**
+ * Build a rich multi-domain knowledge graph from full resume data.
+ * Root → [Skills, Projects, Experience, Education, Achievements]
+ * Skills are further categorised into Frontend / Backend / Database / DevOps / Other.
+ */
+function buildResumeGraph(
+  resumeData: ResumeGraphData,
   mentionCounts: Record<string, number>,
   totalQs: number
 ): GraphData {
-  if (!skills || skills.length === 0) return { nodes: [], edges: [] };
+  const skills = resumeData.skills || [];
+  const projects = resumeData.projects || [];
+  const experience = resumeData.experience || [];
+  const education = resumeData.education || [];
+  const achievements = resumeData.achievements || [];
 
-  const rootNode = { id: 'root', label: 'Skills', level: 0 };
-  const categories: Record<string, string[]> = {
-    Frontend: [], Backend: [], Database: [], DevOps: [], Other: [],
-  };
+  const hasAnyData = skills.length + projects.length + experience.length + education.length + achievements.length > 0;
+  if (!hasAnyData) return { nodes: [], edges: [] };
 
-  const frontendKw = ['react', 'vue', 'angular', 'css', 'html', 'typescript', 'javascript', 'next', 'tailwind', 'redux', 'svelte'];
-  const backendKw = ['node', 'express', 'python', 'java', 'spring', 'django', 'flask', 'rust', 'go', 'c++', 'c#', '.net', 'fastapi', 'api'];
-  const dbKw = ['sql', 'mongo', 'postgres', 'mysql', 'redis', 'firebase', 'supabase', 'dynamodb', 'graphql', 'database'];
-  const devopsKw = ['docker', 'kubernetes', 'aws', 'gcp', 'azure', 'ci', 'cd', 'linux', 'nginx', 'terraform', 'cloud'];
-
-  skills.forEach((skill) => {
-    const low = skill.toLowerCase();
-    if (frontendKw.some((k) => low.includes(k))) categories.Frontend.push(skill);
-    else if (backendKw.some((k) => low.includes(k))) categories.Backend.push(skill);
-    else if (dbKw.some((k) => low.includes(k))) categories.Database.push(skill);
-    else if (devopsKw.some((k) => low.includes(k))) categories.DevOps.push(skill);
-    else categories.Other.push(skill);
-  });
-
-  const nodes: GraphData['nodes'] = [rootNode];
+  const nodes: GraphData['nodes'] = [];
   const edges: GraphData['edges'] = [];
 
-  Object.entries(categories).forEach(([cat, catSkills]) => {
-    if (catSkills.length === 0) return;
-    const catId = `cat_${cat}`;
-    nodes.push({ id: catId, label: cat, level: 1 });
-    edges.push({ from: 'root', to: catId });
-    catSkills.forEach((skill) => {
-      const skillId = `skill_${skill}`;
-      nodes.push({ id: skillId, label: skill, level: 2, mentionCount: mentionCounts[skill] || 0, totalQuestions: totalQs || 1 });
-      edges.push({ from: catId, to: skillId });
+  const rootNode = { id: 'root', label: 'Resume', level: 0 };
+  nodes.push(rootNode);
+
+  // ─── Skills (sub-categorised) ───────────────────────────────────────────────
+  if (skills.length > 0) {
+    const skillsRootId = 'cat_Skills';
+    nodes.push({ id: skillsRootId, label: 'Skills', level: 1 });
+    edges.push({ from: 'root', to: skillsRootId });
+
+    const subCats: Record<string, string[]> = {
+      Frontend: [], Backend: [], Database: [], DevOps: [], Other: [],
+    };
+    const frontendKw = ['react', 'vue', 'angular', 'css', 'html', 'typescript', 'javascript', 'next', 'tailwind', 'redux', 'svelte', 'ui', 'ux'];
+    const backendKw = ['node', 'express', 'python', 'java', 'spring', 'django', 'flask', 'rust', 'go', 'c++', 'c#', '.net', 'fastapi', 'api', 'rest', 'graphql'];
+    const dbKw = ['sql', 'mongo', 'postgres', 'mysql', 'redis', 'firebase', 'supabase', 'dynamodb', 'database', 'supabase', 'prisma'];
+    const devopsKw = ['docker', 'kubernetes', 'aws', 'gcp', 'azure', 'ci', 'cd', 'linux', 'nginx', 'terraform', 'cloud', 'vercel', 'netlify', 'git'];
+
+    skills.forEach((skill) => {
+      const low = skill.toLowerCase();
+      if (frontendKw.some((k) => low.includes(k))) subCats.Frontend.push(skill);
+      else if (backendKw.some((k) => low.includes(k))) subCats.Backend.push(skill);
+      else if (dbKw.some((k) => low.includes(k))) subCats.Database.push(skill);
+      else if (devopsKw.some((k) => low.includes(k))) subCats.DevOps.push(skill);
+      else subCats.Other.push(skill);
     });
-  });
+
+    Object.entries(subCats).forEach(([subCat, catSkills]) => {
+      if (catSkills.length === 0) return;
+      const subId = `sub_${subCat}`;
+      nodes.push({ id: subId, label: subCat, level: 2 });
+      edges.push({ from: skillsRootId, to: subId });
+      catSkills.forEach((skill) => {
+        const skillId = `skill_${skill}`;
+        nodes.push({ id: skillId, label: truncateLabel(skill), level: 3, mentionCount: mentionCounts[skill] || 0, totalQuestions: totalQs || 1 });
+        edges.push({ from: subId, to: skillId });
+      });
+    });
+  }
+
+  // ─── Projects ───────────────────────────────────────────────────────────────
+  if (projects.length > 0) {
+    const projRootId = 'cat_Projects';
+    nodes.push({ id: projRootId, label: 'Projects', level: 1 });
+    edges.push({ from: 'root', to: projRootId });
+    projects.slice(0, 10).forEach((proj, i) => {
+      // Extract project name (before colon/dash) and use as short label
+      const shortName = proj.split(/[:–\-]/)[0].trim();
+      const nodeId = `proj_${i}`;
+      nodes.push({ id: nodeId, label: truncateLabel(shortName, 30), level: 2 });
+      edges.push({ from: projRootId, to: nodeId });
+    });
+  }
+
+  // ─── Experience ─────────────────────────────────────────────────────────────
+  if (experience.length > 0) {
+    const expRootId = 'cat_Experience';
+    nodes.push({ id: expRootId, label: 'Experience', level: 1 });
+    edges.push({ from: 'root', to: expRootId });
+    experience.slice(0, 8).forEach((exp, i) => {
+      const shortLabel = exp.split(/[:(]/)[0].trim();
+      nodes.push({ id: `exp_${i}`, label: truncateLabel(shortLabel, 30), level: 2 });
+      edges.push({ from: expRootId, to: `exp_${i}` });
+    });
+  }
+
+  // ─── Education ──────────────────────────────────────────────────────────────
+  if (education.length > 0) {
+    const eduRootId = 'cat_Education';
+    nodes.push({ id: eduRootId, label: 'Education', level: 1 });
+    edges.push({ from: 'root', to: eduRootId });
+    education.slice(0, 5).forEach((edu, i) => {
+      nodes.push({ id: `edu_${i}`, label: truncateLabel(edu, 32), level: 2 });
+      edges.push({ from: eduRootId, to: `edu_${i}` });
+    });
+  }
+
+  // ─── Achievements ───────────────────────────────────────────────────────────
+  if (achievements.length > 0) {
+    const achRootId = 'cat_Achievements';
+    nodes.push({ id: achRootId, label: 'Achievements', level: 1 });
+    edges.push({ from: 'root', to: achRootId });
+    achievements.slice(0, 8).forEach((ach, i) => {
+      nodes.push({ id: `ach_${i}`, label: truncateLabel(ach, 32), level: 2 });
+      edges.push({ from: achRootId, to: `ach_${i}` });
+    });
+  }
 
   return { nodes, edges };
+}
+
+/** Detect if an AI message contains quiz content needing the dedicated panel */
+function looksLikeQuiz(text: string): boolean {
+  // Must have at least 2 numbered questions with A/B options
+  const questionBlocks = text.match(/\d+[.)][^\n]{5,}/g) || [];
+  const optionLines = text.match(/^[A-D][.)][^\n]{3,}/mg) || [];
+  return questionBlocks.length >= 2 && optionLines.length >= 4;
 }
 
 /** Parse the tutor's raw quiz text into structured MCQ objects. */
@@ -308,27 +398,38 @@ const TrainingSession: React.FC = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Merge legacy resumeSkills array with full resumeData for backwards compatibility
+  const mergedResumeData = React.useMemo((): ResumeGraphData => {
+    const base = state.resumeData || {};
+    const skills = [
+      ...(base.skills || []),
+      ...(state.resumeSkills || []).filter(s => !(base.skills || []).includes(s)),
+    ];
+    return { ...base, skills };
+  }, [state.resumeData, state.resumeSkills]);
+
   const graphData = React.useMemo(() => {
-    return buildSkillGraph(
-      state.resumeSkills || [],
+    return buildResumeGraph(
+      mergedResumeData,
       state.skillMentions || {},
       state.totalQuestions || 10
     );
-  }, [state.resumeSkills, state.skillMentions, state.totalQuestions]);
+  }, [mergedResumeData, state.skillMentions, state.totalQuestions]);
 
   const weakSkills = React.useMemo(() => {
-    return (state.resumeSkills || []).filter(s => (state.skillMentions?.[s] || 0) < 2);
-  }, [state.resumeSkills, state.skillMentions]);
+    return (mergedResumeData.skills || []).filter(s => (state.skillMentions?.[s] || 0) < 2);
+  }, [mergedResumeData.skills, state.skillMentions]);
 
   useEffect(() => {
     tutorService.initSession({
-      resumeSkills: state.resumeSkills || [],
+      resumeSkills: mergedResumeData.skills || [],
       interviewSummary: state.summaryMarkdown || 'No summary available.',
       skillMentions: state.skillMentions || {},
       weakSkills,
       currentTopic: null,
+      resumeData: mergedResumeData,
     });
-  }, [state, weakSkills]);
+  }, [state, weakSkills, mergedResumeData]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -348,11 +449,26 @@ const TrainingSession: React.FC = () => {
     }
   }, [isMuted]);
 
-  const addAIMessage = useCallback(async (text: string, isQuiz = false) => {
+  const addAIMessage = useCallback(async (text: string, forceIsQuiz = false) => {
+    // Auto-detect quiz content — route to dedicated panel instead of chat
+    const detectedQuiz = forceIsQuiz || looksLikeQuiz(text);
+    if (detectedQuiz) {
+      setQuizRawText(text);
+      setShowQuiz(true);
+      // Only add a brief notification to the chat, not the full quiz
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        text: '📋 Quiz ready! Check the **Quiz Panel** on the right →',
+        sender: 'ai',
+        timestamp: new Date(),
+        isQuiz: false,
+      }]);
+      return;
+    }
     setMessages(prev => [...prev, {
-      id: Date.now().toString(), text, sender: 'ai', timestamp: new Date(), isQuiz,
+      id: Date.now().toString(), text, sender: 'ai', timestamp: new Date(), isQuiz: false,
     }]);
-    if (!isQuiz) await speakMessage(text);
+    await speakMessage(text);
   }, [speakMessage]);
 
   const startSession = async () => {
@@ -372,7 +488,8 @@ const TrainingSession: React.FC = () => {
 
   const handleNodeSelect = useCallback(async (nodeId: string | number, label: string) => {
     const node = graphData.nodes.find(n => n.id === nodeId);
-    if (!node || node.level !== 2) return;
+    // Allow interaction with leaf nodes (levels 2 and 3 in the new richer graph)
+    if (!node || (node.level !== 2 && node.level !== 3)) return;
 
     setActiveNodeId(nodeId);
     setActiveTopicLabel(label);
@@ -381,15 +498,36 @@ const TrainingSession: React.FC = () => {
       id: Date.now().toString(), text: `Topic selected: **${label}**`, sender: 'user', timestamp: new Date(),
     }]);
 
+    // Enrich context hint based on node id prefix
+    const nodeIdStr = String(nodeId);
+    let topicContext = label;
+    if (nodeIdStr.startsWith('proj_')) {
+      const projIdx = parseInt(nodeIdStr.replace('proj_', ''));
+      const fullProject = mergedResumeData.projects?.[projIdx];
+      topicContext = fullProject ? `project: "${fullProject}"` : `project: ${label}`;
+    } else if (nodeIdStr.startsWith('exp_')) {
+      const expIdx = parseInt(nodeIdStr.replace('exp_', ''));
+      const fullExp = mergedResumeData.experience?.[expIdx];
+      topicContext = fullExp ? `work experience: "${fullExp}"` : `experience: ${label}`;
+    } else if (nodeIdStr.startsWith('edu_')) {
+      const eduIdx = parseInt(nodeIdStr.replace('edu_', ''));
+      const fullEdu = mergedResumeData.education?.[eduIdx];
+      topicContext = fullEdu ? `education: "${fullEdu}"` : `education: ${label}`;
+    } else if (nodeIdStr.startsWith('ach_')) {
+      const achIdx = parseInt(nodeIdStr.replace('ach_', ''));
+      const fullAch = mergedResumeData.achievements?.[achIdx];
+      topicContext = fullAch ? `achievement: "${fullAch}"` : `achievement: ${label}`;
+    }
+
     try {
-      const response = await tutorService.focusOnTopic(label);
+      const response = await tutorService.focusOnTopic(topicContext);
       await addAIMessage(response);
     } catch {
       await addAIMessage(`Let's explore ${label}! What do you already know about it?`);
     } finally {
       setIsLoading(false);
     }
-  }, [graphData, addAIMessage]);
+  }, [graphData, addAIMessage, mergedResumeData]);
 
   const handleNodeQuiz = useCallback(async (label: string) => {
     setActiveTopicLabel(label);
@@ -498,7 +636,7 @@ const TrainingSession: React.FC = () => {
       <div className="flex-1 flex overflow-hidden min-h-0">
 
         {/* ── LEFT: Knowledge Graph Panel ── */}
-        <div className="w-72 flex-shrink-0 border-r border-white/10 flex flex-col bg-black min-h-0">
+        <div className="w-[420px] flex-shrink-0 border-r border-white/10 flex flex-col bg-black min-h-0">
           {/* Tabs */}
           <div className="flex border-b border-white/10 flex-shrink-0">
             {(['graph', 'topics'] as const).map(tab => (
