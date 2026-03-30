@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Brain, BarChart3, MessageSquare, User, Clock, Target, Download, Share2, Activity, AlertCircle } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import { useAuth } from '../contexts/AuthContext';
 import { supabaseInterviewService } from '../services/supabaseInterviewService';
+import { KnowledgeGraph, GraphData } from '../components/KnowledgeGraph';
+import { useAuth } from '../contexts/AuthContext';
+import ReactMarkdown from 'react-markdown';
+import { ArrowLeft, Network, Brain as BrainIcon, BarChart3, MessageSquare, User, Clock, Target, Download, Share2, Activity, AlertCircle } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -70,6 +71,102 @@ const NERVSummary: React.FC = () => {
   };
 
   const summarySections = parseSummaryToSections(generatedSummary);
+
+  // Calculate overall metrics (moved up to avoid declaration order issues)
+  const totalQuestions = roundsData.reduce((sum, round) => sum + round.questionsCount, 0);
+  const totalDuration = roundsData.reduce((sum, round) => sum + round.duration, 0);
+  const allEmotions = roundsData.flatMap(round => round.emotions);
+
+  // Overall average confidence (%). Uses real Hume 'Confidence' score when present; fallback otherwise.
+  const avgConfidence = allEmotions.length > 0
+    ? (allEmotions.reduce((sum, emotion) => {
+      const confidence = emotion.emotions.find(e => e.name === 'Confidence')?.score || 0;
+      return sum + confidence; // 0..1
+    }, 0) / allEmotions.length) * 100
+    : 0;
+
+  // Count based on per-question metrics and dominant emotion for better robustness
+  const confidentQuestions = questionConfidence.filter(q =>
+    (q.dominant === 'Confidence') || (q.confidence >= 50)
+  ).length;
+  const nervousQuestions = questionConfidence.filter(q =>
+    (q.dominant === 'Nervous' || q.dominant === 'Anxiety') || (q.nervous >= 35)
+  ).length;
+
+  // Emotion distribution
+  const emotionCounts = allEmotions.reduce((acc: Record<string, number>, emotion) => {
+    const topEmotion = emotion.emotions.reduce((max, e) => e.score > max.score ? e : max, emotion.emotions[0]);
+    if (topEmotion) {
+      acc[topEmotion.name] = (acc[topEmotion.name] || 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  const mostCommonEmotion = Object.keys(emotionCounts).length > 0
+    ? Object.entries(emotionCounts).reduce((a, b) => emotionCounts[a[0]] > emotionCounts[b[0]] ? a : b)[0]
+    : 'Neutral';
+
+  const buildSkillGraph = (
+    skills: string[],
+    mentions: Record<string, number>,
+    totalQs: number
+  ): GraphData => {
+    if (!skills || skills.length === 0) return { nodes: [], edges: [] };
+
+    const rootNode = { id: 'root', label: 'NERV Engine', level: 0 };
+    const categories: Record<string, string[]> = {
+      'Frontend': [],
+      'Backend': [],
+      'Database': [],
+      'DevOps': [],
+      'Other': [],
+    };
+
+    const frontendKw = ['react', 'vue', 'angular', 'css', 'html', 'typescript', 'javascript', 'next', 'tailwind', 'redux', 'ui', 'ux', 'frontend'];
+    const backendKw = ['node', 'express', 'python', 'java', 'spring', 'django', 'flask', 'rust', 'go', 'c++', 'c#', '.net', 'fastapi', 'backend', 'api'];
+    const dbKw = ['sql', 'mongo', 'postgres', 'mysql', 'redis', 'firebase', 'supabase', 'dynamodb', 'graphql', 'database', 'db'];
+    const devopsKw = ['docker', 'kubernetes', 'aws', 'gcp', 'azure', 'ci', 'cd', 'linux', 'nginx', 'terraform', 'devops', 'cloud'];
+
+    skills.forEach((skill) => {
+      const low = skill.toLowerCase();
+      if (frontendKw.some((k) => low.includes(k))) categories.Frontend.push(skill);
+      else if (backendKw.some((k) => low.includes(k))) categories.Backend.push(skill);
+      else if (dbKw.some((k) => low.includes(k))) categories.Database.push(skill);
+      else if (devopsKw.some((k) => low.includes(k))) categories.DevOps.push(skill);
+      else categories.Other.push(skill);
+    });
+
+    const nodes: GraphData['nodes'] = [rootNode];
+    const edges: GraphData['edges'] = [];
+
+    Object.entries(categories).forEach(([cat, catSkills]) => {
+      if (catSkills.length === 0) return;
+      const catId = `cat_${cat}`;
+      nodes.push({ id: catId, label: cat, level: 1 });
+      edges.push({ from: 'root', to: catId });
+
+      catSkills.forEach((skill) => {
+        const skillId = `skill_${skill}`;
+        nodes.push({
+          id: skillId,
+          label: skill,
+          level: 2,
+          mentionCount: mentions[skill] || 1, // default 1 if not tracked
+          totalQuestions: totalQs || 10,
+        });
+        edges.push({ from: catId, to: skillId });
+      });
+    });
+
+    return { nodes, edges };
+  };
+
+  const graphData = React.useMemo(() => {
+    const skills = skillGapAnalysis?.mentioned || [];
+    const mentions = skillGapAnalysis?.skillMentions || {};
+    const total = totalQuestions || 10;
+    return buildSkillGraph(skills, mentions, total);
+  }, [skillGapAnalysis, totalQuestions]);
 
   const handleDownloadPDF = async () => {
     try {
@@ -804,39 +901,7 @@ const NERVSummary: React.FC = () => {
     });
   };
 
-  // Calculate overall metrics
-  const totalQuestions = roundsData.reduce((sum, round) => sum + round.questionsCount, 0);
-  const totalDuration = roundsData.reduce((sum, round) => sum + round.duration, 0);
-  const allEmotions = roundsData.flatMap(round => round.emotions);
 
-  // Overall average confidence (%). Uses real Hume 'Confidence' score when present; fallback otherwise.
-  const avgConfidence = allEmotions.length > 0
-    ? (allEmotions.reduce((sum, emotion) => {
-      const confidence = emotion.emotions.find(e => e.name === 'Confidence')?.score || 0;
-      return sum + confidence; // 0..1
-    }, 0) / allEmotions.length) * 100
-    : 0;
-
-  // Count based on per-question metrics and dominant emotion for better robustness
-  const confidentQuestions = questionConfidence.filter(q =>
-    (q.dominant === 'Confidence') || (q.confidence >= 50)
-  ).length;
-  const nervousQuestions = questionConfidence.filter(q =>
-    (q.dominant === 'Nervous' || q.dominant === 'Anxiety') || (q.nervous >= 35)
-  ).length;
-
-  // Emotion distribution
-  const emotionCounts = allEmotions.reduce((acc: Record<string, number>, emotion) => {
-    const topEmotion = emotion.emotions.reduce((max, e) => e.score > max.score ? e : max, emotion.emotions[0]);
-    if (topEmotion) {
-      acc[topEmotion.name] = (acc[topEmotion.name] || 0) + 1;
-    }
-    return acc;
-  }, {});
-
-  const mostCommonEmotion = Object.keys(emotionCounts).length > 0
-    ? Object.entries(emotionCounts).reduce((a, b) => emotionCounts[a[0]] > emotionCounts[b[0]] ? a : b)[0]
-    : 'Neutral';
 
   if (isLoading) {
     return (
@@ -913,7 +978,8 @@ const NERVSummary: React.FC = () => {
             {[
               { id: 'overview', label: 'Overview', icon: BarChart3 },
               { id: 'rounds', label: 'Transcript', icon: MessageSquare },
-              { id: 'emotions', label: 'Emotions', icon: Brain },
+              { id: 'emotions', label: 'Emotions', icon: BrainIcon }, // Keep Brain for emotions
+              { id: 'kgraph', label: 'Knowledge Graph', icon: Network }, // Network for graph
               { id: 'confidence', label: 'Confidence', icon: Activity },
               { id: 'skills', label: 'Skills', icon: Target },
               { id: 'summary', label: 'AI Report', icon: User }
@@ -1109,6 +1175,18 @@ const NERVSummary: React.FC = () => {
           </div>
         )}
 
+
+        {activeTab === 'kgraph' && (
+          <div className="h-[600px] border border-white/10 rounded-2xl overflow-hidden bg-black/40">
+            <KnowledgeGraph
+              data={graphData}
+              onNodeSelect={(_, label) => {
+                const cleanLabel = label.split('\n')[0];
+                alert(`Selected ${cleanLabel}. Click "Start Training" from history to dive deep with the AI Tutor!`);
+              }}
+            />
+          </div>
+        )}
 
         {activeTab === 'rounds' && (
           <div className="space-y-12">

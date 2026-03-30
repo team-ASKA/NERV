@@ -15,6 +15,7 @@ import EnhancedInterviewSummary from './pages/EnhancedInterviewSummary';
 import NERVSummary from './pages/NERVSummary';
 import ProfessionalSummary from './pages/ProfessionalSummary';
 import Results from './pages/Results';
+import TrainingSession from './pages/TrainingSession';
 import { useAuth } from './contexts/AuthContext';
 
 // Protected route component
@@ -89,6 +90,11 @@ const AppContent = () => {
         <Route path="/results" element={
           <ProtectedRoute>
             <Results />
+          </ProtectedRoute>
+        } />
+        <Route path="/training-session" element={
+          <ProtectedRoute>
+            <TrainingSession />
           </ProtectedRoute>
         } />
       </Routes>
