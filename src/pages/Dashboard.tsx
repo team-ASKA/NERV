@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, CheckCircle, AlertCircle, ArrowRight, Briefcase, Menu, Edit, LogOut, Linkedin, Globe, X, Upload, Calendar, ChevronLeft, ChevronRight, ExternalLink, Trash2, History } from 'lucide-react';
+import { FileText, CheckCircle, AlertCircle, ArrowRight, Briefcase, Menu, Edit, LogOut, Linkedin, Globe, X, Upload, Calendar, ChevronLeft, ChevronRight, ExternalLink, Trash2, History, Brain } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { doc, getDoc, updateDoc, setDoc, Timestamp } from 'firebase/firestore';
@@ -59,7 +59,7 @@ const Dashboard = () => {
 
 
   // Add new state variables for interview history
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'history'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'training'>('dashboard');
   const [interviewHistory, setInterviewHistory] = useState<any[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(5);
@@ -351,7 +351,7 @@ const Dashboard = () => {
       // Extract and parse resume data using backend API
       if (currentUser) {
         try {
-          const { resumeId, resumeData } = await extractAndSaveResume(currentUser.uid, file);
+          const { resumeData } = await extractAndSaveResume(currentUser.uid, file);
           console.log('Extracted resume data from backend:', resumeData);
           console.log('Resume data structure:', {
             skills: resumeData?.skills?.length || 0,
@@ -418,6 +418,23 @@ const Dashboard = () => {
           interviewData: selectedInterview,
           summary: selectedInterview.summary_markdown || selectedInterview.summary
         } 
+      });
+    }
+  };
+
+  const startTrainingSession = (interviewId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    const selectedInterview = interviewHistory.find(interview => interview.id === interviewId);
+    if (selectedInterview) {
+      const resumeSkills = userDetails?.skills || ['React', 'TypeScript', 'Node.js', 'System Design', 'Algorithms']; 
+      navigate('/training-session', {
+        state: {
+          interviewId: selectedInterview.id,
+          summaryMarkdown: selectedInterview.summary_markdown || selectedInterview.summary,
+          resumeSkills: resumeSkills,
+          skillMentions: selectedInterview.metrics?.skillMentions || {}, 
+          totalQuestions: selectedInterview.questions_data?.length || 10,
+        }
       });
     }
   };
@@ -975,6 +992,16 @@ const Dashboard = () => {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('training')}
+            className={`px-4 py-2 font-medium text-sm transition-colors flex items-center ${
+              activeTab === 'training' 
+                ? 'text-white border-b-2 border-white' 
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Training Sessions
+          </button>
         </div>
         
         {/* Dashboard Tab Content */}
@@ -1261,9 +1288,18 @@ const Dashboard = () => {
                               {interview.summary ? interview.summary.split('\n')[0].replace(/[#*`]/g, '') : (interview.summary_markdown ? interview.summary_markdown.split('\n')[0].replace(/[#*`]/g, '') : "Interview completed")}
                             </p>
                             
-                            <div className="mt-3 flex items-center text-blue-400 text-xs">
-                              <ExternalLink className="h-3 w-3 mr-1" />
-                              View detailed results
+                            <div className="mt-4 flex flex-wrap items-center gap-3">
+                              <div className="flex items-center text-blue-400 text-xs font-medium cursor-pointer hover:text-blue-300 transition-colors">
+                                <ExternalLink className="h-3 w-3 mr-1" />
+                                View results
+                              </div>
+                              <button
+                                onClick={(e) => startTrainingSession(interview.id, e)}
+                                className="flex items-center text-yellow-500 text-xs font-bold bg-yellow-500/10 hover:bg-yellow-500/20 px-2.5 py-1.5 rounded-lg border border-yellow-500/20 hover:border-yellow-500/40 transition-colors"
+                              >
+                                <Brain className="h-3 w-3 mr-1.5" />
+                                Start Training
+                              </button>
                             </div>
                           </div>
                           
@@ -1317,6 +1353,66 @@ const Dashboard = () => {
                   >
                     Start Your First Interview
                     <ArrowRight className="ml-2 h-4 w-4 inline" />
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+
+        {/* Training Sessions Tab Content */}
+        {activeTab === 'training' && (
+          <div className="space-y-6">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="bg-black border border-white/10 rounded-xl p-6 shadow-lg"
+            >
+              <div className="flex items-center mb-4">
+                <Brain className="h-5 w-5 text-yellow-500 mr-2" />
+                <h2 className="text-xl font-semibold">AI Tutor Training Hub</h2>
+              </div>
+              <p className="text-gray-400 text-sm mb-6">
+                Refine your skills based on your past interview performance. Select an interview below to start a personalized training session.
+              </p>
+
+              {interviewHistory.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {interviewHistory.map((interview, index) => (
+                    <div key={`train-${interview.id}`} className="bg-white/5 border border-white/10 rounded-lg p-5 hover:border-yellow-500/50 transition-colors flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start mb-3">
+                          <h3 className="font-bold text-white text-md">Session #{interviewHistory.length - index}</h3>
+                          <span className="text-[10px] uppercase font-bold text-gray-500 tracking-widest bg-black/40 px-2 py-1 rounded-md">
+                            {new Date(interview.timestamp || interview.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400 line-clamp-3 mb-6">
+                           {interview.summary ? interview.summary.split('\n')[0].replace(/[#*`]/g, '') : (interview.summary_markdown ? interview.summary_markdown.split('\n')[0].replace(/[#*`]/g, '') : "Resume-based Interview Session")}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => startTrainingSession(interview.id, e)}
+                        className="w-full flex items-center justify-center text-black text-sm font-bold bg-yellow-500 hover:bg-yellow-400 py-3 rounded-lg transition-transform hover:scale-[1.02] active:scale-[0.98] mt-auto shadow-[0_0_15px_rgba(234,179,8,0.2)]"
+                      >
+                        <Brain className="h-4 w-4 mr-2" />
+                        Start Training
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 bg-white/5 border border-white/10 rounded-xl">
+                  <Brain className="h-8 w-8 text-gray-500 mx-auto mb-4 opacity-50" />
+                  <p className="text-gray-300 font-medium mb-2">No interviews available for training.</p>
+                  <p className="text-sm text-gray-500 max-w-sm mx-auto">Complete an interview first to unlock personalized AI tutoring scaled to your exact skill gaps.</p>
+                  
+                  <button
+                    onClick={() => navigate('/multi-round-interview')}
+                    className="mt-6 px-6 py-2 bg-white text-black text-sm font-bold rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Start an Interview
                   </button>
                 </div>
               )}

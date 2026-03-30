@@ -16,6 +16,8 @@ import { sarvamSTT as whisperService } from '../services/sarvamSTTService';
 // import { humeAI } from '../services/humeAIService'; // Using direct API instead
 import { openAI, QuestionContext } from '../services/openAIService';
 import { getResumeData } from '../services/firebaseResumeService';
+import DeviceCheckModal from '../components/DeviceCheckModal';
+import { analytics } from '../services/analyticsService';
 
 interface Message {
   id: string;
@@ -154,6 +156,7 @@ const HRRound: React.FC = (): JSX.Element => {
       setTimeRemaining(prev => {
         if (prev <= 1) {
           setIsInterviewComplete(true);
+          analytics.track('Round Completed', { round: 'HR', duration: roundDuration * 60, status: 'Time Expired' });
           return 0;
         }
         return prev - 1;
@@ -163,10 +166,66 @@ const HRRound: React.FC = (): JSX.Element => {
     return () => clearInterval(timer);
   }, [isInterviewStarted, isInterviewComplete]);
 
+  // State Recovery
+  useEffect(() => {
+    if (isInterviewStarted && !isInterviewComplete && messages.length > 0) {
+      const stateToSave = {
+        messages,
+        timeRemaining,
+        currentQuestionId,
+        previousQuestions,
+        questionExpressions: Array.from(questionExpressions.entries()),
+        roundDuration
+      };
+      localStorage.setItem('nerv_hr_state', JSON.stringify(stateToSave));
+    }
+  }, [messages, timeRemaining, currentQuestionId, previousQuestions, questionExpressions, isInterviewStarted, isInterviewComplete, roundDuration]);
+
+  // Track interview abandonment
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (isInterviewStarted && !isInterviewComplete) {
+        analytics.track('Interview Abandoned', { round: 'HR', timeRemaining });
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isInterviewStarted, isInterviewComplete, timeRemaining]);
+
   const startInterview = () => {
+    const savedState = localStorage.getItem('nerv_hr_state');
+    if (savedState) {
+      try {
+        const parsed = JSON.parse(savedState);
+        const confirmResume = window.confirm("We found an in-progress HR Round session. Would you like to resume where you left off?");
+        if (confirmResume) {
+          const parsedMessages = (parsed.messages || []).map((m: any) => ({
+            ...m,
+            timestamp: new Date(m.timestamp)
+          }));
+          setMessages(parsedMessages);
+          setTimeRemaining(parsed.timeRemaining || (roundDuration * 60));
+          setCurrentQuestionId(parsed.currentQuestionId || '');
+          setPreviousQuestions(parsed.previousQuestions || []);
+          if (parsed.questionExpressions) {
+            setQuestionExpressions(new Map(parsed.questionExpressions));
+          }
+          setIsInterviewStarted(true);
+          return;
+        }
+      } catch (e) {
+        console.error("Error parsing saved state", e);
+      }
+    }
+    
+    // Normal start
+    localStorage.removeItem('nerv_hr_state');
     setIsInterviewStarted(true);
     setTimeRemaining(roundDuration * 60);
     setShouldStartRound(true);
+    analytics.track('Interview Started', { round: 'HR' });
   };
   // Start current round
   const startCurrentRound = async () => {
@@ -497,6 +556,7 @@ const HRRound: React.FC = (): JSX.Element => {
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
           setError('Camera access denied. Please allow camera access and try again.');
+          analytics.track('Camera Denied', { round: 'HR' });
         } else if (error.name === 'NotFoundError') {
           setError('No camera found. Please connect a camera and try again.');
         } else {
@@ -829,12 +889,29 @@ const HRRound: React.FC = (): JSX.Element => {
     }
   };
 
+  const [showDeviceCheck, setShowDeviceCheck] = useState<boolean>(false);
+
   // Format time helper
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  const handleStartClick = () => {
+    if (sessionStorage.getItem('nerv_device_checked') === 'true') {
+      startInterview();
+    } else {
+      setShowDeviceCheck(true);
+    }
+  };
+
+  const handleDeviceCheckComplete = () => {
+    sessionStorage.setItem('nerv_device_checked', 'true');
+    setShowDeviceCheck(false);
+    startInterview();
+  };
+
 
   if (!isInterviewStarted) {
     return (
@@ -917,8 +994,16 @@ const HRRound: React.FC = (): JSX.Element => {
                 </p>
               </div>
 
+              {showDeviceCheck && (
+                <DeviceCheckModal 
+                  roundName="HR Assessment" 
+                  onComplete={handleDeviceCheckComplete} 
+                  onSkip={handleDeviceCheckComplete} 
+                />
+              )}
+
               <button
-                onClick={startInterview}
+                onClick={handleStartClick}
                 className="w-full relative group overflow-hidden bg-white text-black py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all hover:scale-[1.01] active:scale-[0.99] shadow-xl shadow-pink-500/5"
               >
                 <span className="relative z-10 flex items-center justify-center">
@@ -989,12 +1074,18 @@ const HRRound: React.FC = (): JSX.Element => {
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10">
-              <Clock className="h-4 w-4 text-gray-400" />
-              <span className="font-mono text-sm font-medium">{formatTime(timeRemaining)}</span>
+            <div className={`flex items-center space-x-2 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 ${timeRemaining <= 30 ? 'text-red-500 animate-pulse border-red-500/50 bg-red-500/10' : timeRemaining <= 120 ? 'text-yellow-400 border-yellow-400/30 bg-yellow-400/10' : 'text-gray-400'}`}>
+              <Clock className="h-4 w-4" />
+              <span className={`font-mono text-sm font-medium ${timeRemaining <= 30 ? 'text-red-500' : timeRemaining <= 120 ? 'text-yellow-400' : 'text-white'}`}>
+                {formatTime(timeRemaining)}
+              </span>
             </div>
             <button
-              onClick={() => setIsInterviewComplete(true)}
+              onClick={() => {
+                setIsInterviewComplete(true);
+                localStorage.removeItem('nerv_hr_state');
+                analytics.track('Round Completed', { round: 'HR', duration: roundDuration * 60 - timeRemaining, status: 'User Ended' });
+              }}
               className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm transition-colors"
             >
               <X className="h-4 w-4" />
@@ -1063,14 +1154,23 @@ const HRRound: React.FC = (): JSX.Element => {
                 </AnimatePresence>
 
                 {isLoading && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-                    <div className="bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm px-5 py-4 flex items-center space-x-3">
-                      <div className="flex space-x-1">
-                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} className="flex justify-start">
+                    <div className="max-w-[85%] px-5 py-4 rounded-2xl bg-white/5 border border-white/10 rounded-bl-sm shadow-sm">
+                      <div className="flex items-center space-x-3 mb-3">
+                        <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                        <span className="text-xs text-purple-400/80 font-medium uppercase tracking-wider">HR AI processing</span>
                       </div>
-                      <span className="text-sm text-gray-400 font-medium">HR AI is typing...</span>
+                      <div className="space-y-2.5">
+                        <div className="h-3 bg-white/10 rounded overflow-hidden relative">
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite]" />
+                        </div>
+                        <div className="h-3 bg-white/10 rounded overflow-hidden relative w-5/6">
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite_100ms]" />
+                        </div>
+                        <div className="h-3 bg-white/10 rounded overflow-hidden relative w-4/6">
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite_200ms]" />
+                        </div>
+                      </div>
                     </div>
                   </motion.div>
                 )}

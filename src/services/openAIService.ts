@@ -1,10 +1,12 @@
 /**
- * Question Generation Service (powered by Groq Llama 3.1 8B)
- * Drop-in replacement for the old Azure OpenAI/Gemini service.
- * Keeps the same exported interface so all callers work unchanged.
+ * Question Generation Service (Groq Llama 3.1 8B via secure server-side proxy)
+ *
+ * API calls are routed through /api/groq-proxy (a Vercel serverless function)
+ * so the Groq API key is NEVER exposed in the browser bundle.
+ *
+ * Set GROQ_API_KEY (not VITE_GROQ_API_KEY) in Vercel Dashboard > Project Settings.
  */
 
-import Groq from 'groq-sdk';
 
 export interface QuestionContext {
   round: 'technical' | 'core' | 'hr';
@@ -26,28 +28,96 @@ export interface QuestionContext {
   lastAnswer?: string;
 }
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
+interface ChatMessage {
+  role: 'system' | 'user';
+  content: string;
+}
 
-// Ensure we pass dynamically the API key and allow browser instantiation since this is Vite
-const groq = new Groq({ apiKey: GROQ_API_KEY, dangerouslyAllowBrowser: true });
+/**
+ * Call Groq via secure server-side proxy with exponential-backoff retry.
+ * Falls back gracefully so callers always get a string (possibly empty).
+ */
+async function callGroq(
+  systemPrompt: string,
+  userPrompt: string,
+  maxRetries = 3
+): Promise<string> {
+  const messages: ChatMessage[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ];
 
-async function callGroq(systemPrompt: string, userPrompt: string): Promise<string> {
-  try {
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch('/api/groq-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages }),
+      });
+
+      if (!response.ok) {
+        // Fallback for local development: if proxy returns 404/not handled, try direct call
+        if ((response.status === 404 || response.status === 405) && import.meta.env.VITE_GROQ_API_KEY) {
+          console.info('[openAIService] Proxy not found/handled. Falling back to direct Groq call for local dev.');
+          return callGroqDirectly(messages);
+        }
+
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Proxy ${response.status}: ${errorData.error || 'Unknown'}`);
+      }
+
+      const data = await response.json();
+      return data.content ?? '';
+    } catch (err: any) {
+      // If the fetch itself failed (e.g. network error) and we have a local key, try direct
+      if (import.meta.env.VITE_GROQ_API_KEY && (err.message.includes('fetch') || err.name === 'TypeError')) {
+        return callGroqDirectly(messages);
+      }
+      
+      lastError = err;
+      console.warn(`[openAIService] attempt ${attempt}/${maxRetries} failed:`, err.message);
+      if (attempt < maxRetries) {
+        // Exponential backoff: 500ms, 1000ms, 2000ms
+        await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt - 1)));
+      }
+    }
+  }
+
+  throw lastError ?? new Error('All proxy retry attempts failed.');
+}
+
+/**
+ * Direct call to Groq API (fallback for local development only)
+ */
+async function callGroqDirectly(messages: ChatMessage[]): Promise<string> {
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  if (!apiKey) throw new Error('No Groq API key available for direct call');
+
+  const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.1-8b-instant',
+      messages,
       temperature: 0.7,
       max_tokens: 600,
-    });
-    
-    return completion.choices[0]?.message?.content || '';
-  } catch (err: any) {
-    throw new Error(`Groq API error: ${err.message || 'Unknown error'}`);
+    }),
+  });
+
+  if (!groqResponse.ok) {
+    const errorText = await groqResponse.text();
+    throw new Error(`Direct Groq API error: ${groqResponse.status} - ${errorText}`);
   }
+
+  const data = await groqResponse.json();
+  return data.choices?.[0]?.message?.content ?? '';
 }
+
 
 export class OpenAIService {
   /**
