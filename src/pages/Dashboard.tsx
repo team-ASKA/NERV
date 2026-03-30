@@ -8,6 +8,7 @@ import { db } from '../lib/firebase';
 import { extractTextFromPDF } from '../services/pdfService';
 import { extractAndSaveResume } from '../services/resumeService';
 import { supabaseInterviewService } from '../services/supabaseInterviewService';
+import { getResumeData, ResumeData } from '../services/firebaseResumeService';
 
 // Add proper type for user details
 type UserDetails = {
@@ -422,21 +423,41 @@ const Dashboard = () => {
     }
   };
 
-  const startTrainingSession = (interviewId: string, event: React.MouseEvent) => {
+  const startTrainingSession = async (interviewId: string, event: React.MouseEvent) => {
     event.stopPropagation();
     const selectedInterview = interviewHistory.find(interview => interview.id === interviewId);
-    if (selectedInterview) {
-      const resumeSkills = userDetails?.skills || ['React', 'TypeScript', 'Node.js', 'System Design', 'Algorithms']; 
-      navigate('/training-session', {
-        state: {
-          interviewId: selectedInterview.id,
-          summaryMarkdown: selectedInterview.summary_markdown || selectedInterview.summary,
-          resumeSkills: resumeSkills,
-          skillMentions: selectedInterview.metrics?.skillMentions || {}, 
-          totalQuestions: selectedInterview.questions_data?.length || 10,
-        }
-      });
+    if (!selectedInterview) return;
+
+    const fallbackSkills = userDetails?.skills || ['React', 'TypeScript', 'Node.js', 'System Design', 'Algorithms'];
+
+    // Fetch from Supabase first (authoritative), fallback to localStorage
+    let resumeData: ResumeData | null = null;
+    try {
+      if (currentUser) {
+        resumeData = await getResumeData(currentUser.uid);
+        // Cache back to localStorage so it's fast next time
+        if (resumeData) localStorage.setItem('resumeData', JSON.stringify(resumeData));
+      }
+    } catch { /* ignore */ }
+
+    // Final fallback: raw localStorage (works offline too)
+    if (!resumeData) {
+      try {
+        const stored = localStorage.getItem('resumeData');
+        if (stored) resumeData = JSON.parse(stored) as ResumeData;
+      } catch { /* ignore */ }
     }
+
+    navigate('/training-session', {
+      state: {
+        interviewId: selectedInterview.id,
+        summaryMarkdown: selectedInterview.summary_markdown || selectedInterview.summary,
+        resumeSkills: resumeData?.skills || fallbackSkills,
+        skillMentions: selectedInterview.metrics?.skillMentions || {},
+        totalQuestions: selectedInterview.questions_data?.length || 10,
+        resumeData: resumeData || { skills: fallbackSkills },
+      }
+    });
   };
   
   // Add function to delete interview from history
