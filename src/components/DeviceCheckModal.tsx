@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, MicOff, Camera, CameraOff, CheckCircle, XCircle, AlertCircle, ChevronRight } from 'lucide-react';
+import { Mic, Camera, CameraOff, CheckCircle, XCircle, AlertCircle, ChevronRight } from 'lucide-react';
 
 interface DeviceCheckProps {
   onComplete: () => void;
@@ -152,10 +152,10 @@ const DeviceCheckModal: React.FC<DeviceCheckProps> = ({ onComplete, onSkip, roun
                 <p className="text-slate-300 text-sm mb-4">Speak now — we're listening...</p>
               )}
               {micState === 'pass' && (
-                <p className="text-green-400 text-sm mb-4">✅ Microphone detected successfully!</p>
+                <p className="text-green-400 text-sm mb-4">Microphone detected successfully!</p>
               )}
               {micState === 'fail' && (
-                <p className="text-red-400 text-sm mb-4">❌ No audio detected. Please check mic permissions.</p>
+                <p className="text-red-400 text-sm mb-4">No audio detected. Please check mic permissions.</p>
               )}
 
               {/* Audio level visualizer */}
@@ -229,10 +229,10 @@ const DeviceCheckModal: React.FC<DeviceCheckProps> = ({ onComplete, onSkip, roun
                 </button>
               )}
               {cameraState === 'pass' && (
-                <p className="text-green-400 text-sm">✅ Camera is working!</p>
+                <p className="text-green-400 text-sm">Camera is working!</p>
               )}
               {cameraState === 'fail' && (
-                <p className="text-amber-400 text-sm">⚠️ Camera unavailable — emotion detection will be limited.</p>
+                <p className="text-amber-400 text-sm">Camera unavailable — emotion detection will be limited.</p>
               )}
             </div>
           </div>
@@ -241,7 +241,6 @@ const DeviceCheckModal: React.FC<DeviceCheckProps> = ({ onComplete, onSkip, roun
         {/* Done */}
         {step === 'done' && (
           <div className="text-center py-4 space-y-3">
-            <div className="text-4xl mb-2">🎯</div>
             <p className="text-white font-semibold text-lg">You're all set!</p>
             <div className="flex justify-center gap-6 text-sm mt-2">
               <span className="flex items-center gap-1.5"><StateIcon state={micState} /> Microphone</span>

@@ -378,7 +378,7 @@ const TrainingSession: React.FC = () => {
     setActiveTopicLabel(label);
     setIsLoading(true);
     setMessages(prev => [...prev, {
-      id: Date.now().toString(), text: `📌 Topic selected: **${label}**`, sender: 'user', timestamp: new Date(),
+      id: Date.now().toString(), text: `Topic selected: **${label}**`, sender: 'user', timestamp: new Date(),
     }]);
 
     try {

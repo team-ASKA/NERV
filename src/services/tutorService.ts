@@ -107,7 +107,8 @@ YOUR ROLE:
 FORMAT:
 - For explanations: 1-2 SHORT sentences + code snippet if needed + 1 short follow-up question.
 - For quizzes: numbered list of 3-4 MCQ questions with A/B/C/D options.
-- Keep TTS-friendly: no markdown symbols in spoken parts.`;
+- Keep TTS-friendly: no markdown symbols in spoken parts.
+- DO NOT use any emojis in your response. Only use professional, concise text.`;
 }
 
 export class TutorService {
