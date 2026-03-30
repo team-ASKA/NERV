@@ -3,7 +3,7 @@
  */
 import { openAI } from './openAIService';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 export interface TechnicalRoundRequest {
   emotion: string;
