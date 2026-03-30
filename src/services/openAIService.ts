@@ -65,6 +65,7 @@ async function callGroq(
         }
 
         const errorData = await response.json().catch(() => ({}));
+        console.error(`[openAIService] Proxy Failure - Status: ${response.status}. Please check Vercel Environment Variables (GROQ_API_KEY).`, errorData);
         throw new Error(`Proxy ${response.status}: ${errorData.error || 'Unknown'}`);
       }
 
@@ -275,9 +276,9 @@ CRITICAL RULES:
    */
   private getFallbackQuestion(round: 'technical' | 'core' | 'hr'): string {
     const fallbacks = {
-      technical: "Can you explain the difference between a stack and a queue?",
-      core: "What is the difference between SQL and NoSQL databases?",
-      hr: "Tell me about a time when you had to work under pressure."
+      technical: "I'm having a brief connection issue. Regardless, let's keep going. Can you explain the time and space complexity trade-offs between Hash Maps and Arrays effectively?",
+      core: "My connection is a bit unstable. However, tell me about a time you had to make a tough architectural decision between data consistency and high availability.",
+      hr: "My network seems slightly unstable. Nevertheless, tell me about a time when you had to work under extreme pressure or tight deadlines to deliver a project on time."
     };
     return fallbacks[round];
   }
