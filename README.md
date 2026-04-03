@@ -1,10 +1,10 @@
-# 🧠 NERV AI Interview System 
+#  NERV AI Interview System 
 
 ![Status](https://img.shields.io/badge/Status-Active-success) ![License](https://img.shields.io/badge/License-MIT-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?logo=typescript&logoColor=white) ![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB) ![Vercel](https://img.shields.io/badge/Vercel-000000?logo=vercel&logoColor=white) ![Firebase](https://img.shields.io/badge/Firebase-FFCA28?logo=firebase&logoColor=black)
 
 ---
 
-## 🌟 Overview
+##  Overview
 
 **NERV** is a next-generation, serverless AI-powered technical interviewing platform designed to simulate hyper-realistic, multi-round job interviews. Beyond simple Q&A bots, NERV integrates **real-time facial emotion recognition**, **lifelike 3D avatars**, and **advanced Generative AI pipelines** to evaluate candidates holistically. 
 
@@ -66,7 +66,7 @@ flowchart TD
 
 ---
 
-## 🚀 Detailed Feature Breakdown
+##  Detailed Feature Breakdown
 
 ### 1. Next-Generation Interactivity (Virtual Avatars)
 NERV removes the sterile "chat interface" experience by integrating photorealistic avatars via the **D-ID Client SDK** and interactive 3D models via **Spline**. Avatars don't just speak; they blink, nod, and have natural resting micro-movements, providing candidates with realistic social pressure and interaction cues identical to human interviewers.
@@ -93,7 +93,7 @@ Following the interview, NERV hits `api/summary.ts` to aggregate all round data,
 
 ---
 
-## 🛠 Technology Stack Deep Dive
+##  Technology Stack Deep Dive
 
 | Layer | Technology | Purpose / Reasoning |
 |---|---|---|
@@ -110,7 +110,7 @@ Following the interview, NERV hits `api/summary.ts` to aggregate all round data,
 
 ---
 
-## 📂 Repository Structure
+##  Repository Structure
 
 ```text
 nerv-interview-platform/
@@ -142,7 +142,7 @@ nerv-interview-platform/
 
 ---
 
-## ⚙️ Environment Variables & Secrets
+##  Environment Variables & Secrets
 
 Because NERV communicates heavily with multiple proprietary services, setting up your environment is crucial for both local development and Vercel hosting. 
 
@@ -169,7 +169,7 @@ AZURE_COGNITIVE_KEY=your_azure_key
 
 ---
 
-## 💻 Complete Setup Guide
+##  Complete Setup Guide
 
 ### Prerequisites
 - Node.js `20.x` or later.
@@ -216,7 +216,7 @@ NERV's architecture relies on Vercel's ability to host static logic geographical
 
 ---
 
-## 🗺 Roadmap & Future Enhancements
+## Roadmap & Future Enhancements
 
 - [ ] **Multi-Participant Interviews:** Simulated panel interviews utilizing multiple Spline/D-ID avatars debating simultaneously.
 - [ ] **Voice-to-Code:** Direct translation of vocal algorithmic planning to Monaco editor comments for better "think-out-loud" grading.
@@ -225,7 +225,7 @@ NERV's architecture relies on Vercel's ability to host static logic geographical
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 We welcome pull requests! Since this involves heavy LLM integration, test your local API routes exhaustively before submitting branches.
 
