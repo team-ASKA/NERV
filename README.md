@@ -5,6 +5,8 @@
 ---
 
 ##  Overview
+<img width="1508" height="896" alt="image" src="https://github.com/user-attachments/assets/1ad1d354-fa77-45bb-b29c-a4760b2aa3d7" />
+
 
 **NERV** is a next-generation, serverless AI-powered technical interviewing platform designed to simulate hyper-realistic, multi-round job interviews. Beyond simple Q&A bots, NERV integrates **real-time facial emotion recognition**, **lifelike 3D avatars**, and **advanced Generative AI pipelines** to evaluate candidates holistically. 
 
