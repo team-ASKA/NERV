@@ -3,60 +3,101 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
   body {
-    @apply antialiased;
+    @apply antialiased bg-primary text-white font-inter;
+    text-rendering: optimizeLegibility;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-montserrat;
+    @apply font-montserrat font-semibold tracking-tight text-white;
+  }
+
+  /* Consistent, visible focus ring for keyboard users only. */
+  :focus-visible {
+    @apply outline-none;
+    box-shadow: theme('boxShadow.focus');
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: rgba(99, 102, 241, 0.35);
+    color: #fff;
+  }
+
+  /* Placeholder + disabled affordances */
+  ::placeholder {
+    @apply text-muted-foreground;
   }
 }
 
 @layer components {
+  /* --- Legacy button classes (kept for backwards compatibility) --- */
   .btn {
-    @apply px-4 py-2 rounded-md transition-colors;
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors;
   }
-
   .btn-primary {
-    @apply bg-accent text-white hover:bg-accent/90;
+    @apply bg-accent text-white hover:bg-accent-hover;
+  }
+  .btn-secondary {
+    @apply bg-surface-raised text-white hover:bg-surface-overlay;
   }
 
-  .btn-secondary {
-    @apply bg-secondary text-white hover:bg-secondary/80;
+  /* Faint dotted background used behind hero / stage sections. */
+  .bg-dots {
+    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    background-size: 22px 22px;
   }
 }
 
-/* Smooth scrolling */
-html {
-  scroll-behavior: smooth;
+@layer utilities {
+  /* Truncate to N lines. */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
 }
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
+  height: 10px;
 }
-
 ::-webkit-scrollbar-track {
-  @apply bg-primary;
+  background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  @apply bg-secondary rounded-full;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-accent/50;
+  background: rgba(99, 102, 241, 0.5);
+  background-clip: content-box;
 }
 
-/* Print styles for NERV summary */
+/* Print styles for the NERV summary report */
 @media print {
-  /* Hide interactive controls */
   button, a[href] { display: none !important; }
+  .no-print { display: none !important; }
   .sticky, .fixed { position: static !important; }
-  /* Light background for readability */
   body { background: #ffffff !important; color: #000000 !important; }
-  /* Remove heavy effects */
-  .bg-gradient-to-r, .bg-gradient-to-br, .backdrop-blur-sm { background: #ffffff !important; filter: none !important; }
-  /* Page break utility */
+  .bg-gradient-to-r, .bg-gradient-to-br, .backdrop-blur-sm {
+    background: #ffffff !important;
+    filter: none !important;
+  }
   .page-break { page-break-before: always; }
 }

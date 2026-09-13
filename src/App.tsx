@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { ToastProvider } from './components/ui';
 import Navbar from './components/Navbar';
 import LandingPage from './pages/LandingPage';
 import SignUp from './pages/SignUp';
@@ -10,22 +11,18 @@ import MultiRoundInterview from './pages/MultiRoundInterview';
 import TechnicalRound from './pages/TechnicalRound';
 import CoreRound from './pages/CoreRound';
 import HRRound from './pages/HRRound';
-import InterviewSummary from './pages/InterviewSummary';
-import EnhancedInterviewSummary from './pages/EnhancedInterviewSummary';
 import NERVSummary from './pages/NERVSummary';
-import ProfessionalSummary from './pages/ProfessionalSummary';
-import Results from './pages/Results';
 import TrainingSession from './pages/TrainingSession';
 import { useAuth } from './contexts/AuthContext';
 
 // Protected route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { currentUser } = useAuth();
-  
+
   if (!currentUser) {
     return <Navigate to="/login" />;
   }
-  
+
   return <>{children}</>;
 };
 
@@ -33,9 +30,9 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const AppContent = () => {
   const location = useLocation();
   const isLandingPage = location.pathname === '/';
-  
+
   return (
-    <div className="min-h-screen bg-primary font-inter">
+    <div className="min-h-screen bg-primary font-inter text-white">
       {isLandingPage && <Navbar />}
       <Routes>
         <Route path="/" element={<LandingPage />} />
@@ -46,7 +43,6 @@ const AppContent = () => {
             <Dashboard />
           </ProtectedRoute>
         } />
-
         <Route path="/multi-round-interview" element={
           <ProtectedRoute>
             <MultiRoundInterview />
@@ -67,29 +63,9 @@ const AppContent = () => {
             <HRRound />
           </ProtectedRoute>
         } />
-        <Route path="/interview-summary" element={
-          <ProtectedRoute>
-            <InterviewSummary />
-          </ProtectedRoute>
-        } />
-        <Route path="/enhanced-summary" element={
-          <ProtectedRoute>
-            <EnhancedInterviewSummary />
-          </ProtectedRoute>
-        } />
         <Route path="/nerv-summary" element={
           <ProtectedRoute>
             <NERVSummary />
-          </ProtectedRoute>
-        } />
-        <Route path="/professional-summary" element={
-          <ProtectedRoute>
-            <ProfessionalSummary />
-          </ProtectedRoute>
-        } />
-        <Route path="/results" element={
-          <ProtectedRoute>
-            <Results />
           </ProtectedRoute>
         } />
         <Route path="/training-session" element={
@@ -97,6 +73,8 @@ const AppContent = () => {
             <TrainingSession />
           </ProtectedRoute>
         } />
+        {/* Any unknown path returns to landing */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
   );
@@ -105,9 +83,11 @@ const AppContent = () => {
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <AppContent />
-      </Router>
+      <ToastProvider>
+        <Router>
+          <AppContent />
+        </Router>
+      </ToastProvider>
     </AuthProvider>
   );
 }

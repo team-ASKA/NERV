@@ -13,8 +13,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@azure/cognitiveservices-face": "^5.0.0",
-    "@d-id/client-sdk": "^1.1.52",
     "@google/generative-ai": "^0.24.0",
     "@monaco-editor/react": "^4.7.0",
     "@splinetool/react-spline": "^4.0.0",
@@ -23,12 +21,10 @@
     "axios": "^1.8.4",
     "chart.js": "^4.5.0",
     "clsx": "^2.1.0",
-    "fflate": "^0.8.2",
     "firebase": "^11.5.0",
     "framer-motion": "^11.0.8",
     "groq-sdk": "^0.37.0",
     "hume": "^0.9.18",
-    "idb": "^8.0.2",
     "lucide-react": "^0.344.0",
     "pdfjs-dist": "^4.10.38",
     "posthog-js": "^1.360.1",

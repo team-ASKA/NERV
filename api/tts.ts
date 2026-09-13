@@ -1,0 +1,69 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+/**
+ * Sarvam Text-to-Speech proxy. Keeps SARVAM_API_KEY server-side.
+ * Client sends JSON: { text, voice?, languageCode?, pace?, pitch?, loudness? }.
+ * Returns: { audio: base64Wav, sampleRate } — or { audio: null, degraded: true }
+ * when the key is absent, so the client can fall back to browser TTS.
+ *
+ * Designed for sentence-level pipelining: call once per sentence for low
+ * time-to-first-audio.
+ */
+
+const SARVAM_TTS_URL = 'https://api.sarvam.ai/text-to-speech';
+const SAMPLE_RATE = 24000;
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const apiKey = process.env.SARVAM_API_KEY;
+  const { text, voice, languageCode, pace, pitch, loudness } = (req.body || {}) as {
+    text?: string;
+    voice?: string;
+    languageCode?: string;
+    pace?: number;
+    pitch?: number;
+    loudness?: number;
+  };
+
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ error: 'text is required' });
+  }
+  if (!apiKey) {
+    return res.status(200).json({ audio: null, degraded: true, error: 'TTS not configured' });
+  }
+
+  try {
+    const r = await fetch(SARVAM_TTS_URL, {
+      method: 'POST',
+      headers: { 'api-subscription-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        inputs: [text.slice(0, 2500)],
+        target_language_code: languageCode || 'en-IN',
+        speaker_voice: voice || 'amrit',
+        pitch: pitch ?? 0,
+        pace: pace ?? 1.1,
+        loudness: loudness ?? 1.1,
+        speech_sample_rate: SAMPLE_RATE,
+      }),
+    });
+
+    if (!r.ok) {
+      const detail = await r.text().catch(() => '');
+      console.error('[tts] Sarvam error', r.status, detail.slice(0, 300));
+      return res.status(r.status).json({ error: `Sarvam TTS ${r.status}`, detail: detail.slice(0, 300) });
+    }
+
+    const data = await r.json();
+    const audio = Array.isArray(data?.audios) && data.audios.length > 0 ? data.audios[0] : null;
+    if (!audio) {
+      return res.status(502).json({ error: 'Sarvam TTS returned no audio' });
+    }
+    return res.status(200).json({ audio, sampleRate: SAMPLE_RATE });
+  } catch (err) {
+    console.error('[tts] proxy error:', (err as Error)?.message);
+    return res.status(500).json({ error: 'TTS proxy failed', detail: (err as Error)?.message });
+  }
+}
