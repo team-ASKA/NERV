@@ -3,6 +3,7 @@ export { Button, type ButtonProps } from './Button';
 export { Card, type CardProps } from './Card';
 export { Panel, type PanelProps } from './Panel';
 export { Input, type InputProps } from './Input';
+export { Markdown, type MarkdownProps } from './Markdown';
 export { Textarea, type TextareaProps } from './Textarea';
 export { Badge, type BadgeProps } from './Badge';
 export { Spinner, type SpinnerProps } from './Spinner';

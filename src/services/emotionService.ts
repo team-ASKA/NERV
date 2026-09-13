@@ -20,9 +20,11 @@ const FRAME_INTERVAL_MS = 900;
 const EWMA_ALPHA = 0.45;
 
 // Hume emotion labels grouped for a simple confidence/nervousness read.
-const POSITIVE = ['calmness', 'concentration', 'interest', 'determination', 'confidence', 'pride', 'satisfaction', 'contentment', 'excitement', 'joy'];
-const NERVOUS = ['anxiety', 'fear', 'doubt', 'distress', 'awkwardness', 'nervousness', 'shame'];
-const STRUGGLE = ['confusion', 'distress', 'disappointment', 'tiredness'];
+// Exported so the report derives its numbers from the same groupings that the
+// live read used — one definition, no drift between the room and the summary.
+export const POSITIVE = ['calmness', 'concentration', 'interest', 'determination', 'confidence', 'pride', 'satisfaction', 'contentment', 'excitement', 'joy'];
+export const NERVOUS = ['anxiety', 'fear', 'doubt', 'distress', 'awkwardness', 'nervousness', 'shame'];
+export const STRUGGLE = ['confusion', 'distress', 'disappointment', 'tiredness'];
 
 type Listener = (agg: EmotionAggregate) => void;
 

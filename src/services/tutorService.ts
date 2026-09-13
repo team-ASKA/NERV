@@ -1,12 +1,10 @@
 /**
- * Tutor Service — powers the AI Training Session using the same Groq proxy as interviews.
- * The AI acts as a patient, explanatory tutor based on the user's interview summary.
+ * Tutor service (client). A thin client over `/api/tutor`: the persona and the
+ * provider live on the server, the conversation lives here. No AI key touches
+ * the browser.
  */
 
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
+import { logger } from '../lib/logger';
 
 interface ResumeGraphData {
   skills?: string[];
@@ -16,193 +14,113 @@ interface ResumeGraphData {
   achievements?: string[];
 }
 
-interface TutorContext {
+export interface TutorSessionContext {
   resumeSkills: string[];
   interviewSummary: string;
-  skillMentions: Record<string, number>; // skill -> how many times asked in interview
-  weakSkills: string[]; // skills mentioned < 2 times
+  /** How many times each skill came up in the interview. Drives `weakSkills`. */
+  skillMentions: Record<string, number>;
+  weakSkills: string[];
   currentTopic: string | null;
   resumeData?: ResumeGraphData;
 }
 
-async function callGroq(messages: ChatMessage[], maxRetries = 3): Promise<string> {
-  let lastError: Error | null = null;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch('/api/groq-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages }),
-      });
-
-      if (!response.ok) {
-        if ((response.status === 404 || response.status === 405) && import.meta.env.VITE_GROQ_API_KEY) {
-          return callGroqDirectly(messages);
-        }
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Proxy ${response.status}: ${errorData.error || 'Unknown'}`);
-      }
-
-      const data = await response.json();
-      return data.content ?? '';
-    } catch (err: any) {
-      if (import.meta.env.VITE_GROQ_API_KEY && (err.message.includes('fetch') || err.name === 'TypeError')) {
-        return callGroqDirectly(messages);
-      }
-      lastError = err;
-      if (attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt - 1)));
-      }
-    }
-  }
-  throw lastError ?? new Error('All retry attempts failed.');
+interface TutorTurn {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
-async function callGroqDirectly(messages: ChatMessage[]): Promise<string> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) throw new Error('No Groq API key available');
-
-  const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
-      messages,
-      temperature: 0.7,
-      max_tokens: 500,
-    }),
-  });
-
-  if (!groqResponse.ok) {
-    const errorText = await groqResponse.text();
-    throw new Error(`Direct Groq API error: ${groqResponse.status} - ${errorText}`);
-  }
-
-  const data = await groqResponse.json();
-  return data.choices?.[0]?.message?.content ?? '';
-}
-
-function buildTutorSystemPrompt(ctx: TutorContext): string {
-  const weak = ctx.weakSkills.length > 0
-    ? `Skills needing most attention (barely covered in interview): ${ctx.weakSkills.join(', ')}.`
-    : 'All resume skills were well covered in the interview.';
-
-  const currentTopicLine = ctx.currentTopic
-    ? `The user is currently focusing on: **${ctx.currentTopic}**.`
-    : '';
-
-  const rd = ctx.resumeData || {};
-  const projectsLine = rd.projects && rd.projects.length > 0
-    ? `Projects on their resume: ${rd.projects.slice(0, 6).join(' | ')}.`
-    : '';
-  const experienceLine = rd.experience && rd.experience.length > 0
-    ? `Work experience: ${rd.experience.slice(0, 4).join(' | ')}.`
-    : '';
-  const educationLine = rd.education && rd.education.length > 0
-    ? `Education: ${rd.education.slice(0, 3).join(' | ')}.`
-    : '';
-  const achievementsLine = rd.achievements && rd.achievements.length > 0
-    ? `Key achievements: ${rd.achievements.slice(0, 4).join(' | ')}.`
-    : '';
-
-  return `You are NERV Tutor — an encouraging, world-class AI tutor helping a software engineering candidate improve after a real interview.
-
-CANDIDATE RESUME PROFILE:
-- Technical skills: ${ctx.resumeSkills.join(', ')}.
-- ${weak}
-${projectsLine ? `- ${projectsLine}` : ''}
-${experienceLine ? `- ${experienceLine}` : ''}
-${educationLine ? `- ${educationLine}` : ''}
-${achievementsLine ? `- ${achievementsLine}` : ''}
-- Interview summary: ${ctx.interviewSummary.substring(0, 500)}...
-${currentTopicLine}
-
-YOUR ROLE:
-1. Be warm, patient, and encouraging — reference their actual projects/experience when relevant.
-2. When the user selects a skill or project node, explain clearly with real-world examples referencing their background.
-3. Ask interactive questions to test understanding (don't just lecture).
-4. Give quizzes ONLY when explicitly requested: pose 3-4 multiple choice questions, strictly numbered (1. 2. 3. 4.) with A. B. C. D. options, one Answer: line, and one Explanation: line per question.
-5. When explaining concepts, use concrete analogies and brief code snippets where helpful.
-6. EXTREMELY CRITICAL: Keep conversational responses STRICTLY UNDER 30-40 WORDS (1-2 sentences maximum). Verbose responses break TTS/STT rate limits.
-7. After explaining a concept, ALWAYS end with a short follow-up question.
-8. Never say "Great question!" or use empty filler phrases. Be direct.
-
-FORMAT:
-- Explanations: 1-2 SHORT sentences + optional code snippet + 1 follow-up question.
-- Quizzes (ONLY when asked): strict numbered MCQ format — no intro or outro text.
-- Keep TTS-friendly: no markdown symbols in conversational parts.
-- DO NOT use any emojis in your response.`;
-}
+/** Turns kept client-side and replayed to the stateless endpoint. */
+const HISTORY_LIMIT = 10;
 
 export class TutorService {
-  private conversationHistory: ChatMessage[] = [];
-  private context: TutorContext | null = null;
+  private history: TutorTurn[] = [];
+  private context: TutorSessionContext | null = null;
+  private degraded = false;
 
-  initSession(ctx: TutorContext) {
-    this.context = ctx;
-    this.conversationHistory = [];
+  /** True once the server has reported that the tutor is unavailable. */
+  get isDegraded(): boolean {
+    return this.degraded;
   }
 
-  async sendMessage(userMessage: string): Promise<string> {
+  initSession(ctx: TutorSessionContext): void {
+    this.context = ctx;
+    this.history = [];
+    this.degraded = false;
+  }
+
+  async sendMessage(message: string): Promise<string> {
     if (!this.context) throw new Error('Tutor session not initialized');
 
-    const systemPrompt = buildTutorSystemPrompt(this.context);
-    
-    this.conversationHistory.push({ role: 'user', content: userMessage });
+    const payload = {
+      message,
+      history: this.history.slice(-HISTORY_LIMIT),
+      context: {
+        resumeSkills: this.context.resumeSkills,
+        interviewSummary: this.context.interviewSummary,
+        weakSkills: this.context.weakSkills,
+        currentTopic: this.context.currentTopic,
+        resume: this.context.resumeData,
+      },
+    };
 
-    const messages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt },
-      ...this.conversationHistory.slice(-10), // keep last 10 turns for context
-    ];
+    let reply = '';
+    try {
+      const res = await fetch('/api/tutor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    const response = await callGroq(messages);
-    const reply = response || 'Let me think about that... Could you rephrase your question?';
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`Tutor ${res.status}: ${detail.slice(0, 200)}`);
+      }
 
-    this.conversationHistory.push({ role: 'assistant', content: reply });
+      const data = (await res.json()) as { reply?: string; degraded?: boolean };
+      this.degraded = Boolean(data.degraded);
+      reply = (data.reply || '').trim();
+    } catch (err) {
+      logger.warn('[tutor] request failed:', (err as Error)?.message);
+      this.degraded = true;
+      reply = 'I could not reach the tutor just now. Check your connection and try again.';
+    }
+
+    if (!reply) reply = 'Could you rephrase that?';
+
+    // Record both sides so the next turn has context.
+    this.history.push({ role: 'user', content: message });
+    this.history.push({ role: 'assistant', content: reply });
+    if (this.history.length > HISTORY_LIMIT * 2) {
+      this.history = this.history.slice(-HISTORY_LIMIT * 2);
+    }
+
     return reply;
   }
 
   async focusOnTopic(topic: string): Promise<string> {
     if (!this.context) throw new Error('Tutor session not initialized');
     this.context.currentTopic = topic;
-    
-    const topicPrompt = `The user clicked on the "${topic}" node in the knowledge graph. They want to learn about ${topic}. Start a focused explanation session: briefly introduce the concept, give a real-world analogy, then ask them what they already know about it.`;
-    
-    return this.sendMessage(topicPrompt);
+    return this.sendMessage(
+      `I want to learn about "${topic}". Introduce the concept briefly, give one real-world analogy tied to my background, then ask what I already know about it.`,
+    );
   }
 
   async generateQuizForTopic(topic: string): Promise<string> {
-    const quizPrompt = `Generate a 4-question multiple choice quiz about "${topic}" at an intermediate software engineering level.
-
-STRICT FORMAT for each question:
-1. [Question text here]
-A. [Option A]
-B. [Option B]
-C. [Option C]
-D. [Option D]
-Answer: [A/B/C/D]
-Explanation: [One sentence explaining why the answer is correct]
-
-2. [Next question...]
-A. ...
-
-Do NOT add any intro text or conclusion. Output ONLY the 4 questions in the exact format above.`;
-    return this.sendMessage(quizPrompt);
+    return this.sendMessage(
+      `Give me a 4-question multiple choice quiz on "${topic}" at intermediate software-engineering level. Use the strict quiz format: numbered questions, options A. B. C. D., an "Answer:" line and an "Explanation:" line for each. No intro or outro text.`,
+    );
   }
 
   getSessionStats() {
     return {
-      messageCount: this.conversationHistory.length,
-      currentTopic: this.context?.currentTopic || null,
+      messageCount: this.history.length,
+      currentTopic: this.context?.currentTopic ?? null,
     };
   }
 
-  resetSession() {
-    this.conversationHistory = [];
+  resetSession(): void {
+    this.history = [];
+    this.degraded = false;
     if (this.context) this.context.currentTopic = null;
   }
 }

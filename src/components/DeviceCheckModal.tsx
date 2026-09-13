@@ -1,5 +1,15 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, Camera, CameraOff, CheckCircle, XCircle, AlertCircle, ChevronRight } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  AlertCircle,
+  Camera,
+  CameraOff,
+  CheckCircle2,
+  ChevronRight,
+  Mic,
+  XCircle,
+} from 'lucide-react';
+import { Button } from './ui';
+import { cn } from '../lib/cn';
 
 interface DeviceCheckProps {
   onComplete: () => void;
@@ -8,40 +18,48 @@ interface DeviceCheckProps {
 }
 
 type CheckState = 'idle' | 'testing' | 'pass' | 'fail';
+type Step = 'intro' | 'mic' | 'camera' | 'done';
+
+const MIC_SAMPLE_FRAMES = 60; // ~2s at 30fps
+const MIC_PASS_LEVEL = 5;
 
 /**
- * Pre-interview Device Check Modal
- * Tests the user's microphone and optional camera before starting an interview round.
- * Only fires once per session (stored in sessionStorage).
+ * Pre-interview device check: confirms the microphone actually picks up sound
+ * and gives the candidate a camera preview. Camera failure is non-blocking —
+ * the interview runs without expression analysis.
  */
-const DeviceCheckModal: React.FC<DeviceCheckProps> = ({ onComplete, onSkip, roundName = 'Interview' }) => {
+export default function DeviceCheckModal({
+  onComplete,
+  onSkip,
+  roundName = 'your interview',
+}: DeviceCheckProps) {
+  const [step, setStep] = useState<Step>('intro');
   const [micState, setMicState] = useState<CheckState>('idle');
   const [cameraState, setCameraState] = useState<CheckState>('idle');
   const [audioLevel, setAudioLevel] = useState(0);
-  const [isPreviewOn, setIsPreviewOn] = useState(false);
-  const [step, setStep] = useState<'intro' | 'mic' | 'camera' | 'done'>('intro');
+  const [previewOn, setPreviewOn] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animFrameRef = useRef<number | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  // Cleanup streams on unmount
-  useEffect(() => {
-    return () => {
-      stopAll();
-    };
-  }, []);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const frameRef = useRef<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const stopAll = useCallback(() => {
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
+    if (frameRef.current !== null) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (audioCtxRef.current) {
+      void audioCtxRef.current.close().catch(() => undefined);
+      audioCtxRef.current = null;
     }
     setAudioLevel(0);
-    setIsPreviewOn(false);
+    setPreviewOn(false);
   }, []);
+
+  useEffect(() => stopAll, [stopAll]);
 
   const testMic = async () => {
     setMicState('testing');
@@ -50,37 +68,32 @@ const DeviceCheckModal: React.FC<DeviceCheckProps> = ({ onComplete, onSkip, roun
       streamRef.current = stream;
 
       const ctx = new AudioContext();
-      const source = ctx.createMediaStreamSource(stream);
+      audioCtxRef.current = ctx;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-      source.connect(analyser);
-      analyserRef.current = analyser;
+      ctx.createMediaStreamSource(stream).connect(analyser);
 
       const data = new Uint8Array(analyser.frequencyBinCount);
-
-      let maxLevel = 0;
-      let sampleCount = 0;
+      let peak = 0;
+      let frames = 0;
 
       const tick = () => {
         analyser.getByteFrequencyData(data);
         const avg = data.reduce((a, b) => a + b, 0) / data.length;
-        const normalized = Math.min(100, (avg / 128) * 100);
-        setAudioLevel(normalized);
-        if (normalized > maxLevel) maxLevel = normalized;
-        sampleCount++;
+        const level = Math.min(100, (avg / 128) * 100);
+        setAudioLevel(level);
+        peak = Math.max(peak, level);
 
-        if (sampleCount < 60) { // ~2 seconds
-          animFrameRef.current = requestAnimationFrame(tick);
-        } else {
-          // Check if mic captured anything
-          cancelAnimationFrame(animFrameRef.current!);
-          stream.getTracks().forEach(t => t.stop());
-          setAudioLevel(0);
-          setMicState(maxLevel > 5 ? 'pass' : 'fail');
+        if (++frames < MIC_SAMPLE_FRAMES) {
+          frameRef.current = requestAnimationFrame(tick);
+          return;
         }
+        stopAll();
+        setMicState(peak > MIC_PASS_LEVEL ? 'pass' : 'fail');
       };
-      animFrameRef.current = requestAnimationFrame(tick);
+      frameRef.current = requestAnimationFrame(tick);
     } catch {
+      stopAll();
       setMicState('fail');
     }
   };
@@ -90,188 +103,210 @@ const DeviceCheckModal: React.FC<DeviceCheckProps> = ({ onComplete, onSkip, roun
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       streamRef.current = stream;
-      setIsPreviewOn(true);
+      setPreviewOn(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => undefined);
       }
-      // Wait 2 seconds for a visual check, then pass automatically
-      setTimeout(() => {
-        setCameraState('pass');
-      }, 2000);
+      window.setTimeout(() => setCameraState('pass'), 1500);
     } catch {
       setCameraState('fail');
     }
   };
 
-  const handleContinue = () => {
+  const advance = () => {
     stopAll();
-    if (step === 'intro') { setStep('mic'); return; }
-    if (step === 'mic') { setStep('camera'); return; }
-    if (step === 'camera') { setStep('done'); return; }
+    if (step === 'intro') return setStep('mic');
+    if (step === 'mic') return setStep('camera');
+    if (step === 'camera') return setStep('done');
+    return onComplete();
+  };
+
+  const finish = () => {
+    stopAll();
     onComplete();
   };
 
-  const StateIcon = ({ state }: { state: CheckState }) => {
-    if (state === 'pass') return <CheckCircle className="w-5 h-5 text-green-400" />;
-    if (state === 'fail') return <XCircle className="w-5 h-5 text-red-400" />;
-    if (state === 'testing') return <div className="w-5 h-5 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />;
-    return <AlertCircle className="w-5 h-5 text-slate-400" />;
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md">
-      <div className="relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-white/10 rounded-2xl p-8 w-full max-w-md shadow-2xl mx-4">
-        {/* Header */}
-        <div className="text-center mb-6">
-          <h2 className="text-xl font-bold text-white mb-1">Device Check</h2>
-          <p className="text-slate-400 text-sm">Before starting {roundName}, let's verify your setup</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md animate-scale-in rounded-2xl border border-border bg-surface-overlay shadow-card">
+        <div className="border-b border-border px-6 py-5 text-center">
+          <h2 className="text-lg font-semibold text-white">Device check</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Before starting {roundName}, let’s verify your setup.
+          </p>
         </div>
 
-        {/* Intro */}
-        {step === 'intro' && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-3 bg-white/5 rounded-xl p-4 border border-white/10">
-              <Mic className="w-6 h-6 text-violet-400 shrink-0" />
-              <p className="text-sm text-slate-300">Microphone — You'll be answering questions verbally</p>
+        <div className="px-6 py-5">
+          {step === 'intro' && (
+            <div className="space-y-3">
+              <IntroRow
+                icon={<Mic size={18} className="text-accent-soft" />}
+                title="Microphone"
+                detail="Required — you answer every question out loud."
+              />
+              <IntroRow
+                icon={<Camera size={18} className="text-accent-soft" />}
+                title="Camera"
+                detail="Optional — enables expression analysis in your report."
+              />
             </div>
-            <div className="flex items-center gap-3 bg-white/5 rounded-xl p-4 border border-white/10">
-              <Camera className="w-6 h-6 text-violet-400 shrink-0" />
-              <p className="text-sm text-slate-300">Camera — Used for emotion detection & proctoring</p>
-            </div>
-          </div>
-        )}
+          )}
 
-        {/* Mic Test */}
-        {step === 'mic' && (
-          <div className="space-y-4">
-            <div className="text-center py-4">
-              {micState === 'idle' && (
-                <p className="text-slate-300 text-sm mb-4">Click to test your microphone — speak a few words</p>
-              )}
-              {micState === 'testing' && (
-                <p className="text-slate-300 text-sm mb-4">Speak now — we're listening...</p>
-              )}
-              {micState === 'pass' && (
-                <p className="text-green-400 text-sm mb-4">Microphone detected successfully!</p>
-              )}
-              {micState === 'fail' && (
-                <p className="text-red-400 text-sm mb-4">No audio detected. Please check mic permissions.</p>
-              )}
+          {step === 'mic' && (
+            <div className="text-center">
+              <p
+                className={cn(
+                  'mb-4 text-sm',
+                  micState === 'pass' && 'text-success',
+                  micState === 'fail' && 'text-danger',
+                  (micState === 'idle' || micState === 'testing') && 'text-muted',
+                )}
+              >
+                {micState === 'idle' && 'Click below, then say a few words.'}
+                {micState === 'testing' && 'Speak now — we’re listening…'}
+                {micState === 'pass' && 'Microphone is working.'}
+                {micState === 'fail' && 'No audio detected. Check your mic permissions and try again.'}
+              </p>
 
-              {/* Audio level visualizer */}
-              <div className="flex gap-1 justify-center items-end h-12 mb-4">
-                {Array.from({ length: 20 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-1.5 rounded-sm transition-all duration-75"
-                    style={{
-                      height: `${Math.max(8, (audioLevel / 100) * 48 * (0.4 + Math.sin(i * 0.8) * 0.6))}px`,
-                      background: audioLevel > 5 ? 'linear-gradient(to top, #6366f1, #a78bfa)' : '#334155',
-                    }}
-                  />
-                ))}
+              <div className="mb-5 flex h-12 items-end justify-center gap-1">
+                {Array.from({ length: 20 }).map((_, i) => {
+                  const shape = 0.4 + Math.sin(i * 0.8) * 0.6;
+                  const live = audioLevel > MIC_PASS_LEVEL;
+                  return (
+                    <div
+                      key={i}
+                      className={cn(
+                        'w-1.5 rounded-sm transition-all duration-75',
+                        live ? 'bg-accent' : 'bg-white/10',
+                      )}
+                      style={{ height: `${Math.max(6, (audioLevel / 100) * 48 * shape)}px` }}
+                    />
+                  );
+                })}
               </div>
 
-              {micState === 'idle' && (
-                <button
-                  onClick={testMic}
-                  className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-all"
-                >
-                  <Mic className="inline w-4 h-4 mr-2" />
-                  Test Microphone
-                </button>
-              )}
-              {micState === 'fail' && (
-                <button
-                  onClick={testMic}
-                  className="px-6 py-2.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-medium transition-all"
-                >
-                  Retry
-                </button>
+              {micState !== 'testing' && micState !== 'pass' && (
+                <Button leftIcon={<Mic size={15} />} onClick={testMic}>
+                  {micState === 'fail' ? 'Try again' : 'Test microphone'}
+                </Button>
               )}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Camera Test */}
-        {step === 'camera' && (
-          <div className="space-y-4">
-            <div className="text-center py-2">
-              <div className="relative w-full aspect-video bg-slate-800 rounded-xl overflow-hidden mb-3 border border-white/10">
-                {isPreviewOn ? (
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    className="w-full h-full object-cover scale-x-[-1]"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-                    <CameraOff className="w-8 h-8 text-slate-600" />
-                    <span className="text-slate-500 text-xs">Camera preview</span>
+          {step === 'camera' && (
+            <div className="text-center">
+              <div className="relative mb-4 aspect-video w-full overflow-hidden rounded-xl border border-border bg-black">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className={cn(
+                    'h-full w-full scale-x-[-1] object-cover transition-opacity',
+                    previewOn ? 'opacity-100' : 'opacity-0',
+                  )}
+                />
+                {!previewOn && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                    <CameraOff size={22} />
+                    <span className="text-xs">Camera preview</span>
                   </div>
                 )}
                 {cameraState === 'pass' && (
-                  <div className="absolute top-2 right-2 bg-green-500 rounded-full p-0.5">
-                    <CheckCircle className="w-4 h-4 text-white" />
+                  <div className="absolute right-2 top-2 rounded-full bg-success p-0.5">
+                    <CheckCircle2 size={14} className="text-white" />
                   </div>
                 )}
               </div>
 
               {cameraState === 'idle' && (
-                <button
-                  onClick={testCamera}
-                  className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-all"
-                >
-                  <Camera className="inline w-4 h-4 mr-2" />
-                  Test Camera
-                </button>
+                <Button leftIcon={<Camera size={15} />} onClick={testCamera}>
+                  Test camera
+                </Button>
               )}
-              {cameraState === 'pass' && (
-                <p className="text-green-400 text-sm">Camera is working!</p>
-              )}
+              {cameraState === 'pass' && <p className="text-sm text-success">Camera is working.</p>}
               {cameraState === 'fail' && (
-                <p className="text-amber-400 text-sm">Camera unavailable — emotion detection will be limited.</p>
+                <p className="text-sm text-warning">
+                  Camera unavailable — the interview still runs, without expression analysis.
+                </p>
               )}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Done */}
-        {step === 'done' && (
-          <div className="text-center py-4 space-y-3">
-            <p className="text-white font-semibold text-lg">You're all set!</p>
-            <div className="flex justify-center gap-6 text-sm mt-2">
-              <span className="flex items-center gap-1.5"><StateIcon state={micState} /> Microphone</span>
-              <span className="flex items-center gap-1.5"><StateIcon state={cameraState} /> Camera</span>
+          {step === 'done' && (
+            <div className="space-y-4 text-center">
+              <p className="text-base font-semibold text-white">You’re all set.</p>
+              <div className="flex justify-center gap-6 text-sm text-muted">
+                <span className="flex items-center gap-1.5">
+                  <StateIcon state={micState} /> Microphone
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <StateIcon state={cameraState} /> Camera
+                </span>
+              </div>
+              {micState !== 'pass' && (
+                <p className="text-xs text-muted-foreground">
+                  Your mic isn’t confirmed — you can still type your answers.
+                </p>
+              )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Footer Buttons */}
-        <div className="flex justify-between items-center mt-6 pt-4 border-t border-white/10">
+        <div className="flex items-center justify-between gap-3 border-t border-border px-6 py-4">
           {onSkip && step !== 'done' ? (
-            <button
-              onClick={() => { stopAll(); onSkip(); }}
-              className="text-sm text-slate-500 hover:text-slate-300 transition-colors"
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                stopAll();
+                onSkip();
+              }}
             >
               Skip check
-            </button>
-          ) : <div />}
+            </Button>
+          ) : (
+            <div />
+          )}
 
-          <button
-            onClick={step === 'done' ? () => { stopAll(); onComplete(); } : handleContinue}
-            disabled={step === 'mic' && micState === 'testing'}
-            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded-lg text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          <Button
+            rightIcon={<ChevronRight size={16} />}
+            onClick={step === 'done' ? finish : advance}
+            disabled={micState === 'testing' || cameraState === 'testing'}
           >
-            {step === 'done' ? 'Start Interview' : 'Continue'}
-            <ChevronRight className="w-4 h-4" />
-          </button>
+            {step === 'done' ? 'Start interview' : 'Continue'}
+          </Button>
         </div>
       </div>
     </div>
   );
-};
+}
 
-export default DeviceCheckModal;
+function IntroRow({
+  icon,
+  title,
+  detail,
+}: {
+  icon: ReactNode;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-border bg-surface-raised px-4 py-3">
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <div>
+        <div className="text-sm font-medium text-white">{title}</div>
+        <div className="text-xs text-muted-foreground">{detail}</div>
+      </div>
+    </div>
+  );
+}
+
+function StateIcon({ state }: { state: CheckState }) {
+  if (state === 'pass') return <CheckCircle2 size={16} className="text-success" />;
+  if (state === 'fail') return <XCircle size={16} className="text-danger" />;
+  if (state === 'testing')
+    return <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />;
+  return <AlertCircle size={16} className="text-muted-foreground" />;
+}

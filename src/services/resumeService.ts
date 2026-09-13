@@ -1,8 +1,14 @@
 /**
- * Resume Service - Parses and extracts structured data from resume text using Groq Llama 3.1 8B
+ * Resume service (client). Text extraction stays in the browser (pdf.js); all
+ * parsing happens server-side at `/api/resume/parse`, so no AI key is ever
+ * shipped to the client.
+ *
+ * Storage is deliberately simple: one write to Supabase (source of truth) plus
+ * a localStorage cache for instant reads between rounds. Nothing else.
  */
 
-import Groq from 'groq-sdk';
+import { logger } from '../lib/logger';
+import { supabaseInterviewService } from './supabaseInterviewService';
 
 export interface ResumeData {
   skills: string[];
@@ -12,241 +18,168 @@ export interface ResumeData {
   education: string[];
 }
 
-export class ResumeService {
-  /**
-   * Parse resume text using Gemini AI for accurate extraction
-   */
-  async parseResume(resumeText: string): Promise<ResumeData> {
-    // PRIMARY: Use Gemini AI for intelligent parsing
-    try {
-      const parsed = await this.parseWithGroq(resumeText);
-      if (parsed && (parsed.skills.length > 0 || parsed.experience.length > 0 || parsed.education.length > 0)) {
-        console.log('[ResumeService] Groq parsing succeeded:', {
-          skills: parsed.skills.length,
-          projects: parsed.projects.length,
-          achievements: parsed.achievements.length,
-          experience: parsed.experience.length,
-          education: parsed.education.length,
-        });
-        return parsed;
-      }
-    } catch (groqError) {
-      console.warn('[ResumeService] Groq parsing failed, using regex fallback:', groqError);
-    }
-
-    // FALLBACK: Regex-based extraction
-    return this.parseWithRegex(resumeText);
-  }
-
-  /**
-   * Use Groq AI to extract structured data from free-form resume text
-   */
-  private async parseWithGroq(resumeText: string): Promise<ResumeData> {
-    const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-    if (!apiKey) throw new Error('No Groq API key');
-
-    const groq = new Groq({ apiKey, dangerouslyAllowBrowser: true });
-
-    // Truncate to avoid token limits while keeping the most useful sections
-    const truncatedText = resumeText.slice(0, 6000);
-
-    const prompt = `You are an expert resume parser. Extract structured information from the following resume text and return ONLY a valid JSON object.
-
-Resume Text:
-"""
-${truncatedText}
-"""
-
-Return this exact JSON structure:
-{
-  "skills": ["skill1", "skill2", "skill3"],
-  "projects": ["Project Name: brief description", "Project2: description"],
-  "achievements": ["achievement1", "achievement2"],
-  "experience": ["Job Title at Company (Year-Year): brief description", "Job2 at Company2"],
-  "education": ["Degree in Field from Institution (Year)", "Certification Name"]
+/** What the parser returns: `ResumeData` plus optional identity fields. */
+export interface ParsedResume extends ResumeData {
+  name?: string;
+  title?: string;
+  summary?: string;
+  rawText?: string;
 }
 
-Rules FOR SMART PARSING:
-- AGGRESSIVELY INFER SECTIONS: The candidate may NOT use clear headings like "Projects" or "Experience". Read the raw text and infer them.
-    - If you see a bullet point about "built a web app", "developed a feature", or a GitHub/live link, classify it as a Project.
-    - If you see an internship, freelance work, or regular job, classify it as Experience.
-- skills: technical and soft skills only, max 20, as short strings
-- projects: project name and one-line description, max 10. Extract them even if they are just mentioned in a summary or bullet points!
-- achievements: quantified results and awards, max 10
-- experience: job titles, companies, dates, max 10
-- education: degrees, institutions, graduation years, max 5
-- If a category is TRULY empty and cannot be inferred, return an empty array []
-- Return ONLY the JSON object, nothing else`;
-
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-      temperature: 0.1,
-      max_tokens: 1500,
-    });
-
-    const rawText = completion.choices[0]?.message?.content || '';
-
-    // Strip markdown code fences if present
-    const jsonText = rawText
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/```\s*$/i, '')
-      .trim();
-
-    const parsed = JSON.parse(jsonText);
-
-    return {
-      skills: Array.isArray(parsed.skills) ? parsed.skills.filter((s: any) => typeof s === 'string') : [],
-      projects: Array.isArray(parsed.projects) ? parsed.projects.filter((p: any) => typeof p === 'string') : [],
-      achievements: Array.isArray(parsed.achievements) ? parsed.achievements.filter((a: any) => typeof a === 'string') : [],
-      experience: Array.isArray(parsed.experience) ? parsed.experience.filter((e: any) => typeof e === 'string') : [],
-      education: Array.isArray(parsed.education) ? parsed.education.filter((e: any) => typeof e === 'string') : [],
-    };
-  }
-
-  /**
-   * Regex fallback - extracts based on section headers and common patterns
-   */
-  private parseWithRegex(text: string): ResumeData {
-    const lowerText = text.toLowerCase();
-
-    // Split text into sections by common headers
-    const sectionHeaders = /\n(?:skills?|technical skills?|technologies|experience|work experience|employment|projects?|portfolio|achievements?|accomplishments?|awards?|education|academic|qualifications?|certifications?)\s*:?\s*\n/gi;
-    const sections: Record<string, string> = {};
-    const headerMatches = [...text.matchAll(sectionHeaders)];
-
-    for (let i = 0; i < headerMatches.length; i++) {
-      const header = headerMatches[i][0].trim().toLowerCase().replace(':', '').trim();
-      const start = headerMatches[i].index! + headerMatches[i][0].length;
-      const end = i + 1 < headerMatches.length ? headerMatches[i + 1].index! : text.length;
-      sections[header] = text.slice(start, end).trim();
-    }
-
-    // Extract skills
-    const skills: string[] = [];
-    const skillText = sections['skills'] || sections['technical skills'] || sections['technologies'] || '';
-    if (skillText) {
-      skills.push(...skillText.split(/[,;\n|•\-\*]/).map(s => s.trim()).filter(s => s.length > 1 && s.length < 50));
-    }
-    // Fallback: scan common tech keywords
-    if (skills.length === 0) {
-      const techKeywords = [
-        'JavaScript', 'TypeScript', 'Python', 'Java', 'C++', 'C#', 'Go', 'Rust', 'Swift', 'Kotlin',
-        'React', 'Angular', 'Vue', 'Next.js', 'Node.js', 'Express', 'Django', 'Flask', 'Spring',
-        'MongoDB', 'MySQL', 'PostgreSQL', 'Redis', 'GraphQL', 'REST',
-        'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Git', 'CI/CD',
-        'HTML', 'CSS', 'Tailwind', 'Machine Learning', 'TensorFlow', 'PyTorch',
-      ];
-      techKeywords.forEach(kw => {
-        if (lowerText.includes(kw.toLowerCase())) skills.push(kw);
-      });
-    }
-
-    // Extract projects
-    const projects: string[] = [];
-    const projectText = sections['projects'] || sections['portfolio'] || '';
-    if (projectText) {
-      // Each line that starts with a bullet or is non-empty
-      const lines = projectText.split('\n').map(s => s.replace(/^[•\-\*\d.]+\s*/, '').trim()).filter(s => s.length > 5);
-      projects.push(...lines.slice(0, 10));
-    }
-
-    // Extract achievements
-    const achievements: string[] = [];
-    const achText = sections['achievements'] || sections['accomplishments'] || sections['awards'] || '';
-    if (achText) {
-      const lines = achText.split('\n').map(s => s.replace(/^[•\-\*\d.]+\s*/, '').trim()).filter(s => s.length > 5);
-      achievements.push(...lines.slice(0, 10));
-    }
-    // Also pick up quantified bullet points anywhere
-    const quantifiedBullets = text.match(/[•\-\*]\s*.{10,}(?:\d+%|\d+\+|[Rr]anked|[Ww]on|[Ff]irst|[Aa]ward).{0,100}/g) || [];
-    quantifiedBullets.forEach(b => {
-      const clean = b.replace(/^[•\-\*]\s*/, '').trim();
-      if (clean.length > 5) achievements.push(clean);
-    });
-
-    // Extract experience
-    const experience: string[] = [];
-    const expText = sections['experience'] || sections['work experience'] || sections['employment'] || '';
-    if (expText) {
-      const lines = expText.split('\n').map(s => s.replace(/^[•\-\*\d.]+\s*/, '').trim()).filter(s => s.length > 5);
-      experience.push(...lines.slice(0, 10));
-    }
-
-    // Extract education
-    const education: string[] = [];
-    const eduText = sections['education'] || sections['academic'] || sections['qualifications'] || '';
-    if (eduText) {
-      const lines = eduText.split('\n').map(s => s.replace(/^[•\-\*\d.]+\s*/, '').trim()).filter(s => s.length > 5);
-      education.push(...lines.slice(0, 5));
-    }
-    // Fallback: look for degree keywords
-    if (education.length === 0) {
-      const degreeMatches = text.match(/(B\.?Tech|M\.?Tech|B\.?E|MBA|B\.?Sc|M\.?Sc|Ph\.?D|Bachelor|Master|Diploma)[^\n]{0,100}/gi) || [];
-      degreeMatches.forEach(d => education.push(d.trim()));
-    }
-
-    return {
-      skills: [...new Set(skills)].slice(0, 20),
-      projects: [...new Set(projects)].slice(0, 10),
-      achievements: [...new Set(achievements)].slice(0, 10),
-      experience: [...new Set(experience)].slice(0, 10),
-      education: [...new Set(education)].slice(0, 5),
-    };
-  }
+export interface ParseResult {
+  resume: ParsedResume;
+  /** true when the parse fell back to heuristics or found nothing. */
+  degraded: boolean;
+  /** Human-readable explanation when degraded. */
+  reason?: string;
+  source?: 'model' | 'partial' | 'heuristic';
 }
 
-export const resumeService = new ResumeService();
+/** localStorage cache keys — read by `firebaseResumeService` as well. */
+export const RESUME_CACHE_KEY = 'resumeData';
+export const RESUME_TEXT_CACHE_KEY = 'resumeText';
 
-import { supabaseInterviewService } from './supabaseInterviewService';
+const EMPTY: ResumeData = { skills: [], projects: [], achievements: [], experience: [], education: [] };
+
+const asList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0) : [];
+
+function normalize(raw: unknown, fallbackText?: string): ParsedResume {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    name: typeof r.name === 'string' && r.name ? r.name : undefined,
+    title: typeof r.title === 'string' && r.title ? r.title : undefined,
+    summary: typeof r.summary === 'string' && r.summary ? r.summary : undefined,
+    skills: asList(r.skills),
+    projects: asList(r.projects),
+    achievements: asList(r.achievements),
+    experience: asList(r.experience),
+    education: asList(r.education),
+    rawText: typeof r.rawText === 'string' ? r.rawText : fallbackText,
+  };
+}
+
+const isEmpty = (r: ResumeData) =>
+  r.skills.length === 0 &&
+  r.projects.length === 0 &&
+  r.achievements.length === 0 &&
+  r.experience.length === 0 &&
+  r.education.length === 0;
 
 /**
- * Extract and save resume data — uses Gemini-powered parsing with Supabase save
+ * Parse resume text on the server. Never throws — a failure returns an empty
+ * resume flagged `degraded`, so the caller can tell the candidate that
+ * questions will be generic rather than crashing the upload.
  */
-export const extractAndSaveResume = async (
-  userId: string,
-  file: File
-): Promise<{ resumeId: string; resumeData: ResumeData }> => {
+export async function parseResumeText(text: string): Promise<ParseResult> {
+  if (!text || text.trim().length < 20) {
+    return { resume: { ...EMPTY, rawText: text }, degraded: true, reason: 'Not enough text to parse.' };
+  }
+
   try {
-    // Extract text from PDF
-    const { extractTextFromPDF } = await import('./pdfService');
-    const resumeText = await extractTextFromPDF(file);
-
-    if (!resumeText || resumeText.length < 50) {
-      throw new Error('Could not extract meaningful text from PDF. Please try a text-based PDF.');
-    }
-
-    console.log('[ResumeService] Extracted PDF text length:', resumeText.length);
-
-    // Parse with Groq AI (with regex fallback)
-    const resumeData = await resumeService.parseResume(resumeText);
-
-    const resumeId = `resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    console.log('[ResumeService] Final resume data:', {
-      skills: resumeData.skills.length,
-      projects: resumeData.projects.length,
-      achievements: resumeData.achievements.length,
-      experience: resumeData.experience.length,
-      education: resumeData.education.length,
+    const res = await fetch('/api/resume/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
     });
 
-    // Save to Supabase
-    try {
-      await supabaseInterviewService.saveUserResume(userId, resumeData, resumeText);
-    } catch (e) {
-      console.warn('[ResumeService] Supabase save failed, continuing with local storage:', e);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      logger.warn('[resume] parse failed:', res.status, detail.slice(0, 200));
+      return {
+        resume: { ...EMPTY, rawText: text },
+        degraded: true,
+        reason: 'Resume parsing is unavailable right now. Questions will be general.',
+      };
     }
 
-    // Also save to localStorage as backup
-    localStorage.setItem('resumeData', JSON.stringify(resumeData));
-    localStorage.setItem('resumeText', resumeText);
+    const data = (await res.json()) as {
+      resume?: unknown;
+      degraded?: boolean;
+      reason?: string;
+      source?: ParseResult['source'];
+    };
+    const resume = normalize(data.resume, text);
 
-    return { resumeId, resumeData };
-  } catch (error) {
-    console.error('[ResumeService] Error extracting and saving resume:', error);
-    throw error;
+    return {
+      resume,
+      degraded: Boolean(data.degraded) || isEmpty(resume),
+      reason: data.reason,
+      source: data.source,
+    };
+  } catch (err) {
+    logger.warn('[resume] parse request failed:', (err as Error)?.message);
+    return {
+      resume: { ...EMPTY, rawText: text },
+      degraded: true,
+      reason: 'Could not reach the parser. Questions will be general.',
+    };
   }
-};
+}
+
+/** Cache the parsed resume for instant reads on later pages. */
+export function cacheResume(resume: ParsedResume, rawText: string): void {
+  try {
+    const { rawText: _ignored, ...data } = resume;
+    localStorage.setItem(RESUME_CACHE_KEY, JSON.stringify(data));
+    localStorage.setItem(RESUME_TEXT_CACHE_KEY, rawText);
+  } catch (err) {
+    logger.warn('[resume] could not cache resume:', (err as Error)?.message);
+  }
+}
+
+export function clearCachedResume(): void {
+  try {
+    localStorage.removeItem(RESUME_CACHE_KEY);
+    localStorage.removeItem(RESUME_TEXT_CACHE_KEY);
+  } catch {
+    // Nothing to do — a failed clear is not worth surfacing.
+  }
+}
+
+export interface ExtractResult extends ParseResult {
+  resumeId: string;
+  /** Kept for the existing Dashboard call site. */
+  resumeData: ParsedResume;
+  /** true when the resume parsed but could not be persisted remotely. */
+  saveFailed: boolean;
+}
+
+/**
+ * Full upload path: PDF → text → server parse → Supabase (single write) →
+ * localStorage cache. Throws only when the PDF yields no usable text, which is
+ * the one failure the candidate can actually act on.
+ */
+export async function extractAndSaveResume(userId: string, file: File): Promise<ExtractResult> {
+  const { extractTextFromPDF } = await import('./pdfService');
+  const rawText = await extractTextFromPDF(file);
+
+  if (!rawText || rawText.trim().length < 50) {
+    throw new Error(
+      'Could not read text from that PDF. If it is a scan or an image export, please upload a text-based PDF.',
+    );
+  }
+
+  const parsed = await parseResumeText(rawText);
+  const resumeId = `resume_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+
+  logger.info('[resume] parsed', {
+    source: parsed.source,
+    skills: parsed.resume.skills.length,
+    projects: parsed.resume.projects.length,
+    experience: parsed.resume.experience.length,
+  });
+
+  let saveFailed = false;
+  try {
+    const { rawText: _ignored, ...data } = parsed.resume;
+    await supabaseInterviewService.saveUserResume(userId, data, rawText);
+  } catch (err) {
+    saveFailed = true;
+    logger.warn('[resume] Supabase save failed; keeping local cache only:', (err as Error)?.message);
+  }
+
+  cacheResume(parsed.resume, rawText);
+
+  return { ...parsed, resumeId, resumeData: parsed.resume, saveFailed };
+}

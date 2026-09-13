@@ -1,4 +1,8 @@
 import { supabase } from '../lib/supabase';
+import { logger } from '../lib/logger';
+
+/** How many resume uploads to retain per user. */
+const RESUME_HISTORY_LIMIT = 3;
 
 export interface InterviewRecord {
   id?: string;
@@ -35,7 +39,7 @@ export const supabaseInterviewService = {
       if (error) throw error;
       return data.id;
     } catch (error) {
-      console.error('Error saving interview to Supabase:', error);
+      logger.error('[supabase] interview save failed:', (error as Error)?.message);
       throw error;
     }
   },
@@ -54,55 +58,74 @@ export const supabaseInterviewService = {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error fetching interivews from Supabase:', error);
+      logger.error('[supabase] interview fetch failed:', (error as Error)?.message);
       throw error;
     }
   },
 
   /**
-   * Save a user's parsed resume to Supabase
+   * Delete one of a user's interviews. Scoped by `user_id` as well as `id` so a
+   * stale id from another account can never remove someone else's row.
    */
-  async saveUserResume(userId: string, resumeData: any, rawText?: string): Promise<void> {
-    try {
-      const { error } = await supabase
-        .from('resumes')
-        .insert([
-          {
-            user_id: userId,
-            resume_data: resumeData,
-            raw_text: rawText || null,
-          }
-        ]);
+  async deleteInterview(userId: string, interviewId: string): Promise<void> {
+    const { error } = await supabase
+      .from('interviews')
+      .delete()
+      .eq('id', interviewId)
+      .eq('user_id', userId);
 
-      if (error) throw error;
-      console.log('[SupabaseService] ✅ Saved resume to Supabase successfully');
-    } catch (error) {
-      console.error('[SupabaseService] ❌ Error saving resume to Supabase:', error);
-      throw error;
-    }
+    if (error) throw error;
   },
 
   /**
-   * Fetch a user's latest parsed resume from Supabase
+   * Save a user's parsed resume. Inserts the new row, then prunes older ones so
+   * a user who re-uploads repeatedly doesn't accumulate raw resume text
+   * forever. Pruning is best-effort and never fails the save.
    */
-  async getUserResume(userId: string): Promise<any | null> {
+  async saveUserResume(userId: string, resumeData: unknown, rawText?: string): Promise<void> {
+    const { error } = await supabase
+      .from('resumes')
+      .insert([{ user_id: userId, resume_data: resumeData, raw_text: rawText || null }]);
+
+    if (error) throw error;
+
     try {
-      const { data, error } = await supabase
+      const { data: keep } = await supabase
         .from('resumes')
-        .select('*')
+        .select('id')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+        .limit(RESUME_HISTORY_LIMIT);
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "Row not found"
-        throw error;
+      const keepIds = (keep ?? []).map((r: { id: string }) => r.id);
+      if (keepIds.length === RESUME_HISTORY_LIMIT) {
+        await supabase
+          .from('resumes')
+          .delete()
+          .eq('user_id', userId)
+          .not('id', 'in', `(${keepIds.join(',')})`);
       }
+    } catch {
+      // Pruning is an optimisation, not a correctness requirement.
+    }
+  },
 
-      return data ? data.resume_data : null;
-    } catch (error) {
-      console.error('[SupabaseService] ❌ Error fetching resume from Supabase:', error);
+  /**
+   * Fetch a user's latest parsed resume.
+   */
+  async getUserResume(userId: string): Promise<unknown | null> {
+    const { data, error } = await supabase
+      .from('resumes')
+      .select('resume_data')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      logger.warn('[supabase] resume fetch failed:', error.message);
       return null;
     }
-  }
+    return data ? (data as { resume_data: unknown }).resume_data : null;
+  },
 };

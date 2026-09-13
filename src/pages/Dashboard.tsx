@@ -1,1448 +1,1116 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FileText, CheckCircle, AlertCircle, ArrowRight, Briefcase, Menu, Edit, LogOut, Linkedin, Globe, X, Upload, Calendar, ChevronLeft, ChevronRight, ExternalLink, Trash2, History, Brain } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
-import { motion, AnimatePresence } from 'framer-motion';
-import { doc, getDoc, updateDoc, setDoc, Timestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { extractTextFromPDF } from '../services/pdfService';
-import { extractAndSaveResume } from '../services/resumeService';
-import { supabaseInterviewService } from '../services/supabaseInterviewService';
-import { getResumeData, ResumeData } from '../services/firebaseResumeService';
+/**
+ * Dashboard — the authenticated home.
+ *
+ * Three things live here: the resume that grounds every interview question,
+ * the button that starts an interview, and the history of past sessions.
+ *
+ * Data ownership follows the rest of the app: Firebase holds auth + the small
+ * profile document, Supabase holds interviews and the parsed resume,
+ * localStorage is only ever a cache written by `resumeService`. The previous
+ * version of this page extracted every uploaded PDF twice (once here, once
+ * again inside `extractAndSaveResume`) and hand-copied the parsed result back
+ * into localStorage that the service had already written — both are gone.
+ */
 
-// Add proper type for user details
-type UserDetails = {
-  name: string;
-  email: string;
-  resumeURL: string | null;
-  resumeName: string | null;
-  linkedinURL: string | null;
-  portfolioURL: string | null;
-  expertise?: string[];
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Timestamp, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import {
+  AlertCircle,
+  ArrowRight,
+  Brain,
+  Calendar,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  Gauge,
+  Globe,
+  History,
+  LayoutGrid,
+  Link2,
+  Linkedin,
+  ListChecks,
+  MessageSquare,
+  Sparkles,
+  Trash2,
+  Upload,
+  UserRound,
+  X,
+} from 'lucide-react';
+
+import { useAuth } from '../contexts/AuthContext';
+import { db } from '../lib/firebase';
+import { cn } from '../lib/cn';
+import { logger } from '../lib/logger';
+import { resumeCompleteness } from '../lib/reportData';
+import { extractAndSaveResume } from '../services/resumeService';
+import {
+  supabaseInterviewService,
+  type InterviewRecord,
+} from '../services/supabaseInterviewService';
+import { getResumeData, type ResumeData } from '../services/firebaseResumeService';
+import { AppShell } from '../components/AppShell';
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Modal,
+  ProgressBar,
+  SectionHeader,
+  Spinner,
+  StatTile,
+  useToast,
+} from '../components/ui';
+
+const MAX_RESUME_BYTES = 5 * 1024 * 1024;
+const PAGE_SIZE = 5;
+
+type TabId = 'overview' | 'history' | 'training';
+
+const TABS: Array<{ id: TabId; label: string; icon: React.ElementType }> = [
+  { id: 'overview', label: 'Overview', icon: LayoutGrid },
+  { id: 'history', label: 'Interview history', icon: History },
+  { id: 'training', label: 'Training', icon: Brain },
+];
+
+interface UserProfile {
+  displayName?: string;
+  name?: string;
+  email?: string;
+  location?: string;
+  experience?: string;
+  education?: string;
+  expectedSalary?: string;
+  linkedin?: string;
+  portfolio?: string;
   skills?: string[];
-  [key: string]: any; // Allow for additional properties
+  resumeURL?: string | null;
+  resumeName?: string | null;
+}
+
+interface ProfileForm {
+  displayName: string;
+  location: string;
+  experience: string;
+  education: string;
+  expectedSalary: string;
+  linkedin: string;
+  portfolio: string;
+  skills: string;
+}
+
+const EMPTY_FORM: ProfileForm = {
+  displayName: '',
+  location: '',
+  experience: '',
+  education: '',
+  expectedSalary: '',
+  linkedin: '',
+  portfolio: '',
+  skills: '',
 };
 
-const Dashboard = () => {
-  const { currentUser, logout } = useAuth();
-  const navigate = useNavigate();
-  const [error, setError] = useState('');
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [resumeLink, setResumeLink] = useState('');
-  const [resumeLinkSuccess, setResumeLinkSuccess] = useState(false);
-  const [resumeLinkError, setResumeLinkError] = useState('');
-  const [updatingResumeLink, setUpdatingResumeLink] = useState(false);
-  
-  
-  // Form state for profile editing
-  const [editForm, setEditForm] = useState({
-    displayName: '',
-    location: '',
-    experience: '',
-    education: '',
-    expectedSalary: '',
-    linkedin: '',
-    portfolio: '',
-    skills: ''
-  });
-  const [updating, setUpdating] = useState(false);
-  const [updateSuccess, setUpdateSuccess] = useState(false);
+// ---------------------------------------------------------------------------
+// Record helpers
+// ---------------------------------------------------------------------------
 
-  // Inside the Dashboard component, add these new state variables
+const dateFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+const timeFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
+
+function recordDate(row: InterviewRecord): Date | null {
+  if (!row.created_at) return null;
+  const d = new Date(row.created_at);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Questions asked in a stored session. Reads the v2 payload first, then the
+ * metrics blob; returns 0 rather than guessing when neither is present.
+ * (The old code did `questions_data?.length || 10`, which silently reported
+ * "10 questions" for every session once the payload became an object.)
+ */
+function questionCount(row: InterviewRecord): number {
+  const data = row.questions_data as { totalQuestions?: unknown } | null | undefined;
+  if (data && typeof data.totalQuestions === 'number') return data.totalQuestions;
+  const metrics = row.metrics as { totalQuestions?: unknown } | null | undefined;
+  if (metrics && typeof metrics.totalQuestions === 'number') return metrics.totalQuestions;
+  return 0;
+}
+
+/** `overall_confidence` is stored as -1 when facial analysis never ran. */
+function measuredConfidence(row: InterviewRecord): number | null {
+  const value = row.overall_confidence;
+  return typeof value === 'number' && value >= 0 ? value : null;
+}
+
+function summaryLine(row: InterviewRecord): string {
+  const line = (row.summary_markdown || '')
+    .split('\n')
+    .map((l) => l.replace(/[#*`>_]/g, '').trim())
+    .find((l) => l.length > 0);
+  return line || 'Interview completed';
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+const Dashboard: React.FC = () => {
+  const { currentUser } = useAuth();
+  const navigate = useNavigate();
+  const toast = useToast();
+
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+
+  const [resume, setResume] = useState<ResumeData | null>(null);
+  const [loadingResume, setLoadingResume] = useState(true);
+
+  const [interviews, setInterviews] = useState<InterviewRecord[]>([]);
+  const [loadingInterviews, setLoadingInterviews] = useState(true);
+
+  const [tab, setTab] = useState<TabId>('overview');
+  const [page, setPage] = useState(1);
+
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadSuccess, setUploadSuccess] = useState(false);
-  const [uploadError, setUploadError] = useState('');
 
+  const [resumeLink, setResumeLink] = useState('');
+  const [savingLink, setSavingLink] = useState(false);
 
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [form, setForm] = useState<ProfileForm>(EMPTY_FORM);
+  const [savingProfile, setSavingProfile] = useState(false);
 
-  // Add new state variables for interview history
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'training'>('dashboard');
-  const [interviewHistory, setInterviewHistory] = useState<any[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(5);
+  const [pendingDelete, setPendingDelete] = useState<InterviewRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  // Add this new state for the improvement plan summary
-  const [latestImprovementPlan, setLatestImprovementPlan] = useState<any>(null);
+  // --- loading ------------------------------------------------------------
 
-  // Fetch user details from Firestore
   useEffect(() => {
-    const fetchUserDetails = async () => {
-      if (!currentUser) return;
-      
+    if (!currentUser) return;
+    let cancelled = false;
+
+    (async () => {
       try {
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        const userDoc = await getDoc(userDocRef);
-        
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          // Cast the Firestore data to our UserDetails type
-          setUserDetails(userData as UserDetails);
-          setResumeLink(userData.resumeURL || '');
-          
-          // Initialize edit form with current values
-          setEditForm({
-            displayName: userData.displayName || '',
-            location: userData.location || '',
-            experience: userData.experience || '',
-            education: userData.education || '',
-            expectedSalary: userData.expectedSalary || '',
-            linkedin: userData.linkedin || '',
-            portfolio: userData.portfolio || '',
-            skills: userData.skills ? userData.skills.join(', ') : ''
+        const ref = doc(db, 'users', currentUser.uid);
+        const snap = await getDoc(ref);
+
+        if (snap.exists()) {
+          const data = snap.data() as UserProfile;
+          if (cancelled) return;
+          setProfile(data);
+          setResumeLink(data.resumeURL ?? '');
+          setForm({
+            displayName: data.displayName ?? data.name ?? '',
+            location: data.location ?? '',
+            experience: data.experience ?? '',
+            education: data.education ?? '',
+            expectedSalary: data.expectedSalary ?? '',
+            linkedin: data.linkedin ?? '',
+            portfolio: data.portfolio ?? '',
+            skills: Array.isArray(data.skills) ? data.skills.join(', ') : '',
           });
         } else {
-          // Create a default user document
-          const defaultUserData: UserDetails = {
-            name: currentUser.displayName || '',
-            email: currentUser.email || '',
+          const seed: UserProfile & { createdAt: Timestamp; photoURL: string } = {
+            name: currentUser.displayName ?? '',
+            displayName: currentUser.displayName ?? '',
+            email: currentUser.email ?? '',
+            photoURL: currentUser.photoURL ?? '',
             resumeURL: null,
             resumeName: null,
-            linkedinURL: null,
-            portfolioURL: null,
-            displayName: currentUser.displayName || '',
-            photoURL: currentUser.photoURL || '',
-            createdAt: Timestamp.now(),
             skills: [],
-            expertise: []
+            createdAt: Timestamp.now(),
           };
-          
-          await setDoc(doc(db, 'users', currentUser.uid), defaultUserData);
-          setUserDetails(defaultUserData);
-        }
-      } catch (error) {
-        console.error('Error fetching user details:', error);
-        setError('Failed to load user profile');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchUserDetails();
-    
-    // Load interview history from Supabase, fallback to localStorage
-    const fetchInterviews = async () => {
-      if (!currentUser) return;
-      try {
-        const dbInterviews = await supabaseInterviewService.getUserInterviews(currentUser.uid);
-        if (dbInterviews && dbInterviews.length > 0) {
-          setInterviewHistory(dbInterviews);
-        } else {
-          const storedHistory = localStorage.getItem('interviewHistory');
-          if (storedHistory) {
-            setInterviewHistory(JSON.parse(storedHistory));
-          }
+          await setDoc(ref, seed);
+          if (!cancelled) setProfile(seed);
         }
       } catch (err) {
-        console.error('Failed to fetch from Supabase:', err);
-        const storedHistory = localStorage.getItem('interviewHistory');
-        if (storedHistory) {
-          setInterviewHistory(JSON.parse(storedHistory));
-        }
+        logger.warn('[dashboard] profile load failed:', (err as Error)?.message);
+        if (!cancelled) toast.error('Could not load your profile. Some details may be missing.');
+      } finally {
+        if (!cancelled) setLoadingProfile(false);
       }
-    };
-    fetchInterviews();
-    
-    // Load latest improvement plan from localStorage
-    const storedPlan = localStorage.getItem('latestImprovementPlan');
-    if (storedPlan) {
+    })();
+
+    (async () => {
       try {
-        setLatestImprovementPlan(JSON.parse(storedPlan));
-      } catch (e) {
-        console.error('Error parsing improvement plan:', e);
+        const rows = await supabaseInterviewService.getUserInterviews(currentUser.uid);
+        if (!cancelled) setInterviews(rows);
+      } catch (err) {
+        logger.warn('[dashboard] interview history failed:', (err as Error)?.message);
+        if (!cancelled) toast.error('Could not load your interview history.');
+      } finally {
+        if (!cancelled) setLoadingInterviews(false);
       }
-    }
+    })();
+
+    (async () => {
+      try {
+        const data = await getResumeData(currentUser.uid);
+        if (!cancelled) setResume(data);
+      } finally {
+        if (!cancelled) setLoadingResume(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // `toast` is stable (memoised in the provider); re-running on identity
+    // changes would refetch the whole dashboard on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
-  // Handle logout
-  const handleLogout = async () => {
-    try {
-      await logout();
-      navigate('/login');
-    } catch (error) {
-      console.error('Failed to log out', error);
-    }
-  };
+  // --- derived ------------------------------------------------------------
 
-  // Toggle menu
-  const toggleMenu = () => {
-    setIsMenuOpen(!isMenuOpen);
-    setIsEditingProfile(false);
-  };
-  
-  // Toggle edit profile mode
-  const toggleEditProfile = () => {
-    setIsEditingProfile(!isEditingProfile);
-  };
+  const resumeStrength = useMemo(() => resumeCompleteness(resume), [resume]);
+  const skillCount = resume?.skills?.length ?? 0;
 
-  // Handle resume link update
-  const handleResumeUpdate = async () => {
-    if (!currentUser || !resumeLink) return;
+  const totalQuestions = useMemo(
+    () => interviews.reduce((sum, row) => sum + questionCount(row), 0),
+    [interviews],
+  );
 
-    setUpdatingResumeLink(true);
-    setResumeLinkError('');
+  const avgConfidence = useMemo(() => {
+    const measured = interviews.map(measuredConfidence).filter((v): v is number => v !== null);
+    if (measured.length === 0) return null;
+    return {
+      value: Math.round(measured.reduce((a, b) => a + b, 0) / measured.length),
+      sessions: measured.length,
+    };
+  }, [interviews]);
 
-    try {
-      // Validate URL format
-      try {
-        new URL(resumeLink);
-      } catch (e) {
-        throw new Error('Please enter a valid URL (include http:// or https://)');
-      }
-      
-      // Update user document with resume URL
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, {
-        resumeURL: resumeLink
-      });
-      
-      // Update local state with proper typing
-      setUserDetails((prev: any) => {
-        if (!prev) return { resumeURL: resumeLink };
-        return { ...prev, resumeURL: resumeLink };
-      });
-      
-      setResumeLinkSuccess(true);
-      
-      // Reset success message after 3 seconds
-      setTimeout(() => {
-        setResumeLinkSuccess(false);
-      }, 3000);
-    } catch (err: any) {
-      console.error('Resume link update error:', err);
-      setResumeLinkError(err.message || 'Failed to update resume link. Please try again.');
-    } finally {
-      setUpdatingResumeLink(false);
-    }
-  };
-  
-  // Handle profile update
-  const handleProfileUpdate = async () => {
-    if (!currentUser) return;
-    
-    setUpdating(true);
-    setError('');
-    
-    try {
-      const skillsArray = editForm.skills
-        ? editForm.skills.split(',').map(skill => skill.trim()).filter(skill => skill !== '')
-        : [];
-      
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, {
-        displayName: editForm.displayName,
-        location: editForm.location,
-        experience: editForm.experience,
-        education: editForm.education,
-        expectedSalary: editForm.expectedSalary,
-        linkedin: editForm.linkedin,
-        portfolio: editForm.portfolio,
-        skills: skillsArray
-      });
-      
-      // Update local state with proper typing
-      setUserDetails((prev: UserDetails | null) => {
-        if (!prev) return null;
-        return { 
-          ...prev, 
-          displayName: editForm.displayName,
-          location: editForm.location,
-          experience: editForm.experience,
-          education: editForm.education,
-          expectedSalary: editForm.expectedSalary,
-          linkedin: editForm.linkedin,
-          portfolio: editForm.portfolio,
-          skills: skillsArray
-        };
-      });
-      
-      setUpdateSuccess(true);
-      
-      // Reset success message after 3 seconds
-      setTimeout(() => {
-        setUpdateSuccess(false);
-        setIsEditingProfile(false);
-      }, 2000);
-    } catch (err) {
-      console.error('Profile update error:', err);
-      setError('Failed to update profile. Please try again.');
-    } finally {
-      setUpdating(false);
-    }
-  };
+  const lastSession = useMemo(() => {
+    const dates = interviews.map(recordDate).filter((d): d is Date => d !== null);
+    return dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
+  }, [interviews]);
 
-  // Handle form input change
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setEditForm(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
+  const totalPages = Math.max(1, Math.ceil(interviews.length / PAGE_SIZE));
+  const pageRows = useMemo(
+    () => interviews.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [interviews, page],
+  );
 
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
+  // --- resume -------------------------------------------------------------
 
-  // Add this new function to handle file selection
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('File input changed:', e.target.files);
-    const selectedFile = e.target.files?.[0];
-    
-    if (selectedFile) {
-      console.log('Selected file:', selectedFile.name, selectedFile.type, selectedFile.size);
-      
-      // Check if file is a PDF
-      if (selectedFile.type !== 'application/pdf') {
-        console.log('File is not a PDF:', selectedFile.type);
-        setUploadError('Please upload a PDF file');
-        setFile(null);
-        return;
-      }
-      
-      // Check file size (limit to 5MB)
-      if (selectedFile.size > 5 * 1024 * 1024) {
-        console.log('File too large:', selectedFile.size);
-        setUploadError('File size should be less than 5MB');
-        setFile(null);
-        return;
-      }
-      
-      console.log('File accepted, setting file state');
-      setFile(selectedFile);
-      setUploadError('');
-    } else {
-      console.log('No file selected');
-    }
-  };
+  const pickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file after an error
+    if (!selected) return;
 
-  // Add this function to handle resume upload
-  const handleResumeFileUpload = async () => {
-    console.log('Upload button clicked, file:', file);
-    if (!file) {
-      console.log('No file selected for upload');
-      setUploadError('Please select a file first');
+    if (selected.type !== 'application/pdf') {
+      toast.error('Please choose a PDF file.');
       return;
     }
-    
-    console.log('Starting upload process...');
-    setUploading(true);
-    setUploadError('');
-    
-    try {
-      console.log("Starting PDF processing of file:", file.name, file.size/1024, "KB");
-      
-      // Extract text from the PDF using our service
-      const extractedText = await extractTextFromPDF(file);
-      
-      console.log("Successfully extracted text from PDF, length:", extractedText.length);
-      
-      // Verify the text content has reasonable length
-      if (extractedText.length < 100) {
-        setUploadError('The PDF text extraction resulted in very little content. Please try a different PDF.');
-        setUploading(false);
-        return;
-      }
-      
-      // Store the extracted text in localStorage for use in the interview
-      localStorage.setItem('resumeText', extractedText);
-      console.log("Stored resume text in localStorage");
+    if (selected.size > MAX_RESUME_BYTES) {
+      toast.error('That file is over 5 MB. Please upload a smaller PDF.');
+      return;
+    }
+    setFile(selected);
+  };
 
-      // Extract and parse resume data using backend API
-      if (currentUser) {
-        try {
-          const { resumeData } = await extractAndSaveResume(currentUser.uid, file);
-          console.log('Extracted resume data from backend:', resumeData);
-          console.log('Resume data structure:', {
-            skills: resumeData?.skills?.length || 0,
-            projects: resumeData?.projects?.length || 0,
-            achievements: resumeData?.achievements?.length || 0,
-            experience: resumeData?.experience?.length || 0,
-            education: resumeData?.education?.length || 0
-          });
-          
-          // Store resume data in localStorage as backup for use in interviews
-          localStorage.setItem('resumeData', JSON.stringify(resumeData));
-          console.log('Resume data stored in localStorage as backup');
-          
-          // Show success message
-          setUploadSuccess(true);
-          setUploadError('');
-          console.log('✅ Resume uploaded and saved to Firebase successfully!');
-        } catch (e) {
-          console.warn('Resume parsing via backend API failed:', e);
-          setUploadError('Failed to parse resume via backend API. Please try a different PDF.');
-          setUploading(false);
-          return;
-        }
+  const uploadResume = useCallback(async () => {
+    if (!file || !currentUser) return;
+    setUploading(true);
+    try {
+      // One call does the whole path: PDF → text → server parse → Supabase →
+      // localStorage cache. Nothing here repeats any of it.
+      const result = await extractAndSaveResume(currentUser.uid, file);
+      setResume(result.resumeData);
+
+      try {
+        await updateDoc(doc(db, 'users', currentUser.uid), { resumeName: file.name });
+        setProfile((prev) => (prev ? { ...prev, resumeName: file.name } : prev));
+      } catch (err) {
+        logger.warn('[dashboard] could not record resume name:', (err as Error)?.message);
       }
-      
-      // Update user metadata with file name (but not URL, since we're processing locally)
-      if (currentUser) {
-        const userRef = doc(db, 'users', currentUser.uid);
-        await updateDoc(userRef, {
-          resumeName: file.name,
-          // We're not storing the resume in Firebase Storage anymore
-          resumeURL: null
-        });
-        
-        // Update local state
-        setUserDetails(prev => ({
-          ...prev!,
-          resumeName: file.name,
-          resumeURL: null
-        }));
-      }
-      
+
       setFile(null);
-      setUploadSuccess(true);
-      setTimeout(() => setUploadSuccess(false), 3000);
-      
-    } catch (error) {
-      console.error('Error processing PDF:', error);
-      setUploadError('Failed to process PDF. Please try again with a different file.');
+
+      if (result.degraded) {
+        toast.warning(
+          result.reason ??
+            'We read the file but could not pull structured details out of it. Questions will be general.',
+        );
+      } else if (result.saveFailed) {
+        toast.warning('Resume parsed, but saving it to your account failed. It will still be used on this device.');
+      } else {
+        toast.success(
+          `Resume parsed — ${result.resumeData.skills.length} skills, ${result.resumeData.projects.length} projects. Questions will be grounded in it.`,
+        );
+      }
+    } catch (err) {
+      toast.error((err as Error)?.message || 'Could not process that PDF. Please try another file.');
     } finally {
       setUploading(false);
     }
-  };
+  }, [file, currentUser, toast]);
 
-  // Add function to view interview results
-  const viewInterviewResults = (interviewId: string) => {
-    // Store the selected interview in localStorage
-    const selectedInterview = interviewHistory.find(interview => interview.id === interviewId);
-    if (selectedInterview) {
-      // Navigate to /nerv-summary instead of /results and pass isHistorical flag
-      navigate('/nerv-summary', { 
-        state: { 
-          isHistorical: true, 
-          interviewData: selectedInterview,
-          summary: selectedInterview.summary_markdown || selectedInterview.summary
-        } 
-      });
-    }
-  };
-
-  const startTrainingSession = async (interviewId: string, event: React.MouseEvent) => {
-    event.stopPropagation();
-    const selectedInterview = interviewHistory.find(interview => interview.id === interviewId);
-    if (!selectedInterview) return;
-
-    const fallbackSkills = userDetails?.skills || ['React', 'TypeScript', 'Node.js', 'System Design', 'Algorithms'];
-
-    // Fetch from Supabase first (authoritative), fallback to localStorage
-    let resumeData: ResumeData | null = null;
+  const saveResumeLink = useCallback(async () => {
+    if (!currentUser) return;
+    const value = resumeLink.trim();
+    if (!value) return;
     try {
-      if (currentUser) {
-        resumeData = await getResumeData(currentUser.uid);
-        // Cache back to localStorage so it's fast next time
-        if (resumeData) localStorage.setItem('resumeData', JSON.stringify(resumeData));
-      }
-    } catch { /* ignore */ }
-
-    // Final fallback: raw localStorage (works offline too)
-    if (!resumeData) {
-      try {
-        const stored = localStorage.getItem('resumeData');
-        if (stored) resumeData = JSON.parse(stored) as ResumeData;
-      } catch { /* ignore */ }
+      new URL(value);
+    } catch {
+      toast.error('Please enter a full URL, including https://');
+      return;
     }
 
-    navigate('/training-session', {
-      state: {
-        interviewId: selectedInterview.id,
-        summaryMarkdown: selectedInterview.summary_markdown || selectedInterview.summary,
-        resumeSkills: resumeData?.skills || fallbackSkills,
-        skillMentions: selectedInterview.metrics?.skillMentions || {},
-        totalQuestions: selectedInterview.questions_data?.length || 10,
-        resumeData: resumeData || { skills: fallbackSkills },
+    setSavingLink(true);
+    try {
+      await updateDoc(doc(db, 'users', currentUser.uid), { resumeURL: value });
+      setProfile((prev) => (prev ? { ...prev, resumeURL: value } : prev));
+      toast.success('Resume link saved.');
+    } catch (err) {
+      logger.warn('[dashboard] resume link save failed:', (err as Error)?.message);
+      toast.error('Could not save that link. Please try again.');
+    } finally {
+      setSavingLink(false);
+    }
+  }, [currentUser, resumeLink, toast]);
+
+  // --- profile ------------------------------------------------------------
+
+  const updateForm = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const saveProfile = useCallback(async () => {
+    if (!currentUser) return;
+    setSavingProfile(true);
+    try {
+      const skills = form.skills
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const patch = {
+        displayName: form.displayName,
+        location: form.location,
+        experience: form.experience,
+        education: form.education,
+        expectedSalary: form.expectedSalary,
+        linkedin: form.linkedin,
+        portfolio: form.portfolio,
+        skills,
+      };
+
+      await updateDoc(doc(db, 'users', currentUser.uid), patch);
+      setProfile((prev) => ({ ...(prev ?? {}), ...patch }));
+      setProfileOpen(false);
+      toast.success('Profile updated.');
+    } catch (err) {
+      logger.warn('[dashboard] profile save failed:', (err as Error)?.message);
+      toast.error('Could not save your profile. Please try again.');
+    } finally {
+      setSavingProfile(false);
+    }
+  }, [currentUser, form, toast]);
+
+  // --- interview actions --------------------------------------------------
+
+  const viewResults = useCallback(
+    (row: InterviewRecord) => {
+      navigate('/nerv-summary', {
+        state: {
+          isHistorical: true,
+          interviewData: row,
+          summary: row.summary_markdown,
+        },
+      });
+    },
+    [navigate],
+  );
+
+  const startTraining = useCallback(
+    async (row: InterviewRecord) => {
+      // Supabase is authoritative; `getResumeData` refreshes the local cache
+      // itself, so there is nothing to copy back here.
+      let data = resume;
+      if (!data && currentUser) {
+        try {
+          data = await getResumeData(currentUser.uid);
+        } catch {
+          data = null;
+        }
       }
-    });
-  };
-  
-  // Add function to delete interview from history
-  const deleteInterview = (interviewId: string, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent triggering the parent click
-    
-    const updatedHistory = interviewHistory.filter(interview => interview.id !== interviewId);
-    setInterviewHistory(updatedHistory);
-    localStorage.setItem('interviewHistory', JSON.stringify(updatedHistory));
-  };
-  
-  // Calculate pagination
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentInterviews = interviewHistory.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(interviewHistory.length / itemsPerPage);
+
+      const metrics = (row.metrics ?? {}) as { skillMentions?: Record<string, number> };
+      const skills = data?.skills?.length ? data.skills : profile?.skills ?? [];
+
+      navigate('/training-session', {
+        state: {
+          interviewId: row.id,
+          summaryMarkdown: row.summary_markdown,
+          resumeSkills: skills,
+          skillMentions: metrics.skillMentions ?? {},
+          totalQuestions: questionCount(row),
+          resumeData: data ?? { skills },
+        },
+      });
+    },
+    [currentUser, navigate, profile, resume],
+  );
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete?.id || !currentUser) return;
+    const id = pendingDelete.id;
+    setDeleting(true);
+    try {
+      await supabaseInterviewService.deleteInterview(currentUser.uid, id);
+      setInterviews((prev) => prev.filter((row) => row.id !== id));
+      setPendingDelete(null);
+      toast.success('Interview deleted.');
+    } catch (err) {
+      logger.warn('[dashboard] delete failed:', (err as Error)?.message);
+      toast.error('Could not delete that interview. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
+  }, [currentUser, pendingDelete, toast]);
+
+  // --- render -------------------------------------------------------------
+
+  const greetingName = (profile?.displayName || profile?.name || currentUser?.email?.split('@')[0] || '').trim();
+  const hasResume = Boolean(resume && skillCount > 0);
+
+  const startInterview = (
+    <Button
+      size="lg"
+      rightIcon={<ArrowRight size={18} />}
+      onClick={() => navigate('/multi-round-interview')}
+    >
+      Start interview
+    </Button>
+  );
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
-      {/* Sticky Navbar */}
-      <header className="sticky top-0 z-50 bg-black/80 backdrop-blur-sm border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-          <div className="flex items-center">
-            <h1 className="text-xl font-bold">NERV</h1>
-          </div>
-          
-          <button
-            onClick={toggleMenu}
-            className="p-1 rounded-full hover:bg-white/10 transition-colors"
-            aria-label="Open menu"
-          >
-            <Menu className="h-6 w-6" />
-          </button>
-        </div>
-      </header>
-
-      {/* User Menu */}
-      <AnimatePresence>
-        {isMenuOpen && (
+    <AppShell>
+      <SectionHeader
+        eyebrow="Dashboard"
+        title={greetingName ? `Welcome back, ${greetingName}` : 'Welcome back'}
+        description="Three rounds — technical, core and HR — grounded in your own resume."
+        actions={
           <>
-            {/* Backdrop with localized blur effect */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-40"
-              onClick={toggleMenu}
-            >
-              {/* This creates a gradient that only blurs the right side of the screen */}
-              <div className="h-full w-full bg-gradient-to-r from-black/30 to-black/70 backdrop-blur-[2px]">
-                {/* Additional stronger blur for the area directly behind the menu */}
-                <div className="absolute top-0 right-0 h-full w-[320px] bg-black/40 backdrop-blur-md" />
-              </div>
-            </motion.div>
-            
-            {/* Menu Panel */}
-            <motion.div
-              initial={{ opacity: 0, x: 300 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 300 }}
-              transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className="fixed right-0 top-0 h-full w-80 bg-black border-l border-white/10 z-50 overflow-y-auto"
-            >
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-8">
-                  <h2 className="text-xl font-bold">
-                    {isEditingProfile ? 'Edit Profile' : 'Profile'}
-                  </h2>
-                  <button
-                    onClick={toggleMenu}
-                    className="p-2 rounded-full hover:bg-white/10 transition-colors"
-                    aria-label="Close menu"
-                  >
-                    <X className="h-6 w-6" />
-                  </button>
-                </div>
-
-                {loading ? (
-                  <div className="flex justify-center py-8">
-                    <div className="animate-spin h-8 w-8 border-2 border-white border-t-transparent rounded-full"></div>
-                  </div>
-                ) : (
-                  <>
-                    {isEditingProfile ? (
-                      // Edit Profile Form
-                      <div className="space-y-4">
-                        {error && (
-                          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-500 text-sm flex items-start">
-                            <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0 mt-0.5" />
-                            <span>{error}</span>
-                          </div>
-                        )}
-                        
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Full Name</label>
-                          <input
-                            type="text"
-                            name="displayName"
-                            value={editForm.displayName}
-                            onChange={handleInputChange}
-                            className="w-full px-3 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Location</label>
-                          <input
-                            type="text"
-                            name="location"
-                            value={editForm.location}
-                            onChange={handleInputChange}
-                            placeholder="City, Country"
-                            className="w-full px-3 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Experience</label>
-                          <input
-                            type="text"
-                            name="experience"
-                            value={editForm.experience}
-                            onChange={handleInputChange}
-                            placeholder="e.g. 5 years"
-                            className="w-full px-3 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Education</label>
-                          <input
-                            type="text"
-                            name="education"
-                            value={editForm.education}
-                            onChange={handleInputChange}
-                            placeholder="Degree, Institution"
-                            className="w-full px-3 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Expected Salary</label>
-                          <input
-                            type="text"
-                            name="expectedSalary"
-                            value={editForm.expectedSalary}
-                            onChange={handleInputChange}
-                            placeholder="e.g. $80,000 - $100,000"
-                            className="w-full px-3 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium mb-1">LinkedIn Profile</label>
-                          <input
-                            type="text"
-                            name="linkedin"
-                            value={editForm.linkedin}
-                            onChange={handleInputChange}
-                            placeholder="https://linkedin.com/in/username"
-                            className="w-full px-3 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Portfolio Website</label>
-                          <input
-                            type="text"
-                            name="portfolio"
-                            value={editForm.portfolio}
-                            onChange={handleInputChange}
-                            placeholder="https://yourportfolio.com"
-                            className="w-full px-3 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Skills (comma separated)</label>
-                          <textarea
-                            name="skills"
-                            value={editForm.skills}
-                            onChange={handleInputChange}
-                            placeholder="React, JavaScript, Node.js, etc."
-                            className="w-full px-3 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors resize-none h-24"
-                          />
-                        </div>
-                        
-                        <div className="flex space-x-3 pt-2">
-                          <button
-                            type="button"
-                            onClick={() => setIsEditingProfile(false)}
-                            className="flex-1 py-2 border border-white/20 rounded-lg hover:bg-white/10 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleProfileUpdate}
-                            disabled={updating}
-                            className="flex-1 py-2 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {updating ? 'Saving...' : 'Save Changes'}
-                          </button>
-                        </div>
-                        
-                        {updateSuccess && (
-                          <div className="flex items-center justify-center text-green-500 text-sm">
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            Profile updated successfully
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <>
-                        {/* User profile header */}
-                        <div className="flex items-center mb-6">
-                          <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center text-xl font-bold mr-4">
-                            {userDetails?.displayName?.charAt(0) || currentUser?.email?.charAt(0) || 'U'}
-                          </div>
-                          <div>
-                            <h3 className="font-medium text-lg">{userDetails?.displayName || 'User'}</h3>
-                            <p className="text-gray-400 text-sm">{currentUser?.email}</p>
-                          </div>
-                        </div>
-
-                        {/* User Details */}
-                        <div className="bg-white/5 rounded-lg p-4 mb-4">
-                          <h4 className="text-white text-sm font-medium mb-2">Account Details</h4>
-                          <div className="space-y-2">
-                            <div className="flex justify-between">
-                              <span className="text-gray-400 text-sm">Name</span>
-                              <span className="text-white text-sm">
-                                {userDetails?.displayName || 'Not set'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-400 text-sm">Location</span>
-                              <span className="text-white text-sm">
-                                {userDetails?.location || 'Not set'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-400 text-sm">Experience</span>
-                              <span className="text-white text-sm">
-                                {userDetails?.experience || 'Not set'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-400 text-sm">Education</span>
-                              <span className="text-white text-sm">
-                                {userDetails?.education || 'Not set'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-400 text-sm">Expected Salary</span>
-                              <span className="text-white text-sm">
-                                {userDetails?.expectedSalary || 'Not set'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-400 text-sm">Interviews Completed</span>
-                              <span className="text-white text-sm">
-                                {userDetails?.interviewsCompleted || '0'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Skills Section */}
-                        <div className="bg-white/5 rounded-lg p-4 mb-4">
-                          <h4 className="text-white text-sm font-medium mb-2">Skills & Expertise</h4>
-                          <div className="mb-3">
-                            <span className="text-gray-400 text-sm">Technical Expertise:</span>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {userDetails?.expertise?.map((exp: string) => (
-                                <span key={exp} className="text-xs bg-white/10 text-white px-2 py-1 rounded-full">
-                                  {exp}
-                                </span>
-                              ))}
-                              {(!userDetails?.expertise || userDetails.expertise.length === 0) && (
-                                <span className="text-xs text-gray-400">No expertise added</span>
-                              )}
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-gray-400 text-sm">Skills:</span>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {userDetails?.skills?.map((skill: string) => (
-                                <span key={skill} className="text-xs bg-white/10 text-white px-2 py-1 rounded-full">
-                                  {skill}
-                                </span>
-                              ))}
-                              {(!userDetails?.skills || userDetails.skills.length === 0) && (
-                                <span className="text-xs text-gray-400">No skills added</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Resume Card (Mobile view) */}
-                        <div className="lg:hidden p-4 bg-white/5 rounded-lg mb-4">
-                          <h3 className="text-lg font-semibold mb-2 flex items-center">
-                            <FileText className="h-5 w-5 mr-2" />
-                            Your Resume
-                          </h3>
-                          
-                          {(userDetails?.resumeURL || localStorage.getItem('resumeText')) ? (
-                            <div>
-                              <p className="text-sm text-gray-400 mb-2">Your resume is ready for interviews</p>
-                              {userDetails?.resumeURL ? (
-                                <a 
-                                  href={userDetails.resumeURL}
-                                  target="_blank"
-                                  rel="noopener noreferrer" 
-                                  className="text-sm flex items-center text-blue-400 hover:text-blue-300"
-                                >
-                                  <FileText className="h-4 w-4 mr-2" />
-                                  View Resume {userDetails.resumeName && `(${userDetails.resumeName})`}
-                                </a>
-                              ) : (
-                                <div className="text-sm flex items-center text-green-400">
-                                  <FileText className="h-4 w-4 mr-2" />
-                                  Locally Processed Resume {userDetails?.resumeName && `(${userDetails.resumeName})`}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex items-center">
-                              <AlertCircle className="h-4 w-4 mr-2 text-yellow-500" />
-                              <p className="text-sm text-yellow-400">No resume added yet</p>
-                            </div>
-                          )}
-                          
-                          <button
-                            onClick={() => document.getElementById('mobileResumeSection')?.scrollIntoView({ behavior: 'smooth' })}
-                            className="mt-3 w-full py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-sm"
-                          >
-                            {userDetails?.resumeURL || localStorage.getItem('resumeText') ? 'Update Resume' : 'Add Resume'}
-                          </button>
-                        </div>
-
-                        {/* Resume Upload Box */}
-                        <div className="bg-black border border-white/10 rounded-xl p-6 shadow-lg hover:border-white/30 transition-all mb-6">
-                          <h2 className="text-xl font-semibold mb-4 flex items-center">
-                            <FileText className="h-5 w-5 mr-2" />
-                            Your Resume
-                          </h2>
-                          
-                          {(userDetails?.resumeURL || localStorage.getItem('resumeText')) ? (
-                            <div className="mb-4">
-                              <p className="text-gray-400 mb-2">Your resume is ready for interviews</p>
-                              {userDetails?.resumeURL ? (
-                                <a 
-                                  href={userDetails.resumeURL}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center text-blue-400 hover:text-blue-300"
-                                >
-                                  <FileText className="h-4 w-4 mr-2" />
-                                  View Resume {userDetails.resumeName && `(${userDetails.resumeName})`}
-                                </a>
-                              ) : (
-                                <div className="inline-flex items-center text-green-400">
-                                  <FileText className="h-4 w-4 mr-2" />
-                                  Locally Processed Resume {userDetails?.resumeName && `(${userDetails.resumeName})`}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <p className="text-gray-400 mb-4">Add your resume to enhance your interview experience</p>
-                          )}
-                          
-                          <div className="space-y-4">
-                            {/* File Upload Section */}
-                            <div className="border border-dashed border-white/20 rounded-lg p-4 hover:border-white/40 transition-all">
-                              <label htmlFor="resume-file-input" className="flex flex-col items-center justify-center cursor-pointer">
-                                <Upload className="h-6 w-6 mb-2 text-gray-400" />
-                                <span className="text-sm font-medium mb-1">Upload PDF Resume</span>
-                                <span className="text-xs text-gray-500">Max 5MB</span>
-                                <input 
-                                  id="resume-file-input"
-                                  type="file" 
-                                  accept=".pdf" 
-                                  onChange={handleFileChange}
-                                  className="hidden" 
-                                />
-                              </label>
-                              
-                              {file && (
-                                <div className="mt-3 flex items-center justify-between bg-white/5 p-2 rounded">
-                                  <span className="text-sm truncate max-w-[200px]">{file.name}</span>
-                                  <button 
-                                    onClick={() => setFile(null)}
-                                    className="text-gray-400 hover:text-white"
-                                    aria-label="Remove selected file"
-                                    title="Remove selected file"
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </button>
-                                </div>
-                              )}
-                              
-                              {file && (
-                                <button
-                                  onClick={handleResumeFileUpload}
-                                  disabled={uploading}
-                                  className="w-full mt-3 py-2 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm"
-                                >
-                                  {uploading ? 'Uploading...' : 'Upload Resume'}
-                                </button>
-                              )}
-                              
-                              {uploadError && (
-                                <div className="mt-2 flex items-center text-red-500 text-xs">
-                                  <AlertCircle className="h-3 w-3 mr-1 flex-shrink-0" />
-                                  {uploadError}
-                                </div>
-                              )}
-                              
-                              {uploadSuccess && (
-                                <div className="mt-2 flex items-center text-green-500 text-xs">
-                                  <CheckCircle className="h-3 w-3 mr-1 flex-shrink-0" />
-                                  Resume uploaded and saved to Firebase successfully!
-                                </div>
-                              )}
-                            </div>
-                            
-                            {/* OR Divider */}
-                            <div className="flex items-center">
-                              <div className="flex-grow border-t border-white/10"></div>
-                              <span className="mx-4 text-xs text-gray-500">OR</span>
-                              <div className="flex-grow border-t border-white/10"></div>
-                            </div>
-                            
-                            {/* URL Input Section */}
-                            <div>
-                              <p className="text-sm text-gray-400 mb-2">Add a link to your resume</p>
-                              <input
-                                type="text"
-                                value={resumeLink}
-                                onChange={(e) => setResumeLink(e.target.value)}
-                                placeholder="Enter resume URL (Google Drive, Dropbox, etc.)"
-                                className="w-full px-3 py-2 bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                              />
-                              
-                              <button
-                                onClick={handleResumeUpdate}
-                                disabled={!resumeLink || updatingResumeLink}
-                                className="w-full mt-3 py-2 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                              >
-                                {updatingResumeLink ? 'Updating...' : userDetails?.resumeURL ? 'Update Resume Link' : 'Add Resume Link'}
-                              </button>
-                              
-                              {resumeLinkSuccess && (
-                                <div className="mt-2 flex items-center text-green-500 text-xs">
-                                  <CheckCircle className="h-3 w-3 mr-1" />
-                                  Resume link updated successfully
-                                </div>
-                              )}
-                              
-                              {resumeLinkError && (
-                                <div className="mt-2 flex items-center text-red-500 text-xs">
-                                  <AlertCircle className="h-3 w-3 mr-1" />
-                                  {resumeLinkError}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Links Section */}
-                        <div className="bg-white/5 rounded-lg p-4 mb-4">
-                          <h4 className="text-white text-sm font-medium mb-2">Professional Links</h4>
-                          {userDetails?.linkedin && (
-                            <a 
-                              href={userDetails.linkedin}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center text-sm text-blue-400 hover:text-blue-300 mb-2"
-                            >
-                              <Linkedin className="h-4 w-4 mr-2" />
-                              LinkedIn Profile
-                            </a>
-                          )}
-                          {userDetails?.portfolio && (
-                            <a 
-                              href={userDetails.portfolio}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center text-sm text-blue-400 hover:text-blue-300 mb-2"
-                            >
-                              <Globe className="h-4 w-4 mr-2" />
-                              Portfolio Website
-                            </a>
-                          )}
-                          {(!userDetails?.linkedin && !userDetails?.portfolio) && (
-                            <p className="text-sm text-gray-400">No professional links added</p>
-                          )}
-                        </div>
-
-                        {/* Actions */}
-                        <div className="space-y-2">
-                          <button
-                            onClick={toggleEditProfile}
-                            className="w-full py-2 px-4 flex items-center rounded-lg hover:bg-white/10 transition-colors"
-                          >
-                            <Edit className="h-5 w-5 mr-3" />
-                            <span>Edit Profile</span>
-                          </button>
-                          <button
-                            onClick={handleLogout}
-                            className="w-full py-2 px-4 flex items-center rounded-lg hover:bg-white/10 transition-colors"
-                          >
-                            <LogOut className="h-5 w-5 mr-3" />
-                            <span>Logout</span>
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-            </motion.div>
+            <Button variant="outline" leftIcon={<UserRound size={16} />} onClick={() => setProfileOpen(true)}>
+              Profile
+            </Button>
+            {startInterview}
           </>
-        )}
-      </AnimatePresence>
+        }
+      />
 
-      {/* Tab Navigation */}
-      <div className="max-w-7xl mx-auto px-4 py-4 w-full">
-        <div className="flex border-b border-white/10 mb-6">
+      {/* Stats */}
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          label="Interviews"
+          value={loadingInterviews ? '—' : interviews.length}
+          icon={<History size={16} />}
+          hint={lastSession ? `Last on ${dateFmt.format(lastSession)}` : 'No sessions yet'}
+        />
+        <StatTile
+          label="Questions answered"
+          value={loadingInterviews ? '—' : totalQuestions || '—'}
+          icon={<MessageSquare size={16} />}
+          hint={totalQuestions ? 'Across every saved session' : 'Complete a round to start counting'}
+        />
+        <StatTile
+          label="Resume strength"
+          value={loadingResume ? '—' : `${resumeStrength}%`}
+          icon={<Gauge size={16} />}
+          hint={hasResume ? `${skillCount} skills extracted` : 'Upload a resume to score it'}
+        />
+        <StatTile
+          label="Avg. composure"
+          value={avgConfidence ? `${avgConfidence.value}%` : 'Not measured'}
+          icon={<Sparkles size={16} />}
+          hint={
+            avgConfidence
+              ? `Measured in ${avgConfidence.sessions} of ${interviews.length} sessions`
+              : 'Facial analysis has not run yet'
+          }
+        />
+      </div>
+
+      {/* Tabs */}
+      <div className="mb-6 mt-8 flex gap-1 overflow-x-auto border-b border-border">
+        {TABS.map(({ id, label, icon: Icon }) => (
           <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`px-4 py-2 font-medium text-sm transition-colors ${
-              activeTab === 'dashboard' 
-                ? 'text-white border-b-2 border-white' 
-                : 'text-gray-400 hover:text-white'
-            }`}
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={cn(
+              'flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors',
+              tab === id ? 'border-accent text-white' : 'border-transparent text-muted hover:text-white',
+            )}
           >
-            Dashboard
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`px-4 py-2 font-medium text-sm transition-colors flex items-center ${
-              activeTab === 'history' 
-                ? 'text-white border-b-2 border-white' 
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            Interview History
-            {interviewHistory.length > 0 && (
-              <span className="ml-2 bg-white/10 text-white text-xs px-2 py-0.5 rounded-full">
-                {interviewHistory.length}
+            <Icon size={16} />
+            {label}
+            {id === 'history' && interviews.length > 0 && (
+              <span className="rounded-full bg-white/8 px-2 py-0.5 text-xs text-muted">
+                {interviews.length}
               </span>
             )}
           </button>
-          <button
-            onClick={() => setActiveTab('training')}
-            className={`px-4 py-2 font-medium text-sm transition-colors flex items-center ${
-              activeTab === 'training' 
-                ? 'text-white border-b-2 border-white' 
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            Training Sessions
-          </button>
-        </div>
-        
-        {/* Dashboard Tab Content */}
-        {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Welcome Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <h1 className="text-3xl font-bold mb-1">Welcome to your NERV interview</h1>
-              <p className="text-gray-400 text-sm mb-4">Let's get you ready for your next technical interview</p>
-              
-              {/* Resume Upload Box - More compact */}
-              <div className="bg-black border border-white/10 rounded-xl p-4 shadow-lg hover:border-white/30 transition-all">
-                <h2 className="text-lg font-semibold mb-3 flex items-center">
-                  <FileText className="h-4 w-4 mr-2" />
-                  Your Resume
-                </h2>
-                
-                {userDetails?.resumeURL ? (
-                  <div className="mb-3">
-                    <p className="text-gray-400 text-sm mb-1">Your resume is ready for interviews</p>
-                    <a 
-                      href={userDetails.resumeURL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center text-blue-400 hover:text-blue-300 text-sm"
-                    >
-                      <FileText className="h-3 w-3 mr-1" />
-                      View Resume {userDetails.resumeName && `(${userDetails.resumeName})`}
-                    </a>
-                  </div>
-                ) : (
-                  <p className="text-gray-400 text-sm mb-3">Add your resume to enhance your interview experience</p>
-                )}
-                
-                <div className="space-y-3">
-                  {/* File Upload Section */}
-                  <div className="border border-dashed border-white/20 rounded-lg p-3 hover:border-white/40 transition-all">
-                    <label htmlFor="resume-file-input" className="flex flex-col items-center justify-center cursor-pointer">
-                      <Upload className="h-5 w-5 mb-1 text-gray-400" />
-                      <span className="text-xs font-medium">Upload PDF Resume</span>
-                      <span className="text-xs text-gray-500">Max 5MB</span>
-                      <input 
-                        id="resume-file-input"
-                        type="file" 
-                        accept=".pdf" 
-                        onChange={handleFileChange}
-                        className="hidden" 
-                      />
-                    </label>
-                    
-                    {file && (
-                      <div className="mt-2 flex items-center justify-between bg-white/5 p-1 rounded">
-                        <span className="text-xs truncate max-w-[200px]">{file.name}</span>
-                        <button 
-                          onClick={() => setFile(null)}
-                          className="text-gray-400 hover:text-white"
-                          aria-label="Remove selected file"
-                          title="Remove selected file"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    )}
-                    
-                    {file && (
-                      <button
-                        onClick={handleResumeFileUpload}
-                        disabled={uploading}
-                        className="w-full mt-2 py-1 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium text-xs"
-                      >
-                        {uploading ? 'Uploading...' : 'Upload Resume'}
-                      </button>
-                    )}
-                    
-                    {uploadError && (
-                      <div className="mt-1 flex items-center text-red-500 text-xs">
-                        <AlertCircle className="h-3 w-3 mr-1 flex-shrink-0" />
-                        {uploadError}
-                      </div>
-                    )}
-                    
-                    {uploadSuccess && (
-                      <div className="mt-1 flex items-center text-green-500 text-xs">
-                        <CheckCircle className="h-3 w-3 mr-1 flex-shrink-0" />
-                        Resume uploaded and saved to Firebase successfully!
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* OR Divider */}
-                  <div className="flex items-center">
-                    <div className="flex-grow border-t border-white/10"></div>
-                    <span className="mx-2 text-xs text-gray-500">OR</span>
-                    <div className="flex-grow border-t border-white/10"></div>
-                  </div>
-                  
-                  {/* URL Input Section */}
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1">Add a link to your resume</p>
-                    <input
-                      type="text"
-                      value={resumeLink}
-                      onChange={(e) => setResumeLink(e.target.value)}
-                      placeholder="Enter resume URL (Google Drive, Dropbox, etc.)"
-                      className="w-full px-2 py-1 text-sm bg-black/50 border border-white/20 rounded-lg focus:ring-1 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
-                    />
-                    
-                    <button
-                      onClick={handleResumeUpdate}
-                      disabled={!resumeLink || updatingResumeLink}
-                      className="w-full mt-2 py-1 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium text-xs"
-                    >
-                      {updatingResumeLink ? 'Updating...' : userDetails?.resumeURL ? 'Update Resume Link' : 'Add Resume Link'}
-                    </button>
-                    
-                    {resumeLinkSuccess && (
-                      <div className="mt-1 flex items-center text-green-500 text-xs">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Resume link updated successfully
-                      </div>
-                    )}
-                    
-                    {resumeLinkError && (
-                      <div className="mt-1 flex items-center text-red-500 text-xs">
-                        <AlertCircle className="h-3 w-3 mr-1" />
-                        {resumeLinkError}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </motion.div>
+        ))}
+      </div>
 
-            {/* Quick Actions - Revamped NERV Style */}
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              className="bg-white/[0.03] backdrop-blur-md border border-white/10 rounded-2xl p-6 shadow-2xl hover:border-white/20 transition-all h-fit group"
-            >
-              <div className="flex items-center mb-4">
-                <div className="p-2 bg-white/5 rounded-lg mr-3 group-hover:bg-white/10 transition-colors">
-                  <Briefcase className="h-5 w-5 text-white" />
-                </div>
-                <h2 className="text-xl font-bold uppercase tracking-tight text-white/90">Quick Actions</h2>
+      {tab === 'overview' && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* Resume */}
+          <Card className="lg:col-span-2">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
+                  <FileText size={18} className="text-accent-soft" />
+                  Your resume
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Every question in the interview is drawn from what is actually in here.
+                </p>
               </div>
-              
-              <p className="text-gray-500 text-[11px] font-medium uppercase tracking-[0.15em] mb-6 leading-relaxed">
-                Experience the next generation of AI-driven interview simulation.
-              </p>
-
-              <div className="space-y-4">
-                <button
-                  onClick={() => navigate('/multi-round-interview')}
-                  className="w-full group/btn relative overflow-hidden bg-white text-black py-4 rounded-xl font-bold text-xs uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  <span className="relative z-10 flex items-center justify-center">
-                    Start Multi-Round Interview
-                    <ArrowRight className="ml-2 h-4 w-4 transform group-hover/btn:translate-x-1 transition-transform" />
-                  </span>
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-700" />
-                </button>
-
-                <div className="flex items-center justify-center space-x-2 text-[9px] font-bold text-gray-600 uppercase tracking-widest pt-2">
-                  <span className="w-1 h-1 bg-gray-800 rounded-full" />
-                  <span>3 Rounds</span>
-                  <span className="w-1 h-1 bg-gray-800 rounded-full" />
-                  <span>Real-time Feedback</span>
-                  <span className="w-1 h-1 bg-gray-800 rounded-full" />
-                </div>
-              </div>
-            </motion.div>
-
-            {/* After the "Quick Actions" section, add the "Improvement Plan" section if available */}
-            {latestImprovementPlan && activeTab === 'dashboard' && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.2 }}
-                className="bg-black/30 rounded-xl p-6 border border-white/10 mb-6"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold">Your Improvement Plan</h3>
-                  <span className="text-sm text-white/50">
-                    {new Date(latestImprovementPlan.generatedAt).toLocaleDateString()}
-                  </span>
-                </div>
-                
-                <p className="text-white/70 mb-4">{latestImprovementPlan.summary}</p>
-                
-                {latestImprovementPlan.skillGaps && latestImprovementPlan.skillGaps.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="text-sm font-medium mb-2">Key Skill Gaps:</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {latestImprovementPlan.skillGaps.slice(0, 5).map((skill: string, index: number) => (
-                        <span
-                          key={index}
-                          className="px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 text-xs border border-amber-500/30"
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {latestImprovementPlan.timeline && latestImprovementPlan.timeline.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="text-sm font-medium mb-2">Next Steps:</h4>
-                    <div className="space-y-2">
-                      {latestImprovementPlan.timeline.slice(0, 2).map((item: any, index: number) => (
-                        <div key={index} className="flex items-start">
-                          <div className={`
-                            w-3 h-3 rounded-full mt-1 mr-2 flex-shrink-0
-                            ${item.priority === 'high' ? 'bg-red-500' : 
-                              item.priority === 'medium' ? 'bg-yellow-500' : 'bg-blue-500'}
-                          `}></div>
-                          <div>
-                            <div className="text-white/40 text-xs">{item.duration}</div>
-                            <div className="text-white/80 text-sm">{item.task}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                <button
-                  onClick={() => navigate('/nerv-summary')}
-                  className="mt-2 inline-flex items-center text-indigo-400 hover:text-indigo-300 text-sm font-medium"
-                >
-                  View full improvement plan
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </button>
-              </motion.div>
-            )}
-          </div>
-        )}
-        
-        {/* Interview History Tab Content */}
-        {activeTab === 'history' && (
-          <div className="space-y-6">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="bg-black border border-white/10 rounded-xl p-6 shadow-lg"
-            >
-              <div className="flex items-center mb-4">
-                <History className="h-5 w-5 text-white mr-2" />
-                <h2 className="text-xl font-semibold">Your Interview History</h2>
-              </div>
-              
-              {interviewHistory.length > 0 ? (
-                <>
-                  <div className="space-y-4 mb-6">
-                    {currentInterviews.map((interview, index) => (
-                      <motion.div
-                        key={interview.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, delay: index * 0.1 }}
-                        onClick={() => viewInterviewResults(interview.id)}
-                        className="border border-white/10 rounded-lg p-4 hover:border-white/30 hover:bg-white/5 transition-all cursor-pointer"
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="flex items-center mb-2">
-                              <Calendar className="h-4 w-4 text-gray-400 mr-2" />
-                              <span className="text-sm text-gray-300">
-                                {new Date(interview.timestamp || interview.created_at).toLocaleDateString()} at {new Date(interview.timestamp || interview.created_at).toLocaleTimeString('short')}
-                              </span>
-                            </div>
-                            
-                            <h3 className="font-medium mb-2 text-white">
-                              Interview #{interviewHistory.length - interviewHistory.indexOf(interview)}
-                            </h3>
-                            
-                            <p className="text-gray-400 text-sm line-clamp-2">
-                              {interview.summary ? interview.summary.split('\n')[0].replace(/[#*`]/g, '') : (interview.summary_markdown ? interview.summary_markdown.split('\n')[0].replace(/[#*`]/g, '') : "Interview completed")}
-                            </p>
-                            
-                            <div className="mt-4 flex flex-wrap items-center gap-3">
-                              <div className="flex items-center text-blue-400 text-xs font-medium cursor-pointer hover:text-blue-300 transition-colors">
-                                <ExternalLink className="h-3 w-3 mr-1" />
-                                View results
-                              </div>
-                              <button
-                                onClick={(e) => startTrainingSession(interview.id, e)}
-                                className="flex items-center text-yellow-500 text-xs font-bold bg-yellow-500/10 hover:bg-yellow-500/20 px-2.5 py-1.5 rounded-lg border border-yellow-500/20 hover:border-yellow-500/40 transition-colors"
-                              >
-                                <Brain className="h-3 w-3 mr-1.5" />
-                                Start Training
-                              </button>
-                            </div>
-                          </div>
-                          
-                          <button
-                            onClick={(e) => deleteInterview(interview.id, e)}
-                            className="p-1 text-gray-500 hover:text-red-500 transition-colors"
-                            title="Delete interview"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                  
-                  {/* Pagination */}
-                  {totalPages > 1 && (
-                    <div className="flex justify-center items-center space-x-2">
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                        disabled={currentPage === 1}
-                        className="p-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                        aria-label="Previous page"
-                        title="Previous page"
-                      >
-                        <ChevronLeft className="h-5 w-5" />
-                      </button>
-                      
-                      <span className="text-sm">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                        disabled={currentPage === totalPages}
-                        className="p-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                        aria-label="Next page"
-                        title="Next page"
-                      >
-                        <ChevronRight className="h-5 w-5" />
-                      </button>
-                    </div>
-                  )}
-                </>
+              {loadingResume ? (
+                <Spinner size={18} />
+              ) : hasResume ? (
+                <Badge variant="success" dot>
+                  Ready
+                </Badge>
               ) : (
-                <div className="text-center py-10">
-                  <p className="text-gray-400 mb-4">You haven't completed any interviews yet.</p>
-                  <button
-                    onClick={() => navigate('/multi-round-interview')}
-                    className="px-4 py-2 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all"
-                  >
-                    Start Your First Interview
-                    <ArrowRight className="ml-2 h-4 w-4 inline" />
-                  </button>
-                </div>
+                <Badge variant="warning" dot>
+                  Not set up
+                </Badge>
               )}
-            </motion.div>
-          </div>
-        )}
+            </div>
 
-        {/* Training Sessions Tab Content */}
-        {activeTab === 'training' && (
-          <div className="space-y-6">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="bg-black border border-white/10 rounded-xl p-6 shadow-lg"
-            >
-              <div className="flex items-center mb-4">
-                <Brain className="h-5 w-5 text-yellow-500 mr-2" />
-                <h2 className="text-xl font-semibold">AI Tutor Training Hub</h2>
-              </div>
-              <p className="text-gray-400 text-sm mb-6">
-                Refine your skills based on your past interview performance. Select an interview below to start a personalized training session.
-              </p>
-
-              {interviewHistory.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {interviewHistory.map((interview, index) => (
-                    <div key={`train-${interview.id}`} className="bg-white/5 border border-white/10 rounded-lg p-5 hover:border-yellow-500/50 transition-colors flex flex-col justify-between">
-                      <div>
-                        <div className="flex justify-between items-start mb-3">
-                          <h3 className="font-bold text-white text-md">Session #{interviewHistory.length - index}</h3>
-                          <span className="text-[10px] uppercase font-bold text-gray-500 tracking-widest bg-black/40 px-2 py-1 rounded-md">
-                            {new Date(interview.timestamp || interview.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-400 line-clamp-3 mb-6">
-                           {interview.summary ? interview.summary.split('\n')[0].replace(/[#*`]/g, '') : (interview.summary_markdown ? interview.summary_markdown.split('\n')[0].replace(/[#*`]/g, '') : "Resume-based Interview Session")}
-                        </p>
-                      </div>
-                      <button
-                        onClick={(e) => startTrainingSession(interview.id, e)}
-                        className="w-full flex items-center justify-center text-black text-sm font-bold bg-yellow-500 hover:bg-yellow-400 py-3 rounded-lg transition-transform hover:scale-[1.02] active:scale-[0.98] mt-auto shadow-[0_0_15px_rgba(234,179,8,0.2)]"
-                      >
-                        <Brain className="h-4 w-4 mr-2" />
-                        Start Training
-                      </button>
+            {hasResume && (
+              <div className="mt-5 rounded-xl border border-border bg-surface-raised p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-white">Resume strength</span>
+                  <span className="text-sm font-semibold text-accent-soft">{resumeStrength}%</span>
+                </div>
+                <ProgressBar
+                  className="mt-2"
+                  value={resumeStrength}
+                  tone={resumeStrength >= 70 ? 'success' : resumeStrength >= 40 ? 'warning' : 'danger'}
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  A structural check of the sections we extracted — not an ATS engine.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-1.5">
+                  {(resume?.skills ?? []).slice(0, 12).map((skill) => (
+                    <Badge key={skill} variant="accent">
+                      {skill}
+                    </Badge>
+                  ))}
+                  {skillCount > 12 && <Badge variant="outline">+{skillCount - 12} more</Badge>}
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                  {(
+                    [
+                      ['Projects', resume?.projects?.length ?? 0],
+                      ['Experience', resume?.experience?.length ?? 0],
+                      ['Education', resume?.education?.length ?? 0],
+                      ['Achievements', resume?.achievements?.length ?? 0],
+                    ] as const
+                  ).map(([label, count]) => (
+                    <div key={label}>
+                      <div className="text-lg font-semibold text-white">{count}</div>
+                      <div className="text-xs text-muted-foreground">{label}</div>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div className="text-center py-12 bg-white/5 border border-white/10 rounded-xl">
-                  <Brain className="h-8 w-8 text-gray-500 mx-auto mb-4 opacity-50" />
-                  <p className="text-gray-300 font-medium mb-2">No interviews available for training.</p>
-                  <p className="text-sm text-gray-500 max-w-sm mx-auto">Complete an interview first to unlock personalized AI tutoring scaled to your exact skill gaps.</p>
-                  
-                  <button
-                    onClick={() => navigate('/multi-round-interview')}
-                    className="mt-6 px-6 py-2 bg-white text-black text-sm font-bold rounded-lg hover:bg-gray-200 transition-colors"
-                  >
-                    Start an Interview
-                  </button>
+              </div>
+            )}
+
+            {/* Upload */}
+            <div className="mt-5">
+              <label
+                htmlFor="resume-file"
+                className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-border px-4 py-6 text-center transition-colors hover:border-border-strong hover:bg-white/[0.02]"
+              >
+                <Upload size={20} className="mb-2 text-muted" />
+                <span className="text-sm font-medium text-white">
+                  {hasResume ? 'Replace your resume' : 'Upload your resume'}
+                </span>
+                <span className="mt-0.5 text-xs text-muted-foreground">
+                  Text-based PDF, up to 5 MB
+                </span>
+                <input
+                  id="resume-file"
+                  type="file"
+                  accept="application/pdf"
+                  onChange={pickFile}
+                  className="hidden"
+                />
+              </label>
+
+              {file && (
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-raised px-3 py-2">
+                  <span className="truncate text-sm text-white">{file.name}</span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button size="sm" loading={uploading} onClick={uploadResume}>
+                      {uploading ? 'Parsing…' : 'Parse resume'}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => setFile(null)}
+                      disabled={uploading}
+                      className="rounded-lg p-1 text-muted transition-colors hover:bg-white/5 hover:text-white disabled:opacity-40"
+                      aria-label="Remove selected file"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
                 </div>
               )}
-            </motion.div>
+
+              {profile?.resumeName && !file && (
+                <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <CheckCircle2 size={12} className="text-success" />
+                  Last upload: {profile.resumeName}
+                </p>
+              )}
+            </div>
+
+            {/* Optional public link */}
+            <div className="mt-6 border-t border-border pt-5">
+              <p className="mb-2 text-sm text-muted-foreground">
+                Optional: a shareable link to your resume. Recruiters see this; the interviewer does not read it.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={resumeLink}
+                  onChange={(e) => setResumeLink(e.target.value)}
+                  placeholder="https://drive.google.com/…"
+                  leftIcon={<Link2 size={16} />}
+                />
+                <Button
+                  variant="secondary"
+                  loading={savingLink}
+                  disabled={!resumeLink.trim()}
+                  onClick={saveResumeLink}
+                  className="sm:w-auto"
+                >
+                  Save link
+                </Button>
+              </div>
+              {profile?.resumeURL && (
+                <a
+                  href={profile.resumeURL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs text-accent-soft hover:text-accent"
+                >
+                  <ExternalLink size={12} />
+                  Open current link
+                </a>
+              )}
+            </div>
+          </Card>
+
+          {/* Right column */}
+          <div className="space-y-6">
+            <Card>
+              <h3 className="text-lg font-semibold text-white">Ready when you are</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Technical, core and HR — one continuous session with voice, a code scratchpad and a
+                report at the end.
+              </p>
+
+              <ul className="mt-4 space-y-2 text-sm text-muted">
+                {[
+                  'Questions grounded in your resume',
+                  'Speak naturally — the mic ends your turn',
+                  'Scratchpad for code, never executed',
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-2">
+                    <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-success" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+
+              {!hasResume && !loadingResume && (
+                <div className="mt-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-muted p-3 text-xs text-warning">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                  Without a parsed resume the questions will be generic. Upload one first for the real thing.
+                </div>
+              )}
+
+              <Button
+                fullWidth
+                className="mt-5"
+                rightIcon={<ArrowRight size={16} />}
+                onClick={() => navigate('/multi-round-interview')}
+              >
+                Start multi-round interview
+              </Button>
+            </Card>
+
+            <Card>
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="text-lg font-semibold text-white">Profile</h3>
+                <Button variant="ghost" size="sm" onClick={() => setProfileOpen(true)}>
+                  Edit
+                </Button>
+              </div>
+
+              {loadingProfile ? (
+                <div className="mt-4 flex justify-center py-4">
+                  <Spinner size={20} />
+                </div>
+              ) : (
+                <dl className="mt-4 space-y-3 text-sm">
+                  {(
+                    [
+                      ['Email', currentUser?.email ?? '—'],
+                      ['Location', profile?.location || '—'],
+                      ['Experience', profile?.experience || '—'],
+                      ['Education', profile?.education || '—'],
+                    ] as const
+                  ).map(([label, value]) => (
+                    <div key={label} className="flex items-baseline justify-between gap-3">
+                      <dt className="text-muted-foreground">{label}</dt>
+                      <dd className="max-w-[60%] truncate text-right text-white">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+
+              {(profile?.linkedin || profile?.portfolio) && (
+                <div className="mt-4 flex flex-wrap gap-3 border-t border-border pt-4">
+                  {profile?.linkedin && (
+                    <a
+                      href={profile.linkedin}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-sm text-accent-soft hover:text-accent"
+                    >
+                      <Linkedin size={14} />
+                      LinkedIn
+                    </a>
+                  )}
+                  {profile?.portfolio && (
+                    <a
+                      href={profile.portfolio}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-sm text-accent-soft hover:text-accent"
+                    >
+                      <Globe size={14} />
+                      Portfolio
+                    </a>
+                  )}
+                </div>
+              )}
+            </Card>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+
+      {tab === 'history' && (
+        <div className="space-y-4">
+          {loadingInterviews ? (
+            <div className="flex justify-center py-16">
+              <Spinner size={24} />
+            </div>
+          ) : interviews.length === 0 ? (
+            <EmptyState
+              icon={<History size={20} />}
+              title="No interviews yet"
+              description="Finish a session and it will appear here with its transcript, report and composure read."
+              action={startInterview}
+            />
+          ) : (
+            <>
+              {pageRows.map((row) => {
+                const when = recordDate(row);
+                const questions = questionCount(row);
+                const confidence = measuredConfidence(row);
+                return (
+                  <Card
+                    key={row.id}
+                    interactive
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => viewResults(row)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        viewResults(row);
+                      }
+                    }}
+                    className="focus-visible:border-accent focus-visible:outline-none focus-visible:shadow-focus"
+                  >
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <Calendar size={12} />
+                          {when ? `${dateFmt.format(when)} · ${timeFmt.format(when)}` : 'Date unknown'}
+                          {questions > 0 && (
+                            <>
+                              <span className="text-border-strong">•</span>
+                              {questions} question{questions === 1 ? '' : 's'}
+                            </>
+                          )}
+                          {row.total_duration_minutes > 0 && (
+                            <>
+                              <span className="text-border-strong">•</span>
+                              {row.total_duration_minutes} min
+                            </>
+                          )}
+                        </div>
+
+                        <p className="mt-2 line-clamp-2 text-sm text-white">{summaryLine(row)}</p>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {confidence !== null ? (
+                            <Badge variant="accent">Composure {confidence}%</Badge>
+                          ) : (
+                            <Badge variant="outline">Composure not measured</Badge>
+                          )}
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-accent-soft">
+                            <ExternalLink size={12} />
+                            View report
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          leftIcon={<Brain size={14} />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void startTraining(row);
+                          }}
+                        >
+                          Train
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          aria-label="Delete interview"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingDelete(row);
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-4 pt-2">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Previous page"
+                    disabled={page === 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft size={18} />
+                  </Button>
+                  <span className="text-sm text-muted">
+                    Page {page} of {totalPages}
+                  </span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Next page"
+                    disabled={page === totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    <ChevronRight size={18} />
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === 'training' && (
+        <div className="space-y-6">
+          <Card>
+            <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
+              <Brain size={18} className="text-accent-soft" />
+              AI tutor
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Pick a session and the tutor drills the topics you skipped or stumbled on — using that
+              interview's own report as the brief.
+            </p>
+            <Button
+              className="mt-4"
+              variant="secondary"
+              leftIcon={<ListChecks size={16} />}
+              onClick={() => navigate('/training-session')}
+            >
+              Open a free-form session
+            </Button>
+          </Card>
+
+          {loadingInterviews ? (
+            <div className="flex justify-center py-16">
+              <Spinner size={24} />
+            </div>
+          ) : interviews.length === 0 ? (
+            <EmptyState
+              icon={<Brain size={20} />}
+              title="Nothing to train on yet"
+              description="Complete an interview first — the tutor works from the gaps your report identifies."
+              action={startInterview}
+            />
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {interviews.map((row, index) => {
+                const when = recordDate(row);
+                const gaps = ((row.metrics ?? {}) as { skillGaps?: string[] }).skillGaps ?? [];
+                return (
+                  <Card key={`train-${row.id}`} className="flex flex-col">
+                    <div className="flex items-start justify-between gap-3">
+                      <h4 className="font-semibold text-white">Session #{interviews.length - index}</h4>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {when ? dateFmt.format(when) : '—'}
+                      </span>
+                    </div>
+
+                    <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{summaryLine(row)}</p>
+
+                    {gaps.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {gaps.slice(0, 4).map((gap) => (
+                          <Badge key={gap} variant="warning">
+                            {gap}
+                          </Badge>
+                        ))}
+                        {gaps.length > 4 && <Badge variant="outline">+{gaps.length - 4}</Badge>}
+                      </div>
+                    )}
+
+                    <Button
+                      fullWidth
+                      className="mt-auto"
+                      leftIcon={<Brain size={16} />}
+                      onClick={() => void startTraining(row)}
+                    >
+                      Start training
+                    </Button>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Profile editor */}
+      <Modal
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        title="Edit profile"
+        description="Used for context around the interview. Questions still come from your resume."
+        size="lg"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setProfileOpen(false)}>
+              Cancel
+            </Button>
+            <Button loading={savingProfile} onClick={saveProfile}>
+              Save changes
+            </Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Input label="Display name" name="displayName" value={form.displayName} onChange={updateForm} />
+          <Input label="Location" name="location" value={form.location} onChange={updateForm} />
+          <Input
+            label="Experience"
+            name="experience"
+            value={form.experience}
+            onChange={updateForm}
+            placeholder="e.g. 2 years"
+          />
+          <Input label="Education" name="education" value={form.education} onChange={updateForm} />
+          <Input
+            label="Expected salary"
+            name="expectedSalary"
+            value={form.expectedSalary}
+            onChange={updateForm}
+          />
+          <Input
+            label="LinkedIn"
+            name="linkedin"
+            value={form.linkedin}
+            onChange={updateForm}
+            placeholder="https://linkedin.com/in/…"
+          />
+          <div className="sm:col-span-2">
+            <Input
+              label="Portfolio"
+              name="portfolio"
+              value={form.portfolio}
+              onChange={updateForm}
+              placeholder="https://…"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <Input
+              label="Skills"
+              name="skills"
+              value={form.skills}
+              onChange={updateForm}
+              placeholder="React, TypeScript, PostgreSQL"
+              hint="Comma separated. Only a fallback — the interviewer reads your parsed resume first."
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete confirmation */}
+      <Modal
+        open={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        title="Delete this interview?"
+        description="The transcript, report and composure data for this session are removed permanently."
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPendingDelete(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={deleting} onClick={confirmDelete}>
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">
+          {pendingDelete && recordDate(pendingDelete)
+            ? `Session from ${dateFmt.format(recordDate(pendingDelete) as Date)}.`
+            : 'This cannot be undone.'}
+        </p>
+      </Modal>
+    </AppShell>
   );
 };
 
-export default Dashboard; 
+export default Dashboard;
