@@ -8,6 +8,8 @@
  * caller falls back to manual push-to-talk. It never throws.
  */
 
+import { logger } from './logger';
+
 // Pinned versions known to work together. `+esm` gives a dependency-bundled
 // ES module; the ONNX wasm is fetched separately from `onnxWASMBasePath`.
 const VAD_VERSION = '0.0.19';
@@ -72,7 +74,7 @@ export async function createVad(opts: VadOptions): Promise<VadHandle> {
     const mod: Record<string, unknown> = await import(/* @vite-ignore */ VAD_ESM_URL);
     const MicVAD = mod.MicVAD as MicVadStatic | undefined;
     if (!MicVAD || typeof MicVAD.new !== 'function') {
-      console.warn('[vad] MicVAD not found in module — falling back to manual mode');
+      logger.warn('[vad] MicVAD not found in module — falling back to manual mode');
       return STUB;
     }
 
@@ -109,7 +111,7 @@ export async function createVad(opts: VadOptions): Promise<VadHandle> {
       },
     };
   } catch (err) {
-    console.warn('[vad] failed to initialise, using manual mode:', (err as Error)?.message);
+    logger.warn('[vad] failed to initialise, using manual mode:', (err as Error)?.message);
     return STUB;
   }
 }
