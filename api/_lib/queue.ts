@@ -71,3 +71,17 @@ export async function enqueueResumeIngest(
 ): Promise<void> {
   await resumeQueue().add('ingest', data, { jobId: idempotencyKey });
 }
+
+/**
+ * Whether BullMQ still holds a job under this id, in any state.
+ *
+ * Used to heal the one case the database cannot see: a row that says `queued`
+ * while Redis has no such job — an enqueue that failed after the row was
+ * written, or a flushed instance. Without this the row would sit queued
+ * forever, because the claim function correctly reports it as neither new nor
+ * revived and nothing would ever push it again.
+ */
+export async function resumeJobExists(idempotencyKey: string): Promise<boolean> {
+  const job = await resumeQueue().getJob(idempotencyKey);
+  return Boolean(job);
+}

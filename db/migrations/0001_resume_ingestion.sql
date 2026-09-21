@@ -162,12 +162,13 @@ returns table (
 )
 language plpgsql as $$
 declare
-  v_id     uuid;
-  v_status resume_job_status;
+  v_id        uuid;
+  v_status    resume_job_status;
+  v_resume_id uuid;
 begin
   perform lock_user_resume(p_user_id);
 
-  select j.id, j.status into v_id, v_status
+  select j.id, j.status, j.resume_id into v_id, v_status, v_resume_id
     from resume_jobs j
    where j.idempotency_key = p_idempotency_key;
 
@@ -183,12 +184,28 @@ begin
     end if;
 
     -- Lost a race the lock should have prevented; fall through and read it.
-    select j.id, j.status into v_id, v_status
+    select j.id, j.status, j.resume_id into v_id, v_status, v_resume_id
       from resume_jobs j
      where j.idempotency_key = p_idempotency_key;
   end if;
 
   if v_status = 'failed' then
+    update resume_jobs
+       set status      = 'queued',
+           error       = null,
+           finished_at = null,
+           attempts    = 0
+     where resume_jobs.id = v_id;
+
+    return query select v_id, 'queued'::resume_job_status, false, true;
+    return;
+  end if;
+
+  -- A completed job whose parse was pruned away (we keep only the N most recent
+  -- resumes per user; the FK nulls out on delete). The job row outlived its
+  -- result, so redo the work rather than handing back a job that will never
+  -- produce a resume.
+  if v_status = 'done' and v_resume_id is null then
     update resume_jobs
        set status      = 'queued',
            error       = null,

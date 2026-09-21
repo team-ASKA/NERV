@@ -135,6 +135,24 @@ export async function verifyIdToken(token: string): Promise<VerifiedUser> {
 }
 
 /**
+ * Development-only identity, read from the body or the query string so GET
+ * endpoints (which have no body) work too. Returns null unless
+ * ALLOW_UNVERIFIED_AUTH is explicitly enabled.
+ */
+function unverifiedUser(req: VercelRequest): VerifiedUser | null {
+  if (!allowUnverified()) return null;
+
+  const fromBody = (req.body as { userId?: unknown } | undefined)?.userId;
+  if (typeof fromBody === 'string' && fromBody.length > 0) return { uid: fromBody };
+
+  const fromQuery = req.query?.userId;
+  const claimed = Array.isArray(fromQuery) ? fromQuery[0] : fromQuery;
+  if (typeof claimed === 'string' && claimed.length > 0) return { uid: claimed };
+
+  return null;
+}
+
+/**
  * Resolve the caller, or respond 401 and return null.
  *
  * Handlers should `const user = await requireUser(req, res); if (!user) return;`
@@ -147,12 +165,8 @@ export async function requireUser(
   const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 
   if (!token) {
-    if (allowUnverified()) {
-      const claimed = (req.body as { userId?: string } | undefined)?.userId;
-      if (typeof claimed === 'string' && claimed.length > 0) {
-        return { uid: claimed };
-      }
-    }
+    const dev = unverifiedUser(req);
+    if (dev) return dev;
     res.status(401).json({ error: 'Sign in to continue.' });
     return null;
   }
@@ -160,10 +174,8 @@ export async function requireUser(
   try {
     return await verifyIdToken(token);
   } catch (err) {
-    if (allowUnverified()) {
-      const claimed = (req.body as { userId?: string } | undefined)?.userId;
-      if (typeof claimed === 'string' && claimed.length > 0) return { uid: claimed };
-    }
+    const dev = unverifiedUser(req);
+    if (dev) return dev;
     const message = err instanceof AuthError ? err.message : 'Could not verify your session.';
     res.status(401).json({ error: message });
     return null;
