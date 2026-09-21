@@ -1,0 +1,31 @@
+{
+  "name": "nerv-worker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
+  "description": "BullMQ workers for NERV: resume ingestion and interview simulation. Deploys as a long-running process (Railway / Render / Fly / ECS) — not to Vercel, which cannot host a persistent consumer.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.65",
+    "@supabase/supabase-js": "^2.99.1",
+    "bullmq": "^5.34.0",
+    "ioredis": "^5.4.1",
+    "pdfjs-dist": "^4.10.38",
+    "pg": "^8.13.1",
+    "pino": "^9.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.3"
+  }
+}
