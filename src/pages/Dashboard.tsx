@@ -46,6 +46,7 @@ import { cn } from '../lib/cn';
 import { logger } from '../lib/logger';
 import { resumeCompleteness } from '../lib/reportData';
 import { extractAndSaveResume } from '../services/resumeService';
+import { IngestPendingError } from '../services/resumeIngestService';
 import {
   supabaseInterviewService,
   type InterviewRecord,
@@ -178,6 +179,9 @@ const Dashboard: React.FC = () => {
 
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Ingestion is a queued job, so "uploading" can mean any of several stages.
+  // The label comes straight from the job status the server reports.
+  const [uploadStage, setUploadStage] = useState('');
 
   const [resumeLink, setResumeLink] = useState('');
   const [savingLink, setSavingLink] = useState(false);
@@ -321,10 +325,14 @@ const Dashboard: React.FC = () => {
   const uploadResume = useCallback(async () => {
     if (!file || !currentUser) return;
     setUploading(true);
+    setUploadStage('Reading your file');
     try {
-      // One call does the whole path: PDF → text → server parse → Supabase →
-      // localStorage cache. Nothing here repeats any of it.
-      const result = await extractAndSaveResume(currentUser.uid, file);
+      // One call does the whole path. Preferred route is the ingestion queue
+      // (direct upload → worker extraction → parsed resume); it falls back to
+      // the in-browser parser when the queue isn't deployed.
+      const result = await extractAndSaveResume(currentUser.uid, file, (progress) =>
+        setUploadStage(progress.label),
+      );
       setResume(result.resumeData);
 
       try {
@@ -349,9 +357,16 @@ const Dashboard: React.FC = () => {
         );
       }
     } catch (err) {
-      toast.error((err as Error)?.message || 'Could not process that PDF. Please try another file.');
+      // A job that outran the client is still running; the resume will be
+      // waiting on the next visit, so this is a warning rather than a failure.
+      if (err instanceof IngestPendingError) {
+        toast.warning(err.message);
+      } else {
+        toast.error((err as Error)?.message || 'Could not process that PDF. Please try another file.');
+      }
     } finally {
       setUploading(false);
+      setUploadStage('');
     }
   }, [file, currentUser, toast]);
 
@@ -673,6 +688,12 @@ const Dashboard: React.FC = () => {
                     </button>
                   </div>
                 </div>
+              )}
+
+              {uploading && uploadStage && (
+                <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
+                  {uploadStage}…
+                </p>
               )}
 
               {profile?.resumeName && !file && (

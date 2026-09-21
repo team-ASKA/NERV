@@ -168,7 +168,33 @@ export interface JobStatusResponse {
   resume: ParsedResumePayload | null;
   createdAt: string;
   finishedAt: string | null;
+  /** Server-suggested delay before the next poll. 0 once terminal. */
+  pollAfterMs: number;
 }
+
+/**
+ * Polling cadence, computed server-side and echoed to the client.
+ *
+ * Tight at first — most resumes finish in a few seconds and a spinner that
+ * lingers after the work is done feels broken — then backing off, because a
+ * slow queue must not turn every waiting tab into a request storm. At 10k
+ * users a fixed one-second poll is tens of thousands of requests per minute
+ * spent on jobs that are demonstrably not finishing quickly.
+ */
+export function nextPollDelay(status: ResumeJobStatus, elapsedMs: number): number {
+  if (isTerminal(status)) return 0;
+  if (elapsedMs < 5_000) return 900;
+  if (elapsedMs < 20_000) return 1_500;
+  if (elapsedMs < 60_000) return 3_000;
+  return 5_000;
+}
+
+/**
+ * When the client should stop polling and tell the user to come back later.
+ * The job is not cancelled — the worker finishes it and the result is waiting
+ * on the next visit.
+ */
+export const MAX_POLL_MS = 180_000;
 
 /** The structured resume both the interviewer and the report consume. */
 export interface ParsedResumePayload {

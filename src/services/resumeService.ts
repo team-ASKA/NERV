@@ -8,7 +8,14 @@
  */
 
 import { logger } from '../lib/logger';
+import {
+  IngestUnavailableError,
+  ingestResumeFile,
+  type IngestProgress,
+} from './resumeIngestService';
 import { supabaseInterviewService } from './supabaseInterviewService';
+
+export type { IngestProgress };
 
 export interface ResumeData {
   skills: string[];
@@ -118,11 +125,14 @@ export async function parseResumeText(text: string): Promise<ParseResult> {
 }
 
 /** Cache the parsed resume for instant reads on later pages. */
-export function cacheResume(resume: ParsedResume, rawText: string): void {
+export function cacheResume(resume: ParsedResume, rawText?: string): void {
   try {
     const { rawText: _ignored, ...data } = resume;
     localStorage.setItem(RESUME_CACHE_KEY, JSON.stringify(data));
-    localStorage.setItem(RESUME_TEXT_CACHE_KEY, rawText);
+    // Only overwrite the text cache when we actually have text. The queue path
+    // never sees the raw text — the worker extracts it server-side — and
+    // clobbering a good cache with an empty string would be a regression.
+    if (rawText && rawText.trim()) localStorage.setItem(RESUME_TEXT_CACHE_KEY, rawText);
   } catch (err) {
     logger.warn('[resume] could not cache resume:', (err as Error)?.message);
   }
@@ -145,12 +155,65 @@ export interface ExtractResult extends ParseResult {
   saveFailed: boolean;
 }
 
+/** Empty strings from the queue payload become `undefined`, as elsewhere here. */
+const orUndefined = (value: string): string | undefined => (value.trim() ? value : undefined);
+
 /**
- * Full upload path: PDF → text → server parse → Supabase (single write) →
- * localStorage cache. Throws only when the PDF yields no usable text, which is
- * the one failure the candidate can actually act on.
+ * Full upload path.
+ *
+ * Preferred: hand the file to the ingestion queue, which uploads the bytes
+ * directly to storage and does the extraction on a worker — the only way a
+ * scanned or multi-column resume gets read properly, since that needs a vision
+ * model and tens of seconds neither the browser nor a serverless function
+ * should be holding open.
+ *
+ * Fallback: the original synchronous path (client-side pdf.js → server parse),
+ * used verbatim when the queue is not deployed or configured. Behaviour with no
+ * ingestion env vars is therefore exactly what it was before.
  */
-export async function extractAndSaveResume(userId: string, file: File): Promise<ExtractResult> {
+export async function extractAndSaveResume(
+  userId: string,
+  file: File,
+  onProgress?: (progress: IngestProgress) => void,
+): Promise<ExtractResult> {
+  try {
+    const ingested = await ingestResumeFile(file, onProgress);
+    const resume: ParsedResume = {
+      name: orUndefined(ingested.resume.name),
+      title: orUndefined(ingested.resume.title),
+      summary: orUndefined(ingested.resume.summary),
+      skills: ingested.resume.skills,
+      projects: ingested.resume.projects,
+      achievements: ingested.resume.achievements,
+      experience: ingested.resume.experience,
+      education: ingested.resume.education,
+    };
+
+    logger.info('[resume] ingested', {
+      strategy: ingested.strategy,
+      words: ingested.wordCount,
+      pages: ingested.pageCount,
+      skills: resume.skills.length,
+      projects: resume.projects.length,
+    });
+
+    // The worker already wrote this to the database under a per-user lock;
+    // saving again here would be a duplicate write and a second source of truth.
+    cacheResume(resume);
+
+    return {
+      resume,
+      resumeData: resume,
+      resumeId: ingested.jobId,
+      degraded: false,
+      source: 'model',
+      saveFailed: false,
+    };
+  } catch (err) {
+    if (!(err instanceof IngestUnavailableError)) throw err;
+    logger.info('[resume] ingestion queue unavailable; using the direct parser');
+  }
+
   const { extractTextFromPDF } = await import('./pdfService');
   const rawText = await extractTextFromPDF(file);
 
