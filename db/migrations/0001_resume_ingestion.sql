@@ -129,13 +129,25 @@ language sql as $$
 $$;
 
 -- ---------------------------------------------------------------------------
--- claim_resume_job: atomically create-or-return a job.
+-- claim_resume_job: atomically create, revive, or return a job.
 --
--- Returns the job row plus `is_new`, so the caller can tell a fresh enqueue
--- (push to BullMQ) from a duplicate (just report status). The ON CONFLICT makes
--- this safe under concurrent identical requests: exactly one caller sees
--- is_new = true.
+-- Returns the job plus two flags so the caller knows whether to push to BullMQ:
+--   is_new   — a fresh job was created
+--   requeued — a previously failed job was reset for another attempt
+--
+-- Without the revive path an idempotency key would be a tombstone: a resume
+-- that failed once could never be uploaded again, because the unique index
+-- would keep folding every retry into the dead job.
+--
+-- Safety comes from the advisory lock, not from the read being atomic. The key
+-- embeds the user id, so holding the per-user lock means no other transaction
+-- can be looking at this key at the same time; the unique index stays as the
+-- backstop if that reasoning is ever wrong.
 -- ---------------------------------------------------------------------------
+
+-- Replacing a function cannot change its OUT columns, so drop first. Earlier
+-- installs of this migration returned three columns instead of four.
+drop function if exists claim_resume_job(text, text, text);
 
 create or replace function claim_resume_job(
   p_user_id         text,
@@ -143,31 +155,82 @@ create or replace function claim_resume_job(
   p_content_hash    text
 )
 returns table (
-  id      uuid,
-  status  resume_job_status,
-  is_new  boolean
+  id       uuid,
+  status   resume_job_status,
+  is_new   boolean,
+  requeued boolean
 )
 language plpgsql as $$
 declare
   v_id     uuid;
   v_status resume_job_status;
 begin
-  insert into resume_jobs (user_id, idempotency_key, content_hash)
-  values (p_user_id, p_idempotency_key, p_content_hash)
-  on conflict (idempotency_key) do nothing
-  returning resume_jobs.id, resume_jobs.status into v_id, v_status;
+  perform lock_user_resume(p_user_id);
 
-  if v_id is not null then
-    return query select v_id, v_status, true;
+  select j.id, j.status into v_id, v_status
+    from resume_jobs j
+   where j.idempotency_key = p_idempotency_key;
+
+  if v_id is null then
+    insert into resume_jobs (user_id, idempotency_key, content_hash)
+    values (p_user_id, p_idempotency_key, p_content_hash)
+    on conflict (idempotency_key) do nothing
+    returning resume_jobs.id, resume_jobs.status into v_id, v_status;
+
+    if v_id is not null then
+      return query select v_id, v_status, true, false;
+      return;
+    end if;
+
+    -- Lost a race the lock should have prevented; fall through and read it.
+    select j.id, j.status into v_id, v_status
+      from resume_jobs j
+     where j.idempotency_key = p_idempotency_key;
+  end if;
+
+  if v_status = 'failed' then
+    update resume_jobs
+       set status      = 'queued',
+           error       = null,
+           finished_at = null,
+           attempts    = 0
+     where resume_jobs.id = v_id;
+
+    return query select v_id, 'queued'::resume_job_status, false, true;
     return;
   end if;
 
-  -- Lost the race (or a genuine retry): hand back the existing job.
-  return query
-    select j.id, j.status, false
-    from resume_jobs j
-    where j.idempotency_key = p_idempotency_key;
+  return query select v_id, v_status, false, false;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- get_resume_job: one round trip for the polling endpoint.
+--
+-- Scoped by user_id as well as id so a guessed job id returns nothing rather
+-- than someone else's parse.
+-- ---------------------------------------------------------------------------
+
+create or replace function get_resume_job(p_job_id uuid, p_user_id text)
+returns table (
+  id          uuid,
+  status      resume_job_status,
+  strategy    text,
+  word_count  integer,
+  page_count  integer,
+  attempts    integer,
+  error       text,
+  resume_data jsonb,
+  created_at  timestamptz,
+  finished_at timestamptz
+)
+language sql stable as $$
+  select j.id, j.status, j.strategy, j.word_count, j.page_count, j.attempts, j.error,
+         r.resume_data, j.created_at, j.finished_at
+    from resume_jobs j
+    left join resumes r on r.id = j.resume_id
+   where j.id = p_job_id
+     and j.user_id = p_user_id;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- finish_resume_job: persist the parse and close the job in one transaction.
