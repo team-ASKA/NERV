@@ -107,6 +107,23 @@ export const STATUS_SEQUENCE: readonly ResumeJobStatus[] = [
 export const QUEUE_RESUME_INGEST = 'resume-ingest';
 export const QUEUE_INTERVIEW_SIM = 'interview-sim';
 
+/**
+ * Retry policy. Defined here because the producer (Vercel) sets it and the
+ * consumer (worker) reads `job.opts.attempts` to decide whether a failure is
+ * the last one — if the two disagreed, jobs would be marked failed while BullMQ
+ * still had retries left, or stay "queued" forever after the final attempt.
+ */
+export const RESUME_JOB_ATTEMPTS = 3;
+
+export const RESUME_JOB_OPTIONS = {
+  attempts: RESUME_JOB_ATTEMPTS,
+  backoff: { type: 'exponential', delay: 5_000 },
+  /** Completed jobs are history; the `resume_jobs` table is the record. */
+  removeOnComplete: { age: 3_600, count: 1_000 },
+  /** Failures linger a day so a bad deploy is diagnosable. */
+  removeOnFail: { age: 86_400, count: 5_000 },
+} as const;
+
 export interface ResumeIngestJob {
   /** Row id in `resume_jobs`. The worker writes status against this. */
   jobId: string;
