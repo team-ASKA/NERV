@@ -35,6 +35,13 @@ export const config = {
   /** Service-role key. Worker-only — never ships to a browser. */
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
   resumeBucket: process.env.RESUME_BUCKET ?? 'resumes',
+  /** Keep the source PDF after a successful parse. Off by default: the
+   *  structured parse and raw text are what the product reads, and at 10k
+   *  users the originals are pure storage cost with no consumer. */
+  retainPdf: bool(process.env.RESUME_RETAIN_PDF, false),
+  /** Resumes kept per user; older rows are pruned after each successful
+   *  ingestion so the table stays bounded. */
+  resumesPerUser: int(process.env.RESUMES_PER_USER, 3),
 
   groqApiKey: process.env.GROQ_API_KEY ?? '',
   /** Vision model used when the router picks the VLM path. */
