@@ -1,99 +1,131 @@
 /**
- * Emotion service — streaming facial-expression analysis via Hume.
+ * Emotion service — the one place the app asks "how is this candidate doing?".
  *
- * Flow: fetch a short-lived access token from `/api/emotion/token` (minted
- * server-side; no Hume keys in the browser) → open the Hume streaming
- * WebSocket → push throttled webcam frames → maintain a smoothed rolling
- * aggregate the interview loop can read.
+ * Two interchangeable providers sit behind it:
+ *   • MediaPipe FaceLandmarker (default) — runs locally in the browser. No API
+ *     key, no network round trip, no per-user cost, and the webcam frames never
+ *     leave the machine. This is what makes the feature viable at 10k users.
+ *   • Hume streaming — more accurate, cloud, billed per frame. Opt in with
+ *     `VITE_EMOTION_PROVIDER=hume`, or it is used automatically if the local
+ *     model cannot load and a Hume token is available.
  *
- * Honesty guarantee: if the token is unavailable, the socket fails to open, or
- * no data arrives, the aggregate stays `{ available: false }`. This service
- * NEVER fabricates or randomises emotion scores — the old fake-fallback
- * behaviour is deliberately gone. The UI must show a clear "unavailable" state.
+ * Whichever runs, this file owns the interpretation: smoothing, sample
+ * counting, the weight tables in `shared/emotion.ts`, and reliability. The two
+ * providers therefore cannot drift apart in meaning, and the report is computed
+ * from the same numbers the live read used.
+ *
+ * HONESTY GUARANTEE
+ * -----------------
+ * This service never fabricates, randomises, seeds or floors a score. If no
+ * provider starts, if the face leaves the frame, or if the stream drops, the
+ * aggregate becomes `{ available: false }` with a reason the UI can show. A
+ * stale read is treated as no read: after `STALE_AFTER_MS` without a face we
+ * clear the buffer rather than keep reporting what someone's face did ten
+ * seconds ago.
  */
 
+import {
+  NO_SIGNAL,
+  buildSignal,
+  compositeScore,
+  type EmotionSignal,
+  type EmotionSource,
+} from '../../shared/emotion';
 import type { EmotionAggregate } from '../types/interview';
 import { logger } from '../lib/logger';
+import { HumeProvider } from './emotion/hume';
+import { MediaPipeProvider } from './emotion/mediapipe';
+import type { EmotionProvider, RawScore } from './emotion/types';
 
-const HUME_STREAM_URL = 'wss://api.hume.ai/v0/stream/models';
-const FRAME_INTERVAL_MS = 900;
-const EWMA_ALPHA = 0.45;
+/** No face for this long and the read is discarded, not reported as current. */
+const STALE_AFTER_MS = 6_000;
+const STALE_CHECK_MS = 2_000;
 
-// Hume emotion labels grouped for a simple confidence/nervousness read.
-// Exported so the report derives its numbers from the same groupings that the
-// live read used — one definition, no drift between the room and the summary.
-export const POSITIVE = ['calmness', 'concentration', 'interest', 'determination', 'confidence', 'pride', 'satisfaction', 'contentment', 'excitement', 'joy'];
-export const NERVOUS = ['anxiety', 'fear', 'doubt', 'distress', 'awkwardness', 'nervousness', 'shame'];
-export const STRUGGLE = ['confusion', 'distress', 'disappointment', 'tiredness'];
+/**
+ * Smoothing constant per provider, chosen for its frame rate rather than
+ * shared: the local model runs ~8× faster, so the same alpha would make it
+ * eight times twitchier for no extra information.
+ */
+const ALPHA: Record<EmotionSource, number> = {
+  mediapipe: 0.12,
+  hume: 0.45,
+  none: 1,
+};
 
 type Listener = (agg: EmotionAggregate) => void;
 
+type FrameSource = HTMLVideoElement | (() => string | null);
+
+const UNAVAILABLE: EmotionAggregate = { available: false };
+
 class EmotionService {
-  private ws: WebSocket | null = null;
-  private frameTimer: ReturnType<typeof setInterval> | null = null;
-  private getFrame: (() => string | null) | null = null;
+  private provider: EmotionProvider | null = null;
   private scores = new Map<string, number>();
+  private samples = 0;
+  private lastScoreAt = 0;
+  private staleTimer: ReturnType<typeof setInterval> | null = null;
   private listeners = new Set<Listener>();
-  private _available = false;
   private active = false;
-  private lastAgg: EmotionAggregate = { available: false };
+  private lastAgg: EmotionAggregate = UNAVAILABLE;
+  private lastSignal: EmotionSignal = NO_SIGNAL;
 
   get available(): boolean {
-    return this._available;
+    return this.lastAgg.available;
+  }
+
+  /** Which provider is actually running, for the UI and the report. */
+  get source(): EmotionSource {
+    return this.provider?.source ?? 'none';
   }
 
   /**
-   * Begin streaming. `getFrame` returns a base64 JPEG (no data: prefix) of the
-   * current webcam frame, or null when unavailable. Resolves to whether
-   * emotion analysis is actually available.
+   * Begin reading. Pass the live `<video>` element — the local provider reads
+   * pixels from it directly. A frame-capture function is still accepted for
+   * callers that have no element, but only the cloud provider can use it.
+   *
+   * Resolves to whether a read is actually available. Never throws.
    */
-  async start(getFrame: () => string | null): Promise<boolean> {
-    if (this.active) return this._available;
+  async start(source: FrameSource): Promise<boolean> {
+    if (this.active) return this.available;
     this.active = true;
-    this.getFrame = getFrame;
 
-    let token: string | null = null;
-    try {
-      const res = await fetch('/api/emotion/token');
-      const data = (await res.json()) as { available?: boolean; accessToken?: string };
-      if (!data.available || !data.accessToken) {
-        logger.info('[emotion] not configured — running in unavailable mode');
-        this.setUnavailable();
-        return false;
+    const video = typeof source === 'function' ? null : source;
+    const getFrame =
+      typeof source === 'function' ? source : () => (video ? captureJpegBase64(video) : null);
+
+    const input = {
+      video,
+      getFrame,
+      onScores: (scores: RawScore[]) => this.ingest(scores),
+      onLost: (reason: string) => this.lose(reason),
+    };
+
+    for (const candidate of this.providerOrder()) {
+      if (!this.active) return false; // stopped while a provider was loading
+      const started = await candidate.start(input).catch(() => false);
+      if (started) {
+        this.provider = candidate;
+        this.startStaleWatch();
+        logger.info(`[emotion] reading expressions via ${candidate.source}`);
+        this.emit();
+        return true;
       }
-      token = data.accessToken;
-    } catch (err) {
-      logger.warn('[emotion] token fetch failed', (err as Error)?.message);
-      this.setUnavailable();
-      return false;
     }
 
-    try {
-      await this.openSocket(token);
-    } catch (err) {
-      logger.warn('[emotion] socket failed', (err as Error)?.message);
-      this.setUnavailable();
-      return false;
-    }
-    return this._available;
+    logger.info('[emotion] no provider available — running without a demeanor read');
+    this.setUnavailable('Expression analysis is not available in this browser.');
+    return false;
   }
 
   stop(): void {
     this.active = false;
-    if (this.frameTimer) {
-      clearInterval(this.frameTimer);
-      this.frameTimer = null;
+    this.provider?.stop();
+    this.provider = null;
+    if (this.staleTimer) {
+      clearInterval(this.staleTimer);
+      this.staleTimer = null;
     }
-    if (this.ws) {
-      try {
-        this.ws.onclose = null;
-        this.ws.close();
-      } catch {
-        /* ignore */
-      }
-      this.ws = null;
-    }
-    this.scores.clear();
+    this.reset();
     this.setUnavailable();
   }
 
@@ -101,133 +133,118 @@ class EmotionService {
     return this.lastAgg;
   }
 
+  /** The weighted signal, for callers that want the dimensions directly. */
+  getSignal(): EmotionSignal {
+    return this.lastSignal;
+  }
+
   subscribe(cb: Listener): () => void {
     this.listeners.add(cb);
     cb(this.lastAgg);
-    return () => this.listeners.delete(cb);
+    return () => {
+      this.listeners.delete(cb);
+    };
   }
 
   // ---- internals -----------------------------------------------------------
 
-  private openSocket(token: string): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      let settled = false;
-      const socket = new WebSocket(`${HUME_STREAM_URL}?access_token=${encodeURIComponent(token)}`);
-      this.ws = socket;
-
-      const failTimer = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          reject(new Error('timeout opening emotion stream'));
-        }
-      }, 6000);
-
-      socket.onopen = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(failTimer);
-        this._available = true;
-        this.startFrameLoop();
-        this.emit();
-        resolve();
-      };
-
-      socket.onmessage = (event) => this.handleMessage(event.data);
-
-      socket.onerror = () => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(failTimer);
-          reject(new Error('emotion socket error'));
-        }
-      };
-
-      socket.onclose = () => {
-        if (this.active) {
-          // Unexpected drop while running — degrade honestly rather than fake.
-          logger.info('[emotion] stream closed');
-          this.setUnavailable();
-        }
-      };
-    });
+  /**
+   * Local first. Hume is better, but one socket and a frame-by-frame invoice
+   * per candidate is a poor default for a product that wants to run thousands
+   * of interviews at once — so it is an explicit choice, not an accident.
+   */
+  private providerOrder(): EmotionProvider[] {
+    const preference = (import.meta.env.VITE_EMOTION_PROVIDER || 'auto').toLowerCase();
+    if (preference === 'hume') return [new HumeProvider(), new MediaPipeProvider()];
+    if (preference === 'mediapipe' || preference === 'local') return [new MediaPipeProvider()];
+    if (preference === 'off' || preference === 'none') return [];
+    return [new MediaPipeProvider(), new HumeProvider()];
   }
 
-  private startFrameLoop(): void {
-    if (this.frameTimer) clearInterval(this.frameTimer);
-    this.frameTimer = setInterval(() => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.getFrame) return;
-      const frame = this.getFrame();
-      if (!frame) return;
-      try {
-        this.ws.send(JSON.stringify({ data: frame, models: { face: {} } }));
-      } catch {
-        /* send failures are non-fatal; next tick retries */
-      }
-    }, FRAME_INTERVAL_MS);
-  }
+  private ingest(scores: RawScore[]): void {
+    if (!this.active) return;
 
-  private handleMessage(raw: unknown): void {
-    if (typeof raw !== 'string') return;
-    let msg: { face?: { predictions?: Array<{ emotions?: Array<{ name: string; score: number }> }>; warning?: string }; error?: string };
-    try {
-      msg = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    if (msg.error) {
-      logger.warn('[emotion] stream error', msg.error);
-      return;
-    }
-    const emotions = msg.face?.predictions?.[0]?.emotions;
-    if (!emotions || !emotions.length) return; // no face this frame — keep last aggregate
+    if (scores.length === 0) return; // no face this frame; the stale watch handles a run of these
 
-    for (const e of emotions) {
-      if (!e || typeof e.score !== 'number') continue;
-      const key = e.name.toLowerCase();
-      const prev = this.scores.get(key);
-      this.scores.set(key, prev === undefined ? e.score : EWMA_ALPHA * e.score + (1 - EWMA_ALPHA) * prev);
+    const alpha = ALPHA[this.source];
+    for (const { name, score } of scores) {
+      if (typeof score !== 'number' || Number.isNaN(score)) continue;
+      const prev = this.scores.get(name);
+      this.scores.set(name, prev === undefined ? score : alpha * score + (1 - alpha) * prev);
     }
+
+    this.samples += 1;
+    this.lastScoreAt = Date.now();
     this.recompute();
     this.emit();
   }
 
   private recompute(): void {
-    let dominant = '';
-    let dominantScore = -1;
-    let positive = 0;
-    let nervous = 0;
-    let struggle = 0;
+    const signal = buildSignal(this.source, this.scores, this.samples);
+    this.lastSignal = signal;
 
-    for (const [name, score] of this.scores) {
-      if (score > dominantScore) {
-        dominantScore = score;
-        dominant = name;
-      }
-      if (POSITIVE.includes(name)) positive += score;
-      if (NERVOUS.includes(name)) nervous += score;
-      if (STRUGGLE.includes(name)) struggle += score;
+    if (!signal.available) {
+      // Still warming up: real data, just not enough of it to be worth acting
+      // on. Say so rather than publishing a low-confidence guess.
+      this.lastAgg = { available: false, unavailableReason: 'Reading expressions…' };
+      return;
     }
-
-    const confidenceScore = clamp01(0.5 + (positive - nervous - struggle) * 0.6);
-    const breakdown = [...this.scores.entries()]
-      .map(([name, score]) => ({ name: capitalize(name), score }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 6);
 
     this.lastAgg = {
       available: true,
-      dominantEmotion: capitalize(dominant),
-      confidenceScore,
-      isConfident: confidenceScore > 0.6,
-      isNervous: nervous > 0.35,
-      isStruggling: struggle > 0.3,
-      breakdown,
+      source: signal.source,
+      reliability: signal.reliability,
+      samples: signal.samples,
+      dimensions: {
+        composure: signal.composure,
+        engagement: signal.engagement,
+        stress: signal.stress,
+        uncertainty: signal.uncertainty,
+      },
+      dominantEmotion: signal.dominant,
+      confidenceScore: compositeScore(signal),
+      isConfident: signal.composure >= 0.6 && signal.stress < 0.35,
+      isNervous: signal.stress >= 0.45,
+      isStruggling: signal.uncertainty >= 0.55,
+      breakdown: (signal.breakdown ?? []).map((entry) => ({
+        name: prettyLabel(entry.name),
+        score: entry.score,
+      })),
     };
   }
 
-  private setUnavailable(): void {
-    this._available = false;
-    this.lastAgg = { available: false };
+  /**
+   * A face that left the frame is not a calm face. Once the read goes stale we
+   * throw the buffer away, so when the candidate comes back the reliability
+   * ramp starts over instead of resuming a minute-old impression.
+   */
+  private startStaleWatch(): void {
+    if (this.staleTimer) clearInterval(this.staleTimer);
+    this.lastScoreAt = Date.now();
+    this.staleTimer = setInterval(() => {
+      if (!this.active || this.samples === 0) return;
+      if (Date.now() - this.lastScoreAt <= STALE_AFTER_MS) return;
+      this.reset();
+      this.setUnavailable('No face in frame.');
+    }, STALE_CHECK_MS);
+  }
+
+  private lose(reason: string): void {
+    logger.info('[emotion] read lost:', reason);
+    this.provider?.stop();
+    this.provider = null;
+    this.reset();
+    this.setUnavailable(reason);
+  }
+
+  private reset(): void {
+    this.scores.clear();
+    this.samples = 0;
+    this.lastSignal = NO_SIGNAL;
+  }
+
+  private setUnavailable(reason?: string): void {
+    this.lastAgg = reason ? { available: false, unavailableReason: reason } : UNAVAILABLE;
     this.emit();
   }
 
@@ -238,12 +255,13 @@ class EmotionService {
 
 // ---- helpers ---------------------------------------------------------------
 
-function clamp01(n: number): number {
-  return Math.max(0, Math.min(1, n));
-}
-
-function capitalize(s: string): string {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+/**
+ * Raw signal names are provider-shaped — Hume's are lowercase words, MediaPipe's
+ * are camelCase muscle names like `browInnerUp`. Make both readable.
+ */
+export function prettyLabel(name: string): string {
+  const spaced = name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase() : name;
 }
 
 /** Capture the current frame of a video element as base64 JPEG (no data prefix). */

@@ -6,6 +6,8 @@
  * directories as routes, so it is safe shared code (never a function).
  */
 
+import type { EmotionDimensions, EmotionSource } from '../../shared/emotion';
+
 export type Round = 'technical' | 'core' | 'hr';
 
 /** Structured, resume-grounded context. All list fields are plain strings. */
@@ -25,6 +27,14 @@ export interface ResumeContext {
 /** Rolling emotion read. `available:false` = we have no honest signal. */
 export interface EmotionAggregate {
   available: boolean;
+  /** Which provider produced this (local model or cloud). */
+  source?: EmotionSource;
+  /** 0..1 — how much weight this read deserves. See `shared/emotion.ts`. */
+  reliability?: number;
+  /** Frames behind the read. */
+  samples?: number;
+  /** The weighted, provider-independent read the prompt actually uses. */
+  dimensions?: EmotionDimensions;
   dominantEmotion?: string;
   confidenceScore?: number; // 0..1
   isConfident?: boolean;

@@ -1,8 +1,11 @@
 /**
  * Client-side mirror of the interview contracts in `api/_lib/session.ts`.
  * (The `src` and `api` trees are typechecked separately, so the shapes are
- * duplicated here rather than imported across the boundary.)
+ * duplicated here rather than imported across the boundary. `shared/` is the
+ * exception — both trees compile it, so anything defined there is imported.)
  */
+
+import type { EmotionDimensions, EmotionSource } from '../../shared/emotion';
 
 export type Round = 'technical' | 'core' | 'hr';
 
@@ -20,12 +23,22 @@ export interface ResumeContext {
 
 export interface EmotionAggregate {
   available: boolean;
+  /** Why there is no read, when `available` is false. Shown to the candidate. */
+  unavailableReason?: string;
+  /** Which provider produced this. */
+  source?: EmotionSource;
+  /** 0..1 — how much weight this read deserves. See `shared/emotion.ts`. */
+  reliability?: number;
+  /** Frames behind the read. */
+  samples?: number;
+  /** The weighted, provider-independent read. */
+  dimensions?: EmotionDimensions;
   dominantEmotion?: string;
   confidenceScore?: number; // 0..1
   isConfident?: boolean;
   isNervous?: boolean;
   isStruggling?: boolean;
-  /** Top emotions for display, if available. */
+  /** Top raw signals for display, if available. */
   breakdown?: Array<{ name: string; score: number }>;
 }
 

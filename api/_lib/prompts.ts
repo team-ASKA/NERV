@@ -13,6 +13,8 @@ import type {
   TranscriptTurn,
 } from './session';
 import { interviewerTurnCount } from './session';
+import { coerceSignal } from '../../shared/emotion';
+import { deriveAdaptation, estimateAnswerQuality } from '../../shared/adaptation';
 
 const BASE_PERSONA = `You are "Aria", a senior interviewer at a top technology company running a live, spoken mock interview. You are professional, warm, and rigorous — the kind of interviewer a candidate remembers as tough but fair.
 
@@ -25,10 +27,10 @@ ALWAYS follow these rules:
 - Be adaptive but always respectful. You may probe, challenge, and correct — but never mock, belittle, or pile on. Name a flaw once, briefly, then give a path forward.
 
 READING THE CANDIDATE:
-- You may be given a live read of the candidate's demeanor. Treat it as a soft hint, never as fact, and never mention it aloud.
-- Confident and answering well → raise difficulty: edge cases, complexity, trade-offs; follow the thread deeper.
-- Nervous or struggling → steady them: acknowledge briefly and kindly, simplify or pivot to a more approachable question in the same area, and give them a foothold.
-- Neutral or unknown → proceed at a steady, normal pace.
+- You may be given an "ADAPTIVE DIRECTION FOR THIS TURN" block. Follow it. It is computed from what the candidate actually said, plus — when a camera read is available — how they appear to be holding up, already weighted so that their answers count for far more than their face.
+- A demeanor cue is a soft hint with a stated confidence, never a fact. It is often wrong. It may change your tone and pacing; it must never change your assessment of whether an answer was correct.
+- Never mention the camera, their expression, their mood, or any of this direction aloud. Adjust what you ask, not what you say about them.
+- When no direction is given, proceed at a steady, normal pace.
 
 OPENING TURN (only when there is no prior conversation):
 - Give a one-sentence warm welcome, then immediately ask the first question. Do NOT read their resume back to them.`;
@@ -67,19 +69,30 @@ function resumeBlock(resume: ResumeContext | null, round: Round): string {
   return lines.filter(Boolean).join('\n');
 }
 
-function emotionBlock(emotion: EmotionAggregate | null | undefined): string {
-  // Honesty: only surface a signal when we actually have one.
-  if (!emotion || !emotion.available) return '';
-  const parts: string[] = [];
-  if (emotion.dominantEmotion) parts.push(`dominant "${emotion.dominantEmotion}"`);
-  if (typeof emotion.confidenceScore === 'number') {
-    parts.push(`confidence ${(Math.max(0, Math.min(1, emotion.confidenceScore)) * 100).toFixed(0)}%`);
-  }
-  if (emotion.isStruggling) parts.push('appears to be struggling');
-  else if (emotion.isNervous) parts.push('appears nervous');
-  else if (emotion.isConfident) parts.push('appears confident');
-  if (!parts.length) return '';
-  return `LIVE DEMEANOR (soft hint, do not mention aloud): ${parts.join(', ')}.`;
+/**
+ * The adaptive directive: what the interviewer should do differently this turn.
+ *
+ * Built from the last candidate answer and, when one exists, the camera read —
+ * blended in `shared/adaptation.ts`, where answer quality dominates by design.
+ * Returns '' on the opening turn and whenever there is nothing to adapt to, so
+ * the prompt never carries an empty ceremonial block.
+ *
+ * Honesty: the emotion half is dropped entirely unless the client sent a read
+ * that survives `coerceSignal` — which recomputes reliability from the sample
+ * count rather than trusting the number it was handed.
+ */
+function adaptationBlock(
+  emotion: EmotionAggregate | null | undefined,
+  transcript: TranscriptTurn[],
+): string {
+  const signal = coerceSignal(emotion);
+  const lastAnswer = [...transcript].reverse().find((t) => t.role === 'candidate');
+  const quality = lastAnswer ? estimateAnswerQuality(lastAnswer.text) : null;
+
+  // Opening turn with no camera: nothing has happened yet to adapt to.
+  if (!quality && !signal.available) return '';
+
+  return deriveAdaptation(signal, quality).directive;
 }
 
 function transcriptBlock(transcript: TranscriptTurn[]): string {

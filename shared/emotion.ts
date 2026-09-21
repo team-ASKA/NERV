@@ -281,3 +281,82 @@ export function compositeScore(signal: EmotionSignal): number {
   const centred = clamp01(0.5 + raw - 0.325 * 0.5);
   return clamp01(0.5 + (centred - 0.5) * signal.reliability + (centred - 0.5) * (1 - signal.reliability) * 0.3);
 }
+
+// ---------------------------------------------------------------------------
+// Untrusted input
+// ---------------------------------------------------------------------------
+
+const asUnit = (value: unknown, fallback = 0): number =>
+  typeof value === 'number' && Number.isFinite(value) ? clamp01(value) : fallback;
+
+/**
+ * Coerce dimensions that arrived over the wire.
+ *
+ * The browser computes the read, so the server receives numbers it did not
+ * produce. Clamping here means a malformed or hostile payload can at worst
+ * describe a plausible candidate — it cannot push a NaN into the prompt or
+ * claim 400% composure.
+ */
+export function coerceDimensions(raw: unknown): EmotionDimensions | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const d = raw as Record<string, unknown>;
+  const hasAny = ['composure', 'engagement', 'stress', 'uncertainty'].some(
+    (key) => typeof d[key] === 'number',
+  );
+  if (!hasAny) return undefined;
+  return {
+    composure: asUnit(d.composure, NEUTRAL_DIMENSIONS.composure),
+    engagement: asUnit(d.engagement, NEUTRAL_DIMENSIONS.engagement),
+    stress: asUnit(d.stress),
+    uncertainty: asUnit(d.uncertainty),
+  };
+}
+
+/** Rebuild a signal from a wire payload, keeping every value in range. */
+export function coerceSignal(raw: unknown): EmotionSignal {
+  if (!raw || typeof raw !== 'object') return NO_SIGNAL;
+  const r = raw as Record<string, unknown>;
+  if (r.available !== true) return NO_SIGNAL;
+
+  const dimensions = coerceDimensions(r.dimensions ?? r);
+  if (!dimensions) return NO_SIGNAL;
+
+  const source: EmotionSource = r.source === 'hume' || r.source === 'mediapipe' ? r.source : 'none';
+  if (source === 'none') return NO_SIGNAL;
+
+  const samples = typeof r.samples === 'number' && Number.isFinite(r.samples) ? Math.max(0, Math.floor(r.samples)) : 0;
+  // Recompute rather than trust: the client could claim full reliability off a
+  // single frame, and reliability is exactly the number that decides how much
+  // this read is allowed to move the interview.
+  const reliability = reliabilityFor(source, samples);
+  if (reliability <= 0) return NO_SIGNAL;
+
+  return {
+    ...dimensions,
+    available: true,
+    source,
+    reliability,
+    samples,
+    dominant: typeof r.dominantEmotion === 'string' ? r.dominantEmotion : dominantLabel(dimensions),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Legacy
+// ---------------------------------------------------------------------------
+
+/**
+ * The original Hume label groupings.
+ *
+ * Superseded by the weight tables above, and kept only so reports saved before
+ * the weighted model still render with their original numbers. New code should
+ * read `EmotionDimensions`, which means the same thing whichever provider ran.
+ */
+export const HUME_POSITIVE = [
+  'calmness', 'concentration', 'interest', 'determination', 'confidence',
+  'pride', 'satisfaction', 'contentment', 'excitement', 'joy',
+];
+export const HUME_NERVOUS = [
+  'anxiety', 'fear', 'doubt', 'distress', 'awkwardness', 'nervousness', 'shame',
+];
+export const HUME_STRUGGLE = ['confusion', 'distress', 'disappointment', 'tiredness'];
