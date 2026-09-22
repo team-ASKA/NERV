@@ -11,6 +11,7 @@
  * rather than inventing scores.
  */
 
+import type { EmotionDimensions, EmotionSource } from '../../shared/emotion';
 import type { EmotionAggregate, Round, TranscriptTurn } from '../types/interview';
 
 export interface LegacyMessage {
@@ -30,6 +31,15 @@ export interface QuestionExpression {
   isConfident: boolean;
   isNervous: boolean;
   isStruggling: boolean;
+  /**
+   * The weighted read. Provider-independent, so the report means the same thing
+   * whether the local model or Hume produced it. Absent on sessions recorded
+   * before the weighted model — `emotionSummary` falls back for those.
+   */
+  dimensions?: EmotionDimensions;
+  source?: EmotionSource;
+  /** 0..1 — how much this snapshot should count in the report. */
+  reliability?: number;
 }
 
 /** `[interviewerMessageId, snapshot]` — serialisable across `navigate()` state. */
@@ -70,6 +80,9 @@ export function toQuestionExpression(aggregate: EmotionAggregate | null): Questi
     isConfident: Boolean(aggregate.isConfident),
     isNervous: Boolean(aggregate.isNervous),
     isStruggling: Boolean(aggregate.isStruggling),
+    ...(aggregate.dimensions ? { dimensions: aggregate.dimensions } : {}),
+    ...(aggregate.source ? { source: aggregate.source } : {}),
+    ...(typeof aggregate.reliability === 'number' ? { reliability: aggregate.reliability } : {}),
   };
 }
 

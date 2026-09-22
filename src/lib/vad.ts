@@ -36,6 +36,12 @@ export interface VadOptions {
 export interface VadHandle {
   /** True only when the real detector loaded and the mic is usable. */
   readonly available: boolean;
+  /**
+   * True when the mic stream is running with acoustic echo cancellation, which
+   * is what makes barge-in safe: without it the detector hears the
+   * interviewer's own voice through the speakers and cuts her off mid-question.
+   */
+  readonly echoCancelled: boolean;
   /** Begin listening (resumes the audio graph). */
   start(): void;
   /** Stop listening without tearing down the model. */
@@ -46,6 +52,7 @@ export interface VadHandle {
 
 const STUB: VadHandle = {
   available: false,
+  echoCancelled: false,
   start() {},
   pause() {},
   destroy() {},
@@ -55,10 +62,26 @@ interface MicVadInstance {
   start(): void;
   pause(): void;
   destroy(): void;
+  /** Present in vad-web ≥0.0.18; used to confirm AEC is actually on. */
+  stream?: MediaStream;
 }
 
 interface MicVadStatic {
   new: (opts: Record<string, unknown>) => Promise<MicVadInstance>;
+}
+
+/** Whether the browser applied echo cancellation to the track we are reading. */
+function hasEchoCancellation(instance: MicVadInstance): boolean {
+  try {
+    const track = instance.stream?.getAudioTracks?.()[0];
+    if (!track) return false;
+    // `getSettings` reports what the browser actually did, not what we asked
+    // for — Firefox and Safari honour the constraint inconsistently.
+    const settings = track.getSettings?.() as { echoCancellation?: boolean } | undefined;
+    return settings?.echoCancellation === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -84,16 +107,31 @@ export async function createVad(opts: VadOptions): Promise<VadHandle> {
       minSpeechFrames: opts.minSpeechFrames ?? 4,
       redemptionFrames: opts.redemptionFrames ?? 12,
       preSpeechPadFrames: 2,
+      // The caller decides when listening begins; some versions start on load.
+      startOnLoad: false,
       baseAssetPath: VAD_ASSET_BASE,
       onnxWASMBasePath: ORT_WASM_BASE,
+      // Without these the detector hears our own TTS coming back through the
+      // speakers, which makes barge-in impossible.
+      additionalAudioConstraints: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
       onSpeechStart: () => opts.onSpeechStart?.(),
       onSpeechEnd: (audio: Float32Array) => opts.onSpeechEnd?.(audio),
       onVADMisfire: () => opts.onMisfire?.(),
     });
 
+    const echoCancelled = hasEchoCancellation(instance);
+    if (!echoCancelled) {
+      logger.info('[vad] no echo cancellation on the mic — barge-in disabled');
+    }
+
     let destroyed = false;
     return {
       available: true,
+      echoCancelled,
       start() {
         if (!destroyed) instance.start();
       },

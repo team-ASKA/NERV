@@ -27,7 +27,7 @@ import {
 import type { EmotionAggregate, ResumeContext, Round, TranscriptTurn } from '../../types/interview';
 import { ROUND_LABELS } from '../../types/interview';
 import { useInterviewSession } from '../../hooks/useInterviewSession';
-import { captureJpegBase64, emotionService } from '../../services/emotionService';
+import { emotionService } from '../../services/emotionService';
 import {
   makeMessageId,
   toQuestionExpression,
@@ -139,9 +139,10 @@ export function InterviewRoom({
       setCameraOn(true);
       setCameraError(null);
 
-      const ok = await emotionService.start(() =>
-        videoRef.current ? captureJpegBase64(videoRef.current) : null,
-      );
+      // Hand over the element itself: the local model reads pixels from it
+      // directly, with no JPEG round trip. The cloud provider still captures
+      // frames, but only when it is the one that starts.
+      const ok = videoRef.current ? await emotionService.start(videoRef.current) : false;
       if (ok) emotionEverAvailableRef.current = true;
     } catch (err) {
       logger.warn('[room] camera unavailable', (err as Error)?.message);

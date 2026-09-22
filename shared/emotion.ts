@@ -270,6 +270,20 @@ export function dominantLabel(d: EmotionDimensions): string {
 }
 
 /**
+ * How strongly the dominant label holds, 0..1 — the value of whichever
+ * dimension produced it. Kept beside `dominantLabel` so the two cannot drift
+ * into describing different states.
+ */
+export function dominantStrength(d: EmotionDimensions): number {
+  if (d.stress >= 0.55) return d.stress;
+  if (d.uncertainty >= 0.55) return d.uncertainty;
+  if (d.engagement <= 0.25) return 1 - d.engagement;
+  if (d.composure >= 0.65 && d.stress < 0.35) return d.composure;
+  if (d.engagement >= 0.6) return d.engagement;
+  return 0.5;
+}
+
+/**
  * A single 0..1 "how is this going" number for display and for the report.
  * Composure and engagement help; stress and uncertainty hurt, weighted by how
  * much the read can be trusted so a weak signal pulls toward neutral.

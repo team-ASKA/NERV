@@ -5,11 +5,17 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
  * Client sends JSON: { audio: base64, mimeType?, languageCode? }.
  * Returns: { transcript } — or { transcript: '', degraded: true } when the
  * key is absent, so the UI can flow without crashing.
+ *
+ * A GET is a warm-up ping, so the cold start happens while the candidate is
+ * still hearing the first question rather than after their first answer.
  */
 
 const SARVAM_STT_URL = 'https://api.sarvam.ai/speech-to-text';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method === 'GET') {
+    return res.status(200).json({ ok: true, configured: !!process.env.SARVAM_API_KEY });
+  }
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }

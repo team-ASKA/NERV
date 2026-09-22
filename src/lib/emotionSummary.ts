@@ -2,17 +2,25 @@
  * Turning captured facial-expression snapshots into report numbers — honestly.
  *
  * Every function here returns `null` when there is no real signal. Nothing in
- * this module invents, seeds, jitters or floors a score: if the Hume stream
- * never came online for a question, that question simply has no emotion data
- * and the report says so. (The previous report fabricated a full breakdown from
- * a hash of the question id, which looked convincing and meant nothing.)
+ * this module invents, seeds, jitters or floors a score: if no expression read
+ * came online for a question, that question simply has no emotion data and the
+ * report says so. (The previous report fabricated a full breakdown from a hash
+ * of the question id, which looked convincing and meant nothing.)
  *
- * The groupings come from `emotionService` so the post-interview numbers are
- * derived exactly the same way as the live read shown during the interview.
+ * Numbers come from the weighted dimensions in `shared/emotion.ts` — the same
+ * ones the live read showed and the interviewer adapted to, so the report
+ * cannot disagree with the room. Snapshots recorded before the weighted model
+ * carry raw Hume labels instead, and fall back to the legacy groupings below.
  */
 
 import type { QuestionExpression } from './roundPayload';
-import { NERVOUS, POSITIVE, STRUGGLE } from '../services/emotionService';
+import {
+  HUME_NERVOUS,
+  HUME_POSITIVE,
+  HUME_STRUGGLE,
+  dominantLabel,
+  dominantStrength,
+} from '../../shared/emotion';
 
 /** One emotion as a percentage of the observed expression mass. */
 export interface EmotionShare {
@@ -68,28 +76,46 @@ export function toSignal(exp: QuestionExpression | null | undefined): EmotionSig
   const total = breakdown.reduce((sum, e) => sum + e.score, 0);
   if (total <= 0) return null;
 
+  const sorted = [...breakdown].sort((a, b) => b.score - a.score);
+  const top = sorted.slice(0, TOP_N).map((e) => ({ name: e.name, share: pct((e.score / total) * 100) }));
+  const confidence = pct((exp.confidenceScore ?? 0) * 100);
+
+  // Preferred: the weighted dimensions, which mean the same thing whichever
+  // provider ran and are exactly what the interviewer adapted to.
+  if (exp.dimensions) {
+    return {
+      confidence,
+      composure: pct(exp.dimensions.composure * 100),
+      nervousness: pct(exp.dimensions.stress * 100),
+      strain: pct(exp.dimensions.uncertainty * 100),
+      dominant: exp.dominantEmotion || dominantLabel(exp.dimensions),
+      dominantShare: pct(dominantStrength(exp.dimensions) * 100),
+      top,
+    };
+  }
+
+  // Legacy: a snapshot of raw Hume labels, scored as shares of expression mass.
   let positive = 0;
   let nervous = 0;
   let strain = 0;
   for (const e of breakdown) {
     const key = e.name.toLowerCase();
-    if (POSITIVE.includes(key)) positive += e.score;
-    if (NERVOUS.includes(key)) nervous += e.score;
-    if (STRUGGLE.includes(key)) strain += e.score;
+    if (HUME_POSITIVE.includes(key)) positive += e.score;
+    if (HUME_NERVOUS.includes(key)) nervous += e.score;
+    if (HUME_STRUGGLE.includes(key)) strain += e.score;
   }
 
-  const sorted = [...breakdown].sort((a, b) => b.score - a.score);
   const dominant = exp.dominantEmotion || sorted[0].name;
   const dominantEntry = sorted.find((e) => e.name === dominant) ?? sorted[0];
 
   return {
-    confidence: pct((exp.confidenceScore ?? 0) * 100),
+    confidence,
     composure: pct((positive / total) * 100),
     nervousness: pct((nervous / total) * 100),
     strain: pct((strain / total) * 100),
     dominant,
     dominantShare: pct((dominantEntry.score / total) * 100),
-    top: sorted.slice(0, TOP_N).map((e) => ({ name: e.name, share: pct((e.score / total) * 100) })),
+    top,
   };
 }
 

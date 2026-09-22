@@ -8,12 +8,20 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
  *
  * Designed for sentence-level pipelining: call once per sentence for low
  * time-to-first-audio.
+ *
+ * A GET is a warm-up ping: it wakes the function before the first sentence is
+ * needed (a cold start would otherwise land on exactly that request) and
+ * reports whether a key is configured, so the client can go straight to the
+ * browser voice instead of paying a round trip per sentence to learn that.
  */
 
 const SARVAM_TTS_URL = 'https://api.sarvam.ai/text-to-speech';
 const SAMPLE_RATE = 24000;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method === 'GET') {
+    return res.status(200).json({ ok: true, configured: !!process.env.SARVAM_API_KEY });
+  }
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }

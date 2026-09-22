@@ -58,6 +58,13 @@ type FrameSource = HTMLVideoElement | (() => string | null);
 
 const UNAVAILABLE: EmotionAggregate = { available: false };
 
+/**
+ * Published while a provider is running but has not yet seen enough frames.
+ * Exported so the UI can tell "still starting" apart from "this will not work"
+ * without matching on the string.
+ */
+export const WARMING_UP_REASON = 'Reading expressions…';
+
 class EmotionService {
   private provider: EmotionProvider | null = null;
   private scores = new Map<string, number>();
@@ -186,7 +193,7 @@ class EmotionService {
     if (!signal.available) {
       // Still warming up: real data, just not enough of it to be worth acting
       // on. Say so rather than publishing a low-confidence guess.
-      this.lastAgg = { available: false, unavailableReason: 'Reading expressions…' };
+      this.lastAgg = { available: false, unavailableReason: WARMING_UP_REASON };
       return;
     }
 

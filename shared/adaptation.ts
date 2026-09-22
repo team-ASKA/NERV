@@ -21,7 +21,7 @@
 import {
   NO_SIGNAL,
   type EmotionSignal,
-} from './emotion';
+} from './emotion.js';
 
 /**
  * The hard ceiling on how much a facial read may move difficulty, before it is

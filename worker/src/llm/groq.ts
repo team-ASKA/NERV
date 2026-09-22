@@ -137,7 +137,11 @@ async function groqChat(opts: GroqOptions): Promise<string> {
 // Gemini (text fallback)
 // ---------------------------------------------------------------------------
 
-async function geminiText(prompt: string, system: string, timeoutMs = 60_000): Promise<string> {
+async function geminiText(
+  prompt: string,
+  system: string,
+  opts: { timeoutMs?: number; temperature?: number; json?: boolean } = {},
+): Promise<string> {
   if (!config.geminiApiKey) throw new ModelUnavailableError('GEMINI_API_KEY is not set.');
   await bucket.acquire();
 
@@ -149,10 +153,13 @@ async function geminiText(prompt: string, system: string, timeoutMs = 60_000): P
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
+        generationConfig: {
+          temperature: opts.temperature ?? 0.2,
+          ...(opts.json === false ? {} : { responseMimeType: 'application/json' }),
+        },
       }),
     },
-    timeoutMs,
+    opts.timeoutMs ?? 60_000,
   );
 
   if (!response.ok) {
@@ -190,6 +197,36 @@ export async function completeJson(system: string, prompt: string): Promise<stri
     if (!config.geminiApiKey) throw err;
     logger.warn({ err: (err as Error).message }, 'groq failed, falling back to gemini');
     return geminiText(prompt, system);
+  }
+}
+
+/**
+ * Prose, not JSON. Used by the simulation agents, whose whole point is to
+ * produce exactly what the live interviewer produces — a spoken line.
+ *
+ * Temperature defaults higher than `completeJson`'s: extraction wants the same
+ * answer every time, whereas a simulation that asks the identical question on
+ * every run stops being evidence about the prompt.
+ */
+export async function completeText(
+  system: string,
+  prompt: string,
+  opts: { temperature?: number; maxTokens?: number; model?: string } = {},
+): Promise<string> {
+  try {
+    return await groqChat({
+      model: opts.model ?? config.groqTextModel,
+      temperature: opts.temperature ?? 0.7,
+      maxTokens: opts.maxTokens ?? 400,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
+    });
+  } catch (err) {
+    if (!config.geminiApiKey) throw err;
+    logger.warn({ err: (err as Error).message }, 'groq failed, falling back to gemini');
+    return geminiText(prompt, system, { json: false, temperature: opts.temperature ?? 0.7 });
   }
 }
 
