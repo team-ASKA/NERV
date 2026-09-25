@@ -6,7 +6,14 @@
  */
 
 import type { EmotionAggregate, ResumeContext, Round, TranscriptTurn } from '../types/interview';
+import { authedFetch } from '../lib/authedFetch';
 import { logger } from '../lib/logger';
+
+// The worker writes these and this reads them, so the shape belongs to neither
+// side alone — it lives in `shared/` with the rest of the simulation contract.
+export type { PrimedOpeners } from '../../shared/simulation';
+import type { PrimedOpeners } from '../../shared/simulation';
+import { ROUNDS } from '../../shared/interview';
 
 export interface NextQuestionRequest {
   round: Round;
@@ -27,10 +34,41 @@ export type StreamEvent = { delta: string } | { done: NextQuestionResult };
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
+/**
+ * Fetch the opening questions the worker wrote after this resume was ingested.
+ *
+ * Never throws and never blocks anything: an empty result simply means the first
+ * question is generated live, exactly as it was before priming existed. Called
+ * once when a round page mounts — while the candidate is still reading the intro
+ * — so it is off the interview's critical path in both directions.
+ */
+export async function fetchPrimedOpeners(signal?: AbortSignal): Promise<PrimedOpeners> {
+  try {
+    const res = await authedFetch('/api/interview/openers', { method: 'GET', signal });
+    if (!res.ok) return {};
+    const data = (await res.json()) as { openers?: unknown };
+    const raw = data.openers;
+    if (!raw || typeof raw !== 'object') return {};
+
+    const source = raw as Record<string, unknown>;
+    const openers: PrimedOpeners = {};
+    for (const round of ROUNDS) {
+      const value = source[round];
+      if (typeof value === 'string' && value.trim()) openers[round] = value.trim();
+    }
+    return openers;
+  } catch (err) {
+    if ((err as Error)?.name !== 'AbortError') {
+      logger.warn('[interview] could not read primed openers', (err as Error)?.message);
+    }
+    return {};
+  }
+}
+
 /** Single-shot request (no streaming). Never throws; degrades to a flag. */
 export async function fetchNextQuestion(req: NextQuestionRequest, signal?: AbortSignal): Promise<NextQuestionResult> {
   try {
-    const res = await fetch('/api/interview/next', {
+    const res = await authedFetch('/api/interview/next', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(req),
@@ -57,7 +95,7 @@ export async function fetchNextQuestion(req: NextQuestionRequest, signal?: Abort
 export async function* streamNextQuestion(req: NextQuestionRequest, signal?: AbortSignal): AsyncGenerator<StreamEvent> {
   let res: Response;
   try {
-    res = await fetch('/api/interview/next?stream=1', {
+    res = await authedFetch('/api/interview/next?stream=1', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(req),

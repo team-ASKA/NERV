@@ -53,7 +53,10 @@ async function groqComplete(messages: LlmMessage[], opts: GenerateOptions = {}):
     const detail = await res.text().catch(() => '');
     throw new Error(`Groq ${res.status}: ${detail.slice(0, 300)}`);
   }
-  const data = await res.json();
+  // `.json()` is `unknown` here (no DOM lib in this tree), which is the honest
+  // type for a third-party payload — name the one path we read and keep the
+  // optional chaining that guards it.
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] } | null;
   return (data?.choices?.[0]?.message?.content ?? '').trim();
 }
 

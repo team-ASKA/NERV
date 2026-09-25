@@ -8,6 +8,7 @@ import {
 } from '../_lib/session';
 import { buildSystemPrompt, buildUserPrompt, fallbackReply } from '../_lib/prompts';
 import { completeReply, hasAnyProvider, streamReply } from '../_lib/llm';
+import { requireUser } from '../_lib/auth';
 
 const VALID_ROUNDS: Round[] = ['technical', 'core', 'hr'];
 
@@ -19,6 +20,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // Before anything else, and before any SSE header is written: this is the
+  // most expensive endpoint in the system, and every field of the prompt comes
+  // from the caller. Unauthenticated, it is an open invitation to spend the
+  // account's model quota — which is the ceiling every real candidate shares.
+  const authedUser = await requireUser(req, res);
+  if (!authedUser) return;
 
   const body = (req.body || {}) as Partial<InterviewNextRequest>;
   const round = parseRound(body.round);

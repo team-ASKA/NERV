@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { requireUser } from './_lib/auth';
 
 /**
  * Sarvam Speech-to-Text proxy. Keeps SARVAM_API_KEY server-side.
@@ -19,6 +20,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // Transcription is billed per second of audio. The GET above stays open on
+  // purpose — it touches no provider, and the warm-up has to be cheap and early.
+  const authedUser = await requireUser(req, res);
+  if (!authedUser) return;
 
   const apiKey = process.env.SARVAM_API_KEY;
   const { audio, mimeType, languageCode } = (req.body || {}) as {
@@ -57,7 +63,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(r.status).json({ error: `Sarvam STT ${r.status}`, detail: detail.slice(0, 300) });
     }
 
-    const data = await r.json();
+    // Sarvam has used both keys across model versions; accept either.
+    const data = (await r.json()) as { transcript?: unknown; text?: unknown } | null;
     const transcript =
       typeof data?.transcript === 'string' ? data.transcript : typeof data?.text === 'string' ? data.text : '';
     return res.status(200).json({ transcript });

@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { requireUser } from '../_lib/auth';
 
 /**
  * Mints a short-lived Hume access token via OAuth2 client-credentials so the
@@ -15,6 +16,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // This endpoint hands out a working Hume credential. Unauthenticated it is a
+  // leaked secret with extra steps: anyone could bill our Hume account from
+  // their own page. Both verbs mint, so both are gated.
+  const authedUser = await requireUser(req, res);
+  if (!authedUser) return;
 
   const apiKey = process.env.HUME_API_KEY;
   const secretKey = process.env.HUME_SECRET_KEY;
@@ -40,8 +47,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ available: false, error: `Hume ${r.status}` });
     }
 
-    const data = await r.json();
-    const accessToken: string | undefined = data?.access_token;
+    const data = (await r.json()) as
+      | { access_token?: string; token_type?: string; expires_in?: number }
+      | null;
+    const accessToken = data?.access_token;
     if (!accessToken) {
       return res.status(200).json({ available: false, error: 'No access token returned' });
     }

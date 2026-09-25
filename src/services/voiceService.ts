@@ -19,6 +19,7 @@
  */
 
 import { logger } from '../lib/logger';
+import { authedFetch } from '../lib/authedFetch';
 
 export interface SpeakOptions {
   /** Called once audio actually begins. */
@@ -122,7 +123,7 @@ class VoiceService {
       const wav = input instanceof Float32Array ? float32ToWav(input, sampleRate) : input;
       if (wav.size < 1200) return ''; // too short to be speech
       const base64 = await blobToBase64(wav);
-      const res = await fetch('/api/stt', {
+      const res = await authedFetch('/api/stt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ audio: base64, mimeType: 'audio/wav', languageCode: 'en-IN' }),
@@ -303,7 +304,7 @@ class VoiceService {
     const ctx = this.ensureContext();
     if (!ctx || this.ttsConfigured === false) return { kind: 'degraded', text: sentence };
     try {
-      const res = await fetch('/api/tts', {
+      const res = await authedFetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: sentence }),

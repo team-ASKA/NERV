@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { completeReply, hasAnyProvider } from '../_lib/llm';
+import { requireUser } from '../_lib/auth';
 import {
   chunkResume,
   isEmptyParse,
@@ -65,6 +66,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // One request here fans out to one model call per resume chunk, so an open
+  // endpoint multiplies an attacker's effort by the chunk count.
+  const authedUser = await requireUser(req, res);
+  if (!authedUser) return;
 
   const { text } = (req.body || {}) as { text?: string };
   if (!text || typeof text !== 'string' || text.trim().length < 20) {

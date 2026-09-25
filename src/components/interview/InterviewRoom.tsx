@@ -27,6 +27,7 @@ import {
 import type { EmotionAggregate, ResumeContext, Round, TranscriptTurn } from '../../types/interview';
 import { ROUND_LABELS } from '../../types/interview';
 import { useInterviewSession } from '../../hooks/useInterviewSession';
+import { usePrimedOpeners } from '../../hooks/usePrimedOpeners';
 import { emotionService } from '../../services/emotionService';
 import {
   makeMessageId,
@@ -212,9 +213,16 @@ export function InterviewRoom({
     [round, durationMinutes, enableCode, language, stopCamera],
   );
 
+  // Fetched at mount, i.e. while the candidate is still reading the intro card,
+  // so the request has long since landed by the time they press Start. Undefined
+  // is a normal outcome (no resume primed yet, or the worker isn't deployed) and
+  // just means question one streams the way it always has.
+  const opener = usePrimedOpeners(round);
+
   const session = useInterviewSession({
     round,
     resume,
+    opener,
     maxQuestions,
     getCode: enableCode ? getCode : undefined,
     getEmotion,

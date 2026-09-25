@@ -51,6 +51,13 @@ export type InterviewPhase =
 export interface UseInterviewSessionOptions {
   round: Round;
   resume: ResumeContext | null;
+  /**
+   * The round's opening question, written ahead of time by the worker. When
+   * present, question one is spoken immediately instead of being generated —
+   * the difference between a second or two of silence at the start of an
+   * interview and none. Read once at the first turn; later turns always stream.
+   */
+  opener?: string | null;
   /** Number of interviewer questions before the round ends. Default 6. */
   maxQuestions?: number;
   /** Technical round: current Monaco scratchpad contents. */
@@ -250,27 +257,35 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
     const speech = voiceService.speakStreaming({ onStart: () => markSpeaking() });
     utterance = speech;
 
-    let message = '';
+    // A primed opener is the same prompt, run in advance against the same
+    // resume, so speaking it is not an approximation of question one — it *is*
+    // question one, minus the wait. Only the first turn can use it; everything
+    // after depends on what the candidate just said.
+    const primed = questionCount === 0 ? (opts.opener ?? '').trim() : '';
+
+    let message = primed;
     let spoken = false;
     let degraded = false;
-    try {
-      for await (const ev of streamNextQuestion(req, abort.signal)) {
-        if (ended) {
-          speech.cancel();
-          return;
+    if (!primed) {
+      try {
+        for await (const ev of streamNextQuestion(req, abort.signal)) {
+          if (ended) {
+            speech.cancel();
+            return;
+          }
+          if ('delta' in ev) {
+            message += ev.delta;
+            spoken = true;
+            speech.push(ev.delta);
+            patch({ liveText: message });
+          } else {
+            if (ev.done.message) message = ev.done.message;
+            degraded = Boolean(ev.done.degraded);
+          }
         }
-        if ('delta' in ev) {
-          message += ev.delta;
-          spoken = true;
-          speech.push(ev.delta);
-          patch({ liveText: message });
-        } else {
-          if (ev.done.message) message = ev.done.message;
-          degraded = Boolean(ev.done.degraded);
-        }
+      } catch (err) {
+        logger.error('[session] askNext error', (err as Error)?.message);
       }
-    } catch (err) {
-      logger.error('[session] askNext error', (err as Error)?.message);
     }
 
     if (ended) {

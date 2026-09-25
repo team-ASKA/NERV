@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { coerceResume, type TranscriptTurn } from './_lib/session';
 import { SUMMARY_SYSTEM_PROMPT } from './_lib/prompts';
 import { completeReply, hasAnyProvider } from './_lib/llm';
+import { requireUser } from './_lib/auth';
 
 /**
  * End-of-interview report generator. Uses the shared LLM layer (Groq → Gemini)
@@ -38,6 +39,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // The longest single generation in the product. Gated for the same reason as
+  // the interview engine: an open one bills the account for anyone's transcript.
+  const authedUser = await requireUser(req, res);
+  if (!authedUser) return;
 
   const body = (req.body || {}) as Record<string, unknown>;
   const resume = coerceResume(body.resume);

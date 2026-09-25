@@ -313,21 +313,33 @@ $$;
 -- ---------------------------------------------------------------------------
 -- get_primed_openers: the live path's single read.
 --
--- Scoped by user as well as content hash so a guessed hash returns nothing.
--- Returns the newest completed `prime` sim for that exact resume version —
--- openers written against a previous resume would be grounded in work the
--- candidate no longer claims.
+-- Scoped by user as well as content hash so a guessed hash returns nothing, and
+-- filtered to `prime` so an audit's openers — written for a synthetic candidate
+-- in a persona — can never be spoken to a real one.
+--
+-- The hash is optional because the browser does not keep one: it hashes a file
+-- at upload time and forgets it. When it is omitted the lookup pins itself to
+-- the user's newest resume, which is the same row the client reads its resume
+-- from, so the opener and the interview are grounded in the same document.
+-- Openers written against a resume the candidate has since replaced would be
+-- about work they no longer claim.
 -- ---------------------------------------------------------------------------
 
-create or replace function get_primed_openers(p_user_id text, p_content_hash text)
+create or replace function get_primed_openers(p_user_id text, p_content_hash text default null)
 returns jsonb
 language sql stable as $$
   select s.openers
     from interview_sims s
    where s.user_id = p_user_id
-     and s.content_hash = p_content_hash
      and s.purpose = 'prime'
      and s.status = 'done'
+     and s.content_hash = coalesce(
+           p_content_hash,
+           (select r.content_hash
+              from resumes r
+             where r.user_id = p_user_id
+             order by r.created_at desc
+             limit 1))
    order by s.created_at desc
    limit 1;
 $$;
@@ -392,13 +404,22 @@ end $$;
 -- More patient than `reap_stalled_jobs` (10 minutes rather than 5): a full
 -- audit legitimately runs for minutes, and nobody is staring at a spinner
 -- waiting for it.
+--
+-- Also sweeps sims stranded in `queued`, on a much longer fuse. A producer that
+-- claims a row and is killed before the enqueue lands leaves no job behind it,
+-- and `queued` is not a state anything else recovers from — the idempotency key
+-- would fold every future upload of that resume into a row that never runs.
+-- Failing it is the cheap fix: `claim_sim_job` revives a `failed` sim. The fuse
+-- is long because a sim between rounds is also `queued`, and the cost of failing
+-- one early is a re-run, not a wrong answer.
 -- ---------------------------------------------------------------------------
 
 create or replace function reap_stalled_sims(p_stale_after interval default interval '10 minutes')
 returns integer
 language plpgsql as $$
 declare
-  v_count integer;
+  v_stalled integer;
+  v_orphans integer;
 begin
   update interview_sims
      set status      = 'failed',
@@ -407,6 +428,16 @@ begin
    where status in ('running', 'critiquing')
      and coalesce(heartbeat_at, updated_at) < now() - p_stale_after;
 
-  get diagnostics v_count = row_count;
-  return v_count;
+  get diagnostics v_stalled = row_count;
+
+  update interview_sims
+     set status      = 'failed',
+         error       = 'Never picked up by a worker.',
+         finished_at = now()
+   where status = 'queued'
+     and updated_at < now() - (p_stale_after * 3);
+
+  get diagnostics v_orphans = row_count;
+
+  return v_stalled + v_orphans;
 end $$;

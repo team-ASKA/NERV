@@ -81,6 +81,36 @@ export interface InterviewSimJob {
    * round is the one that triggers the critique.
    */
   round: Round;
+  /**
+   * One pass through the three rounds. See `simJobId` — this is what makes a
+   * chained job's queue id deterministic within a run and distinct across runs.
+   */
+  runId: string;
+}
+
+/**
+ * A fresh run identifier. Not a uuid on purpose: it only has to be unique among
+ * the runs of one simulation, and it ends up inside a queue key.
+ */
+export function newSimRunId(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * The BullMQ job id for one round.
+ *
+ * Deterministic in (sim, run, round) because these jobs enqueue each other: if a
+ * round finishes its work, enqueues its successor, and is then killed before
+ * BullMQ marks it complete, the retry re-enqueues the *same* id and BullMQ drops
+ * it. Without that, one crash would fork the chain — two `core` jobs, then four
+ * `hr` jobs — and each fork costs a full round of tokens.
+ *
+ * The run id is in the key because a completed job id is not reusable while it
+ * is still in the queue's history. A revived simulation gets a new run, so its
+ * first round is not silently swallowed as a duplicate of the run that failed.
+ */
+export function simJobId(simId: string, runId: string, round: Round): string {
+  return `${simId}:${runId}:${round}`;
 }
 
 /**
@@ -136,6 +166,22 @@ export function shouldAudit(contentHash: string, rate = SIM_AUDIT_SAMPLE_RATE): 
   const bucket = parseInt(contentHash.slice(0, 4), 16);
   if (!Number.isFinite(bucket)) return false;
   return bucket / 0x10000 < rate;
+}
+
+/**
+ * Which synthetic candidate audits this resume.
+ *
+ * Deterministic for the same reason `shouldAudit` is: the persona is part of the
+ * idempotency key, so a retried enqueue that picked a different one would create
+ * a second audit rather than folding into the first. Drawn from a different slice
+ * of the hash than `shouldAudit` so the sampled population is not skewed toward
+ * one persona — the low buckets that pass sampling would otherwise all map to
+ * the same candidate.
+ */
+export function pickAuditPersona(contentHash: string): SimPersona {
+  const bucket = parseInt(contentHash.slice(4, 8), 16);
+  const index = Number.isFinite(bucket) ? bucket % SIM_PERSONAS.length : 0;
+  return SIM_PERSONAS[index] ?? 'average';
 }
 
 // ---------------------------------------------------------------------------

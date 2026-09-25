@@ -8,6 +8,7 @@
  */
 
 import pino from 'pino';
+import { SIM_AUDIT_SAMPLE_RATE } from '../../shared/simulation.js';
 
 const bool = (v: string | undefined, fallback: boolean) =>
   v === undefined ? fallback : /^(1|true|yes|on)$/i.test(v);
@@ -15,6 +16,17 @@ const bool = (v: string | undefined, fallback: boolean) =>
 const int = (v: string | undefined, fallback: number) => {
   const n = Number.parseInt(v ?? '', 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+/**
+ * A 0..1 share. Unlike `int`, zero is a legitimate value — it is how an operator
+ * turns a sampled behaviour off without redeploying — so this clamps rather than
+ * treating 0 as "unset".
+ */
+const rate = (v: string | undefined, fallback: number) => {
+  const n = Number.parseFloat(v ?? '');
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(1, Math.max(0, n));
 };
 
 export const config = {
@@ -60,6 +72,11 @@ export const config = {
   llmRequestsPerMinute: int(process.env.LLM_RPM, 90),
 
   enableInterviewSim: bool(process.env.ENABLE_INTERVIEW_SIM, true),
+  /** Share of ingests that also get a full audit sim (~34 model calls each).
+   *  Priming is unconditional and cheap; auditing is sampled because it is the
+   *  difference between a rounding error and the largest line on the bill.
+   *  Set to 0 to keep priming and stop auditing entirely. */
+  simAuditRate: rate(process.env.SIM_AUDIT_RATE, SIM_AUDIT_SAMPLE_RATE),
 } as const;
 
 export const logger = pino({

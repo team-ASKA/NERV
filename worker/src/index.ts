@@ -12,9 +12,15 @@
 
 import { Worker, type Job } from 'bullmq';
 import { createServer, type Server } from 'node:http';
-import { QUEUE_RESUME_INGEST, type ResumeIngestJob } from '../../shared/ingestion.js';
+import {
+  QUEUE_INTERVIEW_SIM,
+  QUEUE_RESUME_INGEST,
+  type ResumeIngestJob,
+} from '../../shared/ingestion.js';
+import type { InterviewSimJob } from '../../shared/simulation.js';
 import { checkRequirements, config, fatalMissing, hasModelProvider, logger } from './config.js';
 import { closeDb, pingDb, query } from './db.js';
+import { processInterviewSim } from './jobs/interviewSim.js';
 import { processResumeIngest } from './jobs/resumeIngest.js';
 import { closeQueues } from './queues.js';
 import { closeRedis, createRedis, pingRedis } from './redis.js';
@@ -53,6 +59,37 @@ function startResumeIngest(): void {
   logger.info({ queue: QUEUE_RESUME_INGEST, concurrency: config.ingestConcurrency }, 'consumer started');
 }
 
+/**
+ * The simulation consumer.
+ *
+ * A separate worker rather than a second queue name on the same one, so a burst
+ * of audits — tens of model calls each — cannot starve resume ingestion, which
+ * is the queue a user is actually waiting on. The real ceiling on both is the
+ * shared token bucket in `llm/groq.ts`, not these concurrency numbers.
+ */
+function startInterviewSim(): void {
+  const worker = new Worker<InterviewSimJob>(QUEUE_INTERVIEW_SIM, processInterviewSim, {
+    connection: createRedis(QUEUE_INTERVIEW_SIM),
+    concurrency: config.simConcurrency,
+    /** An audit round is ~10 sequential model calls; a stall handed to a second
+     *  pod would re-pay for all of them. */
+    lockDuration: 300_000,
+    stalledInterval: 120_000,
+    maxStalledCount: 1,
+  });
+
+  worker.on('failed', (job: Job<InterviewSimJob> | undefined, err: Error) => {
+    logger.error(
+      { bullId: job?.id, simId: job?.data?.simId, round: job?.data?.round, err: err.message },
+      'sim job failed',
+    );
+  });
+  worker.on('error', (err) => logger.error({ err: err.message }, 'sim worker error'));
+
+  workers.push(worker);
+  logger.info({ queue: QUEUE_INTERVIEW_SIM, concurrency: config.simConcurrency }, 'consumer started');
+}
+
 function startSweeper(): void {
   const timer = setInterval(() => {
     void query<{ reap_stalled_jobs: number }>('select reap_stalled_jobs() as reap_stalled_jobs')
@@ -61,6 +98,14 @@ function startSweeper(): void {
         if (reaped > 0) logger.warn({ reaped }, 'reaped stalled jobs');
       })
       .catch((err) => logger.warn({ err: (err as Error).message }, 'sweeper failed'));
+
+    if (!config.enableInterviewSim) return;
+    void query<{ reap_stalled_sims: number }>('select reap_stalled_sims() as reap_stalled_sims')
+      .then((rows) => {
+        const reaped = rows[0]?.reap_stalled_sims ?? 0;
+        if (reaped > 0) logger.warn({ reaped }, 'reaped stalled sims');
+      })
+      .catch((err) => logger.warn({ err: (err as Error).message }, 'sim sweeper failed'));
   }, REAP_INTERVAL_MS);
   timer.unref?.();
   timers.push(timer);
@@ -175,6 +220,20 @@ function main(): void {
   }
 
   startResumeIngest();
+
+  if (config.enableInterviewSim) {
+    if (hasModelProvider()) {
+      startInterviewSim();
+    } else {
+      // Every turn of a simulation is a model call. Consuming the queue without
+      // a provider would spend the retry budget producing nothing but canned
+      // fallbacks, and then mark the openers `done`.
+      logger.warn('interview simulation is enabled but no model provider is configured; not consuming.');
+    }
+  } else {
+    logger.info('interview simulation disabled (ENABLE_INTERVIEW_SIM)');
+  }
+
   startSweeper();
   consuming = true;
   logger.info({ env: config.env }, 'worker ready');

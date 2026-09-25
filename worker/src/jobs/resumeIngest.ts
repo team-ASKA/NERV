@@ -24,6 +24,7 @@ import { extractPdfText } from '../extract/pdfText.js';
 import { structureResume } from '../extract/structure.js';
 import { extractWithVlm } from '../extract/vlm.js';
 import { downloadResume, removeResume } from '../storage.js';
+import { scheduleSimulations } from './scheduleSims.js';
 
 /** How often the DB heartbeat is refreshed while a job runs. */
 const HEARTBEAT_MS = 15_000;
@@ -47,10 +48,13 @@ class PermanentError extends Error {
 // Job-row bookkeeping
 // ---------------------------------------------------------------------------
 
-interface JobRow {
+/** A type alias, not an interface: `query<T>` constrains T to `pg.QueryResultRow`,
+ *  and only anonymous types and aliases get the implicit index signature that
+ *  satisfies it. */
+type JobRow = {
   status: ResumeJobStatus;
   attempts: number;
-}
+};
 
 async function readJob(jobId: string): Promise<JobRow | null> {
   const rows = await query<JobRow>('select status, attempts from resume_jobs where id = $1', [jobId]);
@@ -254,6 +258,13 @@ export async function processResumeIngest(job: Job<ResumeIngestJob>): Promise<In
       ]);
       return id;
     });
+
+    // --- loop back ---------------------------------------------------------
+    // Awaited, not fired and forgotten: this job is about to be marked complete
+    // and nothing retries it, so a pod that dies here would leave the resume
+    // permanently unprimed. `scheduleSimulations` swallows its own failures, so
+    // awaiting it cannot fail an ingest that has already landed.
+    await scheduleSimulations(userId, contentHash);
 
     // --- cleanup (best effort; never fails a completed job) -----------------
     void query('select prune_user_resumes($1::text, $2::int)', [userId, config.resumesPerUser]).catch((err) =>

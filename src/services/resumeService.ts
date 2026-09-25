@@ -8,6 +8,7 @@
  */
 
 import { logger } from '../lib/logger';
+import { authedFetch } from '../lib/authedFetch';
 import {
   IngestUnavailableError,
   ingestResumeFile,
@@ -84,7 +85,7 @@ export async function parseResumeText(text: string): Promise<ParseResult> {
   }
 
   try {
-    const res = await fetch('/api/resume/parse', {
+    const res = await authedFetch('/api/resume/parse', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),

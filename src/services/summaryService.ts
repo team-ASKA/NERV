@@ -9,6 +9,7 @@
 import type { ResumeContext, TranscriptTurn } from '../types/interview';
 import type { ExpressionEntry, LegacyMessage } from '../lib/roundPayload';
 import { logger } from '../lib/logger';
+import { authedFetch } from '../lib/authedFetch';
 
 export interface SummaryRequest {
   resume: ResumeContext | null;
@@ -34,7 +35,7 @@ const FALLBACK = [
 
 export async function generateSummary(req: SummaryRequest): Promise<SummaryResult> {
   try {
-    const res = await fetch('/api/summary', {
+    const res = await authedFetch('/api/summary', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

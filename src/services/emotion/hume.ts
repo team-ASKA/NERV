@@ -12,6 +12,7 @@
  */
 
 import { logger } from '../../lib/logger';
+import { authedFetch } from '../../lib/authedFetch';
 import type { EmotionProvider, ProviderInput, RawScore } from './types';
 
 const HUME_STREAM_URL = 'wss://api.hume.ai/v0/stream/models';
@@ -38,7 +39,7 @@ export class HumeProvider implements EmotionProvider {
 
     let token: string;
     try {
-      const res = await fetch('/api/emotion/token');
+      const res = await authedFetch('/api/emotion/token');
       const data = (await res.json()) as { available?: boolean; accessToken?: string };
       if (!data.available || !data.accessToken) {
         logger.info('[emotion] hume is not configured');

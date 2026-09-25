@@ -1,0 +1,34 @@
+{
+  /* The serverless functions in `api/`.
+     Its own project because it is a different runtime from the browser bundle:
+     Node globals and `process.env`, no DOM. Without this the whole `api/` tree
+     went untypechecked — Vercel builds each function with esbuild, which strips
+     types without reading them, so a type error there ships silently and fails
+     on a real request instead of in CI.
+
+     `moduleResolution: bundler` rather than NodeNext, because that is how Vercel
+     bundles these: extensionless relative imports (`'../../shared/interview'`)
+     resolve, which is what the handlers already use. The `worker/` tree is a
+     real Node ESM process and is NodeNext, so its `shared/` imports need the
+     explicit `.js` — the asymmetry is deliberate. */
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["api", "shared"]
+}

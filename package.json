@@ -9,7 +9,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc -p tsconfig.app.json --noEmit",
+    "typecheck": "npm run typecheck:app && npm run typecheck:api && npm run typecheck:node",
+    "typecheck:app": "tsc -p tsconfig.app.json --noEmit",
+    "typecheck:api": "tsc -p tsconfig.api.json --noEmit",
+    "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -41,6 +44,7 @@
     "@eslint/js": "^9.9.1",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
+    "@types/node": "^22.10.0",
     "@vercel/node": "^5.6.15",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.18",

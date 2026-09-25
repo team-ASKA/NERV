@@ -5,6 +5,7 @@
  */
 
 import { logger } from '../lib/logger';
+import { authedFetch } from '../lib/authedFetch';
 
 interface ResumeGraphData {
   skills?: string[];
@@ -65,7 +66,7 @@ export class TutorService {
 
     let reply = '';
     try {
-      const res = await fetch('/api/tutor', {
+      const res = await authedFetch('/api/tutor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

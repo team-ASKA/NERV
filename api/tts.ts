@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { requireUser } from './_lib/auth';
 
 /**
  * Sarvam Text-to-Speech proxy. Keeps SARVAM_API_KEY server-side.
@@ -25,6 +26,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // Synthesis is billed per character, and this is called once per sentence, so
+  // it is the cheapest endpoint to abuse in volume. Verification is a local
+  // signature check against a cached cert, so it costs no round trip per
+  // sentence. The GET warm-up stays open: it touches no provider.
+  const authedUser = await requireUser(req, res);
+  if (!authedUser) return;
 
   const apiKey = process.env.SARVAM_API_KEY;
   const { text, voice, languageCode, pace, pitch, loudness } = (req.body || {}) as {
@@ -64,8 +72,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(r.status).json({ error: `Sarvam TTS ${r.status}`, detail: detail.slice(0, 300) });
     }
 
-    const data = await r.json();
-    const audio = Array.isArray(data?.audios) && data.audios.length > 0 ? data.audios[0] : null;
+    const data = (await r.json()) as { audios?: unknown } | null;
+    const audios = data?.audios;
+    const audio = Array.isArray(audios) && audios.length > 0 ? (audios[0] as string) : null;
     if (!audio) {
       return res.status(502).json({ error: 'Sarvam TTS returned no audio' });
     }

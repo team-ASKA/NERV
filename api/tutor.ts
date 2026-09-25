@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { completeReply, hasAnyProvider } from './_lib/llm';
 import { buildTutorSystemPrompt, TUTOR_UNAVAILABLE_REPLY, type TutorContext } from './_lib/prompts';
 import { sanitizeText } from './_lib/session';
+import { requireUser } from './_lib/auth';
 
 /**
  * Training-session tutor. Stateless: the client owns the conversation and
@@ -43,6 +44,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // Another model-backed endpoint with a caller-supplied prompt body.
+  const authedUser = await requireUser(req, res);
+  if (!authedUser) return;
 
   const body = (req.body || {}) as { message?: unknown; history?: unknown; context?: TutorContext };
   const message = sanitizeText(body.message).slice(0, MAX_TURN_CHARS);
