@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { requireUser } from '../_lib/auth';
+import { enforce } from '../_lib/rateLimit';
 import { enqueueResumeIngest, hasQueue, resumeJobExists } from '../_lib/queue';
 import { RESUME_BUCKET, admin, hasSupabase, resumePath } from '../_lib/supabaseAdmin';
 import {
@@ -58,6 +59,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const user = await requireUser(req, res);
   if (!user) return;
+
+  if (!(await enforce(req, res, 'resumeIngest', user.uid))) return;
 
   if (!hasSupabase()) {
     return res.status(503).json({ error: 'Resume storage is not configured on this deployment.' });

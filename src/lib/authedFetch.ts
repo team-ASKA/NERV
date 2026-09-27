@@ -55,3 +55,20 @@ export async function postJson<T>(url: string, body: unknown): Promise<{ ok: boo
 
   return { ok: response.ok, status: response.status, data };
 }
+
+/**
+ * Seconds to wait if the server rate-limited this request, else null.
+ *
+ * Read from the header rather than the body so it costs nothing and, more
+ * importantly, leaves the body unread — a caller that wants the error text can
+ * still have it.
+ *
+ * Callers must not treat a 429 as a generic failure and retry immediately: the
+ * retry counts against the same budget, so it makes the situation worse and
+ * charges the user's quota twice for one refusal.
+ */
+export function retryAfterSeconds(response: Response): number | null {
+  if (response.status !== 429) return null;
+  const header = Number(response.headers.get('Retry-After'));
+  return Number.isFinite(header) && header > 0 ? Math.ceil(header) : 30;
+}

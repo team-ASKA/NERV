@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { requireUser } from '../_lib/auth';
+import { enforce } from '../_lib/rateLimit';
 import { admin, hasSupabase } from '../_lib/supabaseAdmin';
 import { ROUNDS } from '../../shared/interview';
 import type { PrimedOpeners } from '../../shared/simulation';
@@ -41,6 +42,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const user = await requireUser(req, res);
   if (!user) return;
+
+  if (!(await enforce(req, res, 'openers', user.uid))) return;
 
   // Priming is an optimisation, so every failure below answers 200 with nothing.
   // A round that cannot read its opener streams one live; a round that treats a

@@ -9,6 +9,7 @@ import {
 import { buildSystemPrompt, buildUserPrompt, fallbackReply } from '../_lib/prompts';
 import { completeReply, hasAnyProvider, streamReply } from '../_lib/llm';
 import { requireUser } from '../_lib/auth';
+import { enforce } from '../_lib/rateLimit';
 
 const VALID_ROUNDS: Round[] = ['technical', 'core', 'hr'];
 
@@ -27,6 +28,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // account's model quota — which is the ceiling every real candidate shares.
   const authedUser = await requireUser(req, res);
   if (!authedUser) return;
+
+  // Also before the SSE preamble: a 429 has to be a real HTTP status, and once
+  // the stream headers are out the only way to report anything is an SSE error
+  // event the client would have to special-case.
+  if (!(await enforce(req, res, 'interviewNext', authedUser.uid))) return;
 
   const body = (req.body || {}) as Partial<InterviewNextRequest>;
   const round = parseRound(body.round);

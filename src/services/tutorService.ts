@@ -5,7 +5,7 @@
  */
 
 import { logger } from '../lib/logger';
-import { authedFetch } from '../lib/authedFetch';
+import { authedFetch, retryAfterSeconds } from '../lib/authedFetch';
 
 interface ResumeGraphData {
   skills?: string[];
@@ -72,6 +72,21 @@ export class TutorService {
         body: JSON.stringify(payload),
       });
 
+      // Rate limited. Two things follow, and both matter:
+      //
+      //  • `degraded` stays false. The tutor is not offline — the caller lights
+      //    up a "Tutor offline" badge off that flag, and this is a transient
+      //    ceiling on one account, not an outage.
+      //  • Nothing is written to `history`. The model never saw this message, so
+      //    recording it together with a reply the model never produced would
+      //    replay a fabricated turn as context on every message after it. A
+      //    limit is hit in bursts, so that pollution compounds.
+      const retryAfter = retryAfterSeconds(res);
+      if (retryAfter !== null) {
+        logger.warn(`[tutor] rate limited; retry in ${retryAfter}s`);
+        return `Too many requests in a row — give it about ${retryAfter}s, then ask me again.`;
+      }
+
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
         throw new Error(`Tutor ${res.status}: ${detail.slice(0, 200)}`);
@@ -83,7 +98,9 @@ export class TutorService {
     } catch (err) {
       logger.warn('[tutor] request failed:', (err as Error)?.message);
       this.degraded = true;
-      reply = 'I could not reach the tutor just now. Check your connection and try again.';
+      // Nothing reached the model here either, so the history stays clean for
+      // whenever the connection comes back.
+      return 'I could not reach the tutor just now. Check your connection and try again.';
     }
 
     if (!reply) reply = 'Could you rephrase that?';

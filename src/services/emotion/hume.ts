@@ -42,7 +42,13 @@ export class HumeProvider implements EmotionProvider {
       const res = await authedFetch('/api/emotion/token');
       const data = (await res.json()) as { available?: boolean; accessToken?: string };
       if (!data.available || !data.accessToken) {
-        logger.info('[emotion] hume is not configured');
+        // A 429 body has no `available`, so it lands here too — correctly, since
+        // the outcome is the same honest "no expression data". Distinguish them
+        // in the log only: "not configured" would send the next person reading
+        // this straight to the env vars for a limit that clears itself.
+        logger.info(
+          res.status === 429 ? '[emotion] hume token rate limited' : '[emotion] hume is not configured',
+        );
         return false;
       }
       token = data.accessToken;

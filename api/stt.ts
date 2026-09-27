@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { requireUser } from './_lib/auth';
+import { enforce } from './_lib/rateLimit';
 
 /**
  * Sarvam Speech-to-Text proxy. Keeps SARVAM_API_KEY server-side.
@@ -25,6 +26,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // purpose — it touches no provider, and the warm-up has to be cheap and early.
   const authedUser = await requireUser(req, res);
   if (!authedUser) return;
+
+  if (!(await enforce(req, res, 'stt', authedUser.uid))) return;
 
   const apiKey = process.env.SARVAM_API_KEY;
   const { audio, mimeType, languageCode } = (req.body || {}) as {

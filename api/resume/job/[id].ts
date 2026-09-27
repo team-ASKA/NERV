@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { requireUser } from '../../_lib/auth';
+import { enforce } from '../../_lib/rateLimit';
 import { admin, hasSupabase } from '../../_lib/supabaseAdmin';
 import { nextPollDelay, type ExtractionStrategy, type JobStatusResponse, type ResumeJobStatus } from '../../../shared/ingestion';
 import { coerceParsed, isEmptyParse } from '../../../shared/resumeParse';
@@ -43,6 +44,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const user = await requireUser(req, res);
   if (!user) return;
+
+  // Polled from 700ms while a parse runs, so the ceiling is high: this only
+  // catches a client stuck in a tight loop, which at 10k users is the failure
+  // mode that quietly saturates the database.
+  if (!(await enforce(req, res, 'jobStatus', user.uid))) return;
 
   if (!hasSupabase()) {
     return res.status(503).json({ error: 'Resume storage is not configured on this deployment.' });

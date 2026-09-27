@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { completeReply, hasAnyProvider } from '../_lib/llm';
 import { requireUser } from '../_lib/auth';
+import { enforce } from '../_lib/rateLimit';
 import {
   chunkResume,
   isEmptyParse,
@@ -71,6 +72,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // endpoint multiplies an attacker's effort by the chunk count.
   const authedUser = await requireUser(req, res);
   if (!authedUser) return;
+
+  if (!(await enforce(req, res, 'resumeParse', authedUser.uid))) return;
 
   const { text } = (req.body || {}) as { text?: string };
   if (!text || typeof text !== 'string' || text.trim().length < 20) {

@@ -9,7 +9,7 @@
 import type { ResumeContext, TranscriptTurn } from '../types/interview';
 import type { ExpressionEntry, LegacyMessage } from '../lib/roundPayload';
 import { logger } from '../lib/logger';
-import { authedFetch } from '../lib/authedFetch';
+import { authedFetch, retryAfterSeconds } from '../lib/authedFetch';
 
 export interface SummaryRequest {
   resume: ResumeContext | null;
@@ -33,6 +33,21 @@ const FALLBACK = [
   'Your full transcript is preserved below and in your dashboard — you can regenerate the report later.',
 ].join('\n');
 
+/**
+ * A refusal is not an outage, and saying "could not be reached" for one sends
+ * the candidate to check their connection over something that clears itself in
+ * seconds. The transcript is already safe, so the only thing they need is the
+ * wait and the fact that retrying works.
+ */
+function rateLimited(retryAfter: number): string {
+  return [
+    '# Interview Performance Report',
+    '',
+    `The report could not be generated right now — too many requests in a short window. Wait about ${retryAfter} seconds and regenerate it.`,
+    'Nothing was lost: your full transcript is preserved below and in your dashboard.',
+  ].join('\n');
+}
+
 export async function generateSummary(req: SummaryRequest): Promise<SummaryResult> {
   try {
     const res = await authedFetch('/api/summary', {
@@ -47,6 +62,12 @@ export async function generateSummary(req: SummaryRequest): Promise<SummaryResul
         code: req.code ?? '',
       }),
     });
+
+    const retryAfter = retryAfterSeconds(res);
+    if (retryAfter !== null) {
+      logger.warn(`[summary] rate limited; retry in ${retryAfter}s`);
+      return { summary: rateLimited(retryAfter), degraded: true };
+    }
 
     if (!res.ok) {
       logger.warn('[summary] request failed', res.status);

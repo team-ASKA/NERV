@@ -8,7 +8,7 @@
  */
 
 import { logger } from '../lib/logger';
-import { authedFetch } from '../lib/authedFetch';
+import { authedFetch, retryAfterSeconds } from '../lib/authedFetch';
 import {
   IngestUnavailableError,
   ingestResumeFile,
@@ -41,6 +41,12 @@ export interface ParseResult {
   /** Human-readable explanation when degraded. */
   reason?: string;
   source?: 'model' | 'partial' | 'heuristic';
+  /**
+   * Set only when the server rate-limited the parse. Distinct from every other
+   * degraded result because it is certain to succeed shortly — callers must not
+   * persist the empty resume that comes with it.
+   */
+  retryAfter?: number;
 }
 
 /** localStorage cache keys — read by `firebaseResumeService` as well. */
@@ -90,6 +96,20 @@ export async function parseResumeText(text: string): Promise<ParseResult> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
+
+    // Separated from the generic failure below because the outcomes differ: a
+    // rate limit clears on its own, so this is not "parsing is unavailable" and
+    // must not be recorded as a resume with no skills in it.
+    const retryAfter = retryAfterSeconds(res);
+    if (retryAfter !== null) {
+      logger.warn(`[resume] parse rate limited; retry in ${retryAfter}s`);
+      return {
+        resume: { ...EMPTY, rawText: text },
+        degraded: true,
+        reason: `Too many resume uploads in a row. Wait about ${retryAfter} seconds and try again.`,
+        retryAfter,
+      };
+    }
 
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
@@ -225,6 +245,18 @@ export async function extractAndSaveResume(
   }
 
   const parsed = await parseResumeText(rawText);
+
+  // A rate-limited parse is the one degraded result worth refusing outright.
+  // Every other one still carries whatever could be salvaged, but this carries
+  // nothing — and `saveUserResume` and `cacheResume` below would write that
+  // nothing to Supabase and to localStorage, so every later round would read an
+  // empty resume and ask generic questions long after the limit had cleared.
+  // Surfacing it as an error costs the candidate one retry instead; the Dashboard
+  // toasts the message and leaves the chosen file in place for that retry.
+  if (parsed.retryAfter) {
+    throw new Error(parsed.reason ?? 'Too many resume uploads in a row. Please try again shortly.');
+  }
+
   const resumeId = `resume_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
   logger.info('[resume] parsed', {

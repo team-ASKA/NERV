@@ -690,15 +690,25 @@ export default function TrainingSession() {
 
   // ---- voice ---------------------------------------------------------------
 
-  const transcribe = useCallback(async (pcm: Float32Array, sampleRate: number) => {
-    setTranscribing(true);
-    try {
-      const text = await voiceService.transcribe(pcm, sampleRate);
-      submitVoiceRef.current(text);
-    } finally {
-      setTranscribing(false);
-    }
-  }, []);
+  const transcribe = useCallback(
+    async (pcm: Float32Array, sampleRate: number) => {
+      setTranscribing(true);
+      try {
+        const { text, retryAfter } = await voiceService.transcribe(pcm, sampleRate);
+        // A refused transcription is not silence. `submitVoiceRef` ignores empty
+        // text, so without this the spoken question vanishes with no trace and
+        // the obvious response — say it again — hits the same limit.
+        if (retryAfter) {
+          push(`I couldn't send that — too many requests in a row. Wait about ${retryAfter}s and try again.`, 'ai');
+          return;
+        }
+        submitVoiceRef.current(text);
+      } finally {
+        setTranscribing(false);
+      }
+    },
+    [push],
+  );
 
   const stopVoice = useCallback(() => {
     vadRef.current?.destroy();

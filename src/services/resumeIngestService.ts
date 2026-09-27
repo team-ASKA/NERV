@@ -87,6 +87,8 @@ interface UploadUrlResponse {
   alreadyUploaded?: boolean;
   signedUrl?: string;
   error?: string;
+  /** Present only on a 429. Seconds until the limit clears. */
+  retryAfter?: number;
 }
 
 interface IngestClaimResponse {
@@ -94,6 +96,8 @@ interface IngestClaimResponse {
   status?: ResumeJobStatus;
   created?: boolean;
   error?: string;
+  /** Present only on a 429. Seconds until the limit clears. */
+  retryAfter?: number;
 }
 
 /**
@@ -103,6 +107,30 @@ interface IngestClaimResponse {
  */
 function unavailable(status: number): boolean {
   return status === 404 || status === 503;
+}
+
+/**
+ * Turn a failed upload-url / ingest response into the right error.
+ *
+ * A 429 must never take the `unavailable` branch. That branch is what falls back
+ * to the synchronous parser, which posts to `/api/resume/parse` — rate limited
+ * on the same account — so treating "too fast" as "not deployed" would spend a
+ * second request to be refused again, and report it as a parse failure. It is a
+ * real failure the candidate should hear about, with the wait attached.
+ */
+function ingestError(
+  status: number,
+  data: { error?: string; retryAfter?: number },
+  fallback: string,
+): Error {
+  if (unavailable(status)) {
+    return new IngestUnavailableError(data.error ?? 'Ingestion is not available here.');
+  }
+  if (status === 429) {
+    const wait = data.retryAfter && data.retryAfter > 0 ? Math.ceil(data.retryAfter) : 30;
+    return new IngestFailedError(`Too many uploads in a row. Wait about ${wait} seconds and try again.`);
+  }
+  return new IngestFailedError(data.error ?? fallback);
 }
 
 async function poll(jobId: string, onProgress?: (p: IngestProgress) => void): Promise<IngestResult> {
@@ -196,10 +224,7 @@ export async function ingestResumeFile(
   });
 
   if (!prepared.ok) {
-    if (unavailable(prepared.status)) {
-      throw new IngestUnavailableError(prepared.data.error ?? 'Ingestion is not available here.');
-    }
-    throw new IngestFailedError(prepared.data.error ?? 'Could not prepare the upload.');
+    throw ingestError(prepared.status, prepared.data, 'Could not prepare the upload.');
   }
 
   const storagePath = prepared.data.storagePath;
@@ -231,10 +256,7 @@ export async function ingestResumeFile(
   });
 
   if (!claimed.ok) {
-    if (unavailable(claimed.status)) {
-      throw new IngestUnavailableError(claimed.data.error ?? 'Ingestion is not available here.');
-    }
-    throw new IngestFailedError(claimed.data.error ?? 'Could not start processing.');
+    throw ingestError(claimed.status, claimed.data, 'Could not start processing.');
   }
 
   const jobId = claimed.data.jobId;

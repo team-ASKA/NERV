@@ -266,6 +266,7 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
     let message = primed;
     let spoken = false;
     let degraded = false;
+    let rateLimited = 0;
     if (!primed) {
       try {
         for await (const ev of streamNextQuestion(req, abort.signal)) {
@@ -281,6 +282,7 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
           } else {
             if (ev.done.message) message = ev.done.message;
             degraded = Boolean(ev.done.degraded);
+            rateLimited = ev.done.retryAfter ?? 0;
           }
         }
       } catch (err) {
@@ -290,6 +292,23 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
 
     if (ended) {
       speech.cancel();
+      return;
+    }
+
+    // Rate limited: say so instead of asking a canned question. Substituting the
+    // fallback here would put words in the interviewer's mouth and record them
+    // in the transcript as though they had been asked, which also corrupts the
+    // summary. The 'error' phase is the honest one and already renders a Retry
+    // control, so the candidate loses a moment rather than the session.
+    if (rateLimited > 0 && !message.trim()) {
+      speech.cancel();
+      if (utterance === speech) utterance = null;
+      setPhase('error');
+      patch({
+        liveText: '',
+        degraded: true,
+        error: `Too many requests in a row — wait about ${rateLimited}s, then hit Retry.`,
+      });
       return;
     }
 
@@ -419,7 +438,21 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
   const processAnswer = async (pcm: Float32Array, sampleRate: number) => {
     if (ended) return;
     setPhase('transcribing');
-    const text = await voiceService.transcribe(pcm, sampleRate);
+    const { text, retryAfter } = await voiceService.transcribe(pcm, sampleRate);
+    if (ended) return;
+
+    // The answer was spoken but never transcribed. Say so and hold the floor —
+    // dropping through to `finishAnswer` would look identical to silence and
+    // send them back to the mic to repeat it into the same limit.
+    if (retryAfter) {
+      setPhase('error');
+      patch({
+        degraded: true,
+        error: `Couldn't send that answer — too many requests. Wait about ${retryAfter}s, then hit Retry.`,
+      });
+      return;
+    }
+
     finishAnswer(text);
   };
 

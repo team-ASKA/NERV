@@ -3,6 +3,7 @@ import { coerceResume, type TranscriptTurn } from './_lib/session';
 import { SUMMARY_SYSTEM_PROMPT } from './_lib/prompts';
 import { completeReply, hasAnyProvider } from './_lib/llm';
 import { requireUser } from './_lib/auth';
+import { enforce } from './_lib/rateLimit';
 
 /**
  * End-of-interview report generator. Uses the shared LLM layer (Groq → Gemini)
@@ -44,6 +45,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // the interview engine: an open one bills the account for anyone's transcript.
   const authedUser = await requireUser(req, res);
   if (!authedUser) return;
+
+  if (!(await enforce(req, res, 'summary', authedUser.uid))) return;
 
   const body = (req.body || {}) as Record<string, unknown>;
   const resume = coerceResume(body.resume);

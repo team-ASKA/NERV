@@ -19,7 +19,7 @@
  */
 
 import { logger } from '../lib/logger';
-import { authedFetch } from '../lib/authedFetch';
+import { authedFetch, retryAfterSeconds } from '../lib/authedFetch';
 
 export interface SpeakOptions {
   /** Called once audio actually begins. */
@@ -68,6 +68,15 @@ class VoiceService {
    * sentence and go straight to the browser voice.
    */
   private ttsConfigured: boolean | null = null;
+  /**
+   * When rate-limited, the time until which we skip the network entirely.
+   *
+   * Without this, a limited session pays a rejected round trip for every
+   * sentence of every question while the candidate waits on silence — the
+   * limiter would make latency worse than the load it protects against. The
+   * browser voice takes over for the duration, so the interview keeps talking.
+   */
+  private ttsCooldownUntil = 0;
 
   get speaking(): boolean {
     return this._speaking;
@@ -117,26 +126,39 @@ class VoiceService {
   /**
    * Transcribe an utterance. Accepts a recorded Blob or raw PCM (Float32 mono)
    * from the VAD, which is encoded to WAV before upload.
+   *
+   * Returns `retryAfter` when the server rate-limited the request. The caller
+   * must distinguish that from an empty transcript: silently treating a refusal
+   * as "didn't catch anything" throws the candidate's answer away and sends them
+   * back to the microphone to say it again into the same limit.
    */
-  async transcribe(input: Blob | Float32Array, sampleRate = 16000): Promise<string> {
+  async transcribe(
+    input: Blob | Float32Array,
+    sampleRate = 16000,
+  ): Promise<{ text: string; retryAfter?: number }> {
     try {
       const wav = input instanceof Float32Array ? float32ToWav(input, sampleRate) : input;
-      if (wav.size < 1200) return ''; // too short to be speech
+      if (wav.size < 1200) return { text: '' }; // too short to be speech
       const base64 = await blobToBase64(wav);
       const res = await authedFetch('/api/stt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ audio: base64, mimeType: 'audio/wav', languageCode: 'en-IN' }),
       });
+      const retryAfter = retryAfterSeconds(res);
+      if (retryAfter !== null) {
+        logger.warn(`[voice] STT rate limited; retry in ${retryAfter}s`);
+        return { text: '', retryAfter };
+      }
       if (!res.ok) {
         logger.error('[voice] STT failed', res.status);
-        return '';
+        return { text: '' };
       }
       const data = (await res.json()) as { transcript?: string };
-      return (data.transcript || '').trim();
+      return { text: (data.transcript || '').trim() };
     } catch (err) {
       logger.error('[voice] transcribe error', (err as Error)?.message);
-      return '';
+      return { text: '' };
     }
   }
 
@@ -303,12 +325,22 @@ class VoiceService {
   private async synth(sentence: string): Promise<SynthResult> {
     const ctx = this.ensureContext();
     if (!ctx || this.ttsConfigured === false) return { kind: 'degraded', text: sentence };
+    if (Date.now() < this.ttsCooldownUntil) return { kind: 'degraded', text: sentence };
     try {
       const res = await authedFetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: sentence }),
       });
+      const retryAfter = retryAfterSeconds(res);
+      if (retryAfter !== null) {
+        // Cap the wait: the hourly budget can report a long reset, and a whole
+        // interview on the browser voice for that long is a worse trade than
+        // trying the good voice again shortly.
+        this.ttsCooldownUntil = Date.now() + Math.min(retryAfter, 60) * 1000;
+        logger.warn(`[voice] TTS rate limited; browser voice for ${Math.min(retryAfter, 60)}s`);
+        return { kind: 'degraded', text: sentence };
+      }
       if (!res.ok) {
         logger.warn('[voice] TTS status', res.status);
         return { kind: 'degraded', text: sentence };
