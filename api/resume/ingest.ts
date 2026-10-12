@@ -5,7 +5,6 @@ import { enqueueResumeIngest, hasQueue, resumeJobState, retryResumeJob } from '.
 import { bullJobId, resumeDbKey } from '../../shared/queueIds';
 import { RESUME_BUCKET, admin, hasSupabase, resumePath } from '../_lib/supabaseAdmin';
 import {
-  idempotencyKey,
   isSha256Hex,
   validateUpload,
   type IngestResponse,
@@ -121,15 +120,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!row?.id) throw new Error('The job ledger returned no row.');
 
     // Push only when there is something to push: a new job, a revived one, or a
-    // queued row Redis has lost track of.
-    const orphaned =
-      row.status === 'queued' && !row.is_new && !row.requeued
-        ? !(await resumeJobExists(key))
-        : false;
+    // queued row Redis has lost track of. A retained FAILED job is explicitly
+    // retried so the new attempt actually runs (BullMQ ignores add() of an
+    // existing id).
+    const state = row.status === 'queued' && !row.is_new && !row.requeued ? await resumeJobState(bullId) : 'runnable';
+    const orphaned = state === 'missing';
+    if (state === 'failed-retained' && (row.requeued || orphaned)) {
+      try {
+        await retryResumeJob(bullId);
+      } catch {
+        /* fall through to fresh enqueue below */
+      }
+    }
 
     if (row.is_new || row.requeued || orphaned) {
       try {
-        await enqueueResumeIngest(key, {
+        await enqueueResumeIngest(key, bullId, {
           jobId: row.id,
           userId: user.uid,
           contentHash,

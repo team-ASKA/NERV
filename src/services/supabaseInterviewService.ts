@@ -1,8 +1,8 @@
-import { supabase } from '../lib/supabase';
+import { apiFetch } from '../lib/apiClient';
 import { logger } from '../lib/logger';
 
 /** How many resume uploads to retain per user. */
-const RESUME_HISTORY_LIMIT = 3;
+export const RESUME_HISTORY_LIMIT = 3;
 
 export interface InterviewRecord {
   id?: string;
@@ -11,121 +11,44 @@ export interface InterviewRecord {
   total_duration_minutes: number;
   overall_confidence: number;
   summary_markdown: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   questions_data: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   metrics: any;
 }
 
+interface HistoryPage {
+  items: InterviewRecord[];
+  nextCursor: string | null;
+}
+
+/**
+ * Browser data service — now API-backed (D2). No direct Supabase table
+ * access remains in the browser; every call carries the Firebase ID token
+ * and the server derives ownership from it. A caller-supplied userId is
+ * never trusted for identity.
+ */
 export const supabaseInterviewService = {
-  /**
-   * Save an interview summary to Supabase
-   */
-  async saveInterviewSummary(interviewData: InterviewRecord): Promise<string> {
-    try {
-      const { data, error } = await supabase
-        .from('interviews')
-        .insert([
-          {
-            user_id: interviewData.user_id,
-            total_duration_minutes: interviewData.total_duration_minutes,
-            overall_confidence: interviewData.overall_confidence,
-            summary_markdown: interviewData.summary_markdown,
-            questions_data: interviewData.questions_data,
-            metrics: interviewData.metrics,
-          }
-        ])
-        .select('id')
-        .single();
-
-      if (error) throw error;
-      return data.id;
-    } catch (error) {
-      logger.error('[supabase] interview save failed:', (error as Error)?.message);
-      throw error;
-    }
+  async saveInterviewSummary(_interviewData: InterviewRecord): Promise<string> {
+    // Legacy client-only save path: superseded by POST /sessions/:id/finalize
+    // + report jobs (F01/F02). Kept as a typed stub so old callers fail
+    // loudly instead of silently double-saving.
+    logger.warn('[interviewService] direct saveInterviewSummary is retired; use session finalize.');
+    throw new Error('Direct report save is retired. Finish the session to generate its report.');
   },
 
-  /**
-   * Fetch a user's past interviews
-   */
-  async getUserInterviews(userId: string): Promise<InterviewRecord[]> {
-    try {
-      const { data, error } = await supabase
-        .from('interviews')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      logger.error('[supabase] interview fetch failed:', (error as Error)?.message);
-      throw error;
-    }
+  async getUserInterviews(): Promise<InterviewRecord[]> {
+    const page = await apiFetch<HistoryPage>('/api/history?limit=50');
+    return page.items;
   },
 
-  /**
-   * Delete one of a user's interviews. Scoped by `user_id` as well as `id` so a
-   * stale id from another account can never remove someone else's row.
-   */
-  async deleteInterview(userId: string, interviewId: string): Promise<void> {
-    const { error } = await supabase
-      .from('interviews')
-      .delete()
-      .eq('id', interviewId)
-      .eq('user_id', userId);
-
-    if (error) throw error;
+  async getHistoryPage(cursor?: string | null, limit = 20): Promise<HistoryPage> {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (cursor) q.set('cursor', cursor);
+    return apiFetch<HistoryPage>(`/api/history?${q.toString()}`);
   },
 
-  /**
-   * Save a user's parsed resume. Inserts the new row, then prunes older ones so
-   * a user who re-uploads repeatedly doesn't accumulate raw resume text
-   * forever. Pruning is best-effort and never fails the save.
-   */
-  async saveUserResume(userId: string, resumeData: unknown, rawText?: string): Promise<void> {
-    const { error } = await supabase
-      .from('resumes')
-      .insert([{ user_id: userId, resume_data: resumeData, raw_text: rawText || null }]);
-
-    if (error) throw error;
-
-    try {
-      const { data: keep } = await supabase
-        .from('resumes')
-        .select('id')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(RESUME_HISTORY_LIMIT);
-
-      const keepIds = (keep ?? []).map((r: { id: string }) => r.id);
-      if (keepIds.length === RESUME_HISTORY_LIMIT) {
-        await supabase
-          .from('resumes')
-          .delete()
-          .eq('user_id', userId)
-          .not('id', 'in', `(${keepIds.join(',')})`);
-      }
-    } catch {
-      // Pruning is an optimisation, not a correctness requirement.
-    }
-  },
-
-  /**
-   * Fetch a user's latest parsed resume.
-   */
-  async getUserResume(userId: string): Promise<unknown | null> {
-    const { data, error } = await supabase
-      .from('resumes')
-      .select('resume_data')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      logger.warn('[supabase] resume fetch failed:', error.message);
-      return null;
-    }
-    return data ? (data as { resume_data: unknown }).resume_data : null;
+  async deleteInterview(id: string): Promise<void> {
+    await apiFetch(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 };

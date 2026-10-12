@@ -30,7 +30,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const secretKey = process.env.HUME_SECRET_KEY;
 
   if (!apiKey || !secretKey) {
-    return res.status(200).json({ available: false });
+    return res.status(200).json({ available: false, reason: 'unconfigured' });
+  }
+
+  // Explicit cloud opt-in (E01): camera permission alone is NOT consent.
+  // The client must send { cloudConsent: true } for the current session, and
+  // that choice is recorded server-side in preferences/profile.
+  const consent = (req.body as { cloudConsent?: unknown } | undefined)?.cloudConsent === true
+    || req.query.cloudConsent === 'true';
+  if (!consent) {
+    return res.status(200).json({ available: false, reason: 'consent-required' });
   }
 
   try {
@@ -58,8 +67,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ available: false, error: 'No access token returned' });
     }
 
-    // Cache briefly at the edge; tokens live ~30 min but we keep the window small.
-    res.setHeader('Cache-Control', 'private, max-age=600');
+    // Token is sensitive: no-store, never logged. Client must not print it.
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({
       available: true,
       accessToken,

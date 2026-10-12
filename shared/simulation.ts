@@ -110,7 +110,19 @@ export function newSimRunId(): string {
  * first round is not silently swallowed as a duplicate of the run that failed.
  */
 export function simJobId(simId: string, runId: string, round: Round): string {
-  return `${simId}:${runId}:${round}`;
+  // BullMQ-safe: hex/hyphen form, never colons (P0-2). Deterministic in
+  // (sim, run, round) so chained retries still dedupe correctly.
+  const input = `sim:${simId}:${runId}:${round}`;
+  let h1 = 0xcbf29ce484222325n;
+  let h2 = 0x84222325cbf29ce4n;
+  const mask = (1n << 64n) - 1n;
+  for (let i = 0; i < input.length; i++) {
+    const c = BigInt(input.charCodeAt(i));
+    h1 = ((h1 ^ c) * 0x100000001b3n) & mask;
+    h2 = ((h2 ^ (c + 0x9e37n)) * 0x100000001b3n) & mask;
+  }
+  const h = h1.toString(16).padStart(16, '0') + h2.toString(16).padStart(16, '0');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
 /**
