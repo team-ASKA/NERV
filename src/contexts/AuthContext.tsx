@@ -1,20 +1,26 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  User,
+import { createContext, useContext, useEffect, useState } from 'react';
+import {
+  type User,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { auth, isFirebaseConfigured } from '../lib/firebase';
+import { demoAllowed } from '../lib/config';
+import { clearAccountCaches } from '../lib/accountCache';
 
 interface AuthContextType {
   currentUser: User | null;
-  signup: (email: string, password: string) => Promise<any>;
-  login: (email: string, password: string) => Promise<any>;
+  signup: (email: string, password: string) => Promise<unknown>;
+  login: (email: string, password: string, remember?: boolean) => Promise<unknown>;
   logout: () => Promise<void>;
   loading: boolean;
+  unconfigured: boolean;
+  demo: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -22,89 +28,85 @@ const AuthContext = createContext<AuthContextType>({
   signup: async () => {},
   login: async () => {},
   logout: async () => {},
-  loading: true
+  loading: true,
+  unconfigured: false,
+  demo: false,
 });
 
 export function useAuth() {
   return useContext(AuthContext);
 }
 
+const DEMO_USER = {
+  uid: 'demo-user',
+  email: 'demo@nerv.local',
+  displayName: 'Demo User',
+} as unknown as User;
+
+let lastUid: string | null = null;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Save user data to Firestore
-  const saveUserData = async (user: User) => {
-    if (!user) return;
-
-    try {
-      console.log("Attempting to save user data to Firestore for user:", user.uid);
-      const userRef = doc(db, "users", user.uid);
-      
-      // Check if user document already exists
-      const userDoc = await getDoc(userRef);
-      
-      if (!userDoc.exists()) {
-        // Only create a new document if it doesn't exist
-        const userData = {
-          displayName: user.displayName || "",
-          email: user.email || "",
-          photoURL: user.photoURL || "",
-          createdAt: new Date().toISOString(),
-          interviewsCompleted: 0
-        };
-        
-        console.log("Creating new user document with data:", userData);
-        await setDoc(userRef, userData);
-        console.log("✅ User document created with ID:", user.uid);
-      } else {
-        console.log("User document already exists for:", user.uid);
-      }
-    } catch (error) {
-      console.error("❌ Error saving user data to Firestore:", error);
-      console.error("Error details:", {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        code: (error as any)?.code || 'Unknown code',
-        stack: error instanceof Error ? error.stack : 'No stack trace'
-      });
-    }
-  };
+  const unconfigured = !isFirebaseConfigured() && !demoAllowed();
+  const demo = demoAllowed() || (!isFirebaseConfigured() && demoAllowed());
 
   function signup(email: string, password: string) {
+    if (demoAllowed()) return Promise.resolve({ user: DEMO_USER });
     return createUserWithEmailAndPassword(auth, email, password);
   }
 
-  function login(email: string, password: string) {
+  async function login(email: string, password: string, remember = true) {
+    if (demoAllowed()) {
+      setCurrentUser(DEMO_USER);
+      return { user: DEMO_USER };
+    }
+    await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
     return signInWithEmailAndPassword(auth, email, password);
   }
 
-  function logout() {
-    return signOut(auth);
+  async function logout() {
+    const uid = currentUser?.uid ?? lastUid;
+    try {
+      if (!demoAllowed() && isFirebaseConfigured()) await signOut(auth);
+    } finally {
+      if (uid) clearAccountCaches(uid);
+      lastUid = null;
+      setCurrentUser(null);
+    }
   }
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    if (demoAllowed()) {
+      setLoading(false);
+      return;
+    }
+    if (!isFirebaseConfigured()) {
+      setLoading(false);
+      return;
+    }
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      // Account switch: drop the previous account's cached resume/session data.
+      if (lastUid && user?.uid !== lastUid) clearAccountCaches(lastUid);
+      lastUid = user?.uid ?? null;
       setCurrentUser(user);
-      if (user) {
-        await saveUserData(user);
-      }
+      // Do NOT block rendering on Firestore profile fetch: profile loads
+      // independently via the API layer (D02/D03). A slow/failed profile
+      // must never hang auth bootstrap.
       setLoading(false);
     });
-
     return unsubscribe;
   }, []);
 
   const value = {
-    currentUser,
+    currentUser: demoAllowed() && !currentUser ? null : currentUser,
     signup,
     login,
     logout,
-    loading
+    loading,
+    unconfigured,
+    demo: demoAllowed(),
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {!loading && children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
 }
