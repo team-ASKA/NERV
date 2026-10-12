@@ -19,16 +19,27 @@ export const RESUME_BUCKET = process.env.RESUME_BUCKET ?? 'resumes';
 
 let client: SupabaseClient | null = null;
 
+function secretKey(): string {
+  // Canonical SUPABASE_SECRET_KEY with legacy SERVICE_ROLE alias. Blank
+  // strings never select a project; conflicting values are rejected loudly.
+  const canonical = (process.env.SUPABASE_SECRET_KEY ?? '').trim();
+  const legacy = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim();
+  if (canonical && legacy && canonical !== legacy) {
+    throw new Error('SUPABASE_SECRET_KEY and SUPABASE_SERVICE_ROLE_KEY disagree; set only the canonical key.');
+  }
+  return canonical || legacy;
+}
+
 export function hasSupabase(): boolean {
-  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+  return Boolean(process.env.SUPABASE_URL && secretKey());
 }
 
 export function admin(): SupabaseClient {
   if (client) return client;
   const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = secretKey();
   if (!url || !key) {
-    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set on the server.');
+    throw new Error('SUPABASE_URL and SUPABASE_SECRET_KEY must be set on the server.');
   }
   client = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },

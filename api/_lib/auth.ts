@@ -137,9 +137,10 @@ export async function verifyIdToken(token: string): Promise<VerifiedUser> {
 /**
  * Development-only identity, read from the body or the query string so GET
  * endpoints (which have no body) work too. Returns null unless
- * ALLOW_UNVERIFIED_AUTH is explicitly enabled.
+ * ALLOW_UNVERIFIED_AUTH is explicitly enabled — and NEVER in production.
  */
 function unverifiedUser(req: VercelRequest): VerifiedUser | null {
+  if (process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production') return null;
   if (!allowUnverified()) return null;
 
   const fromBody = (req.body as { userId?: unknown } | undefined)?.userId;

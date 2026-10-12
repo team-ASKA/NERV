@@ -9,9 +9,11 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, hint, leftIcon, className, id, ...props }, ref) => {
+  ({ label, error, hint, leftIcon, className, id, 'aria-describedby': describedBy, ...props }, ref) => {
     const autoId = useId();
     const inputId = id ?? autoId;
+    const hintId = hint ? `${inputId}-hint` : undefined;
+    const errorId = error ? `${inputId}-error` : undefined;
     return (
       <div className="w-full">
         {label && (
@@ -36,13 +38,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               className,
             )}
             aria-invalid={!!error}
+            aria-describedby={[describedBy, errorId, hintId].filter(Boolean).join(' ') || undefined}
             {...props}
           />
         </div>
         {error ? (
-          <p className="mt-1.5 text-xs text-danger">{error}</p>
+          <p id={errorId} role="alert" className="mt-1.5 text-xs text-danger">{error}</p>
         ) : hint ? (
-          <p className="mt-1.5 text-xs text-muted-foreground">{hint}</p>
+          <p id={hintId} className="mt-1.5 text-xs text-muted-foreground">{hint}</p>
         ) : null}
       </div>
     );

@@ -39,27 +39,45 @@ export function resumeQueue(): Queue<ResumeIngestJob> {
 /**
  * Enqueue an ingestion.
  *
- * `jobId` is the idempotency key, so BullMQ itself refuses a duplicate even if
- * the database check somehow let two through — belt and braces on the one
- * operation that would otherwise bill us twice for the same parse.
+ * `dbKey` is the readable idempotency key (may contain colons); the BullMQ
+ * job ID is the derived safe hex form. Redis retries of a retained failed job
+ * use a NEW run ID so a tombstone can never swallow a user's retry (P0-2).
  */
 export async function enqueueResumeIngest(
-  idempotencyKey: string,
+  dbKey: string,
+  bullId: string,
   data: ResumeIngestJob,
 ): Promise<void> {
-  await resumeQueue().add('ingest', data, { jobId: idempotencyKey });
+  await resumeQueue().add('ingest', data, { jobId: bullId });
+  void dbKey;
 }
 
 /**
- * Whether BullMQ still holds a job under this id, in any state.
+ * Whether BullMQ still holds a RUNNABLE job under this id.
  *
- * Used to heal the one case the database cannot see: a row that says `queued`
- * while Redis has no such job — an enqueue that failed after the row was
- * written, or a flushed instance. Without this the row would sit queued
- * forever, because the claim function correctly reports it as neither new nor
- * revived and nothing would ever push it again.
+ * Existence alone is not enough (P0-2): a retained failed job exists but can
+ * never run again, so a revived DB claim must reset/retry it or take a new
+ * attempt ID. Returns 'runnable' | 'failed-retained' | 'missing'.
  */
-export async function resumeJobExists(idempotencyKey: string): Promise<boolean> {
-  const job = await resumeQueue().getJob(idempotencyKey);
-  return Boolean(job);
+export async function resumeJobState(bullId: string): Promise<'runnable' | 'failed-retained' | 'missing'> {
+  const job = await resumeQueue().getJob(bullId);
+  if (!job) return 'missing';
+  try {
+    const state = await job.getState();
+    if (state === 'failed') return 'failed-retained';
+    if (state === 'completed') return 'missing';
+    return 'runnable';
+  } catch {
+    return 'missing';
+  }
+}
+
+export async function resumeJobExists(bullId: string): Promise<boolean> {
+  return (await resumeJobState(bullId)) === 'runnable';
+}
+
+/** Explicitly retry a retained failed job so a user correction can run. */
+export async function retryResumeJob(bullId: string): Promise<void> {
+  const job = await resumeQueue().getJob(bullId);
+  if (job) await job.retry();
 }

@@ -1,7 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { requireUser } from '../_lib/auth';
 import { enforce } from '../_lib/rateLimit';
-import { enqueueResumeIngest, hasQueue, resumeJobExists } from '../_lib/queue';
+import { enqueueResumeIngest, hasQueue, resumeJobState, retryResumeJob } from '../_lib/queue';
+import { bullJobId, resumeDbKey } from '../../shared/queueIds';
 import { RESUME_BUCKET, admin, hasSupabase, resumePath } from '../_lib/supabaseAdmin';
 import {
   idempotencyKey,
@@ -105,7 +106,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(409).json({ error: 'The upload has not finished. Please try again.' });
     }
 
-    const key = idempotencyKey(user.uid, contentHash);
+    const key = resumeDbKey(user.uid, contentHash);
+    const bullId = bullJobId(key);
 
     const { data: claimed, error: claimError } = await supabase.rpc('claim_resume_job', {
       p_user_id: user.uid,
