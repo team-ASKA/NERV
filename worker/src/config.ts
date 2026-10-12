@@ -56,11 +56,14 @@ export const config = {
   resumesPerUser: int(process.env.RESUMES_PER_USER, 3),
 
   groqApiKey: process.env.GROQ_API_KEY ?? '',
-  /** Vision model used when the router picks the VLM path. */
+  /** Vision model used when the router picks the VLM path. Must be image-capable on the account. */
   groqVisionModel: process.env.GROQ_VISION_MODEL ?? 'meta-llama/llama-4-scout-17b-16e-instruct',
   /** Text model for structured extraction. */
-  groqTextModel: process.env.GROQ_TEXT_MODEL ?? 'llama-3.1-8b-instant',
+  groqTextModel: process.env.GROQ_TEXT_MODEL ?? process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile',
   geminiApiKey: process.env.GEMINI_API_KEY ?? '',
+  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
+  /** Postgres TLS: verified by default; a custom CA bundle via PG_CA. */
+  dbCaCert: process.env.PG_CA ?? '',
 
   /** Jobs processed concurrently per pod. Ingestion is IO- and API-bound, so
    *  this can exceed the core count; the Groq limiter is the real ceiling. */

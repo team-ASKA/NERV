@@ -23,6 +23,8 @@ export function db(): pg.Pool {
     throw new Error('DATABASE_URL is not set; cannot connect to Postgres.');
   }
 
+  const isLocal =
+    config.databaseUrl.includes('localhost') || config.databaseUrl.includes('127.0.0.1');
   pool = new Pool({
     connectionString: config.databaseUrl,
     max: config.dbPoolMax,
@@ -31,7 +33,9 @@ export function db(): pg.Pool {
     // A runaway query must never pin a pooled connection forever.
     statement_timeout: 30_000,
     query_timeout: 30_000,
-    ...(config.databaseUrl.includes('localhost') ? {} : { ssl: { rejectUnauthorized: false } }),
+    // Verify TLS in production (P0 audit): custom CA via PG_CA, else the
+    // platform trust store. Never rejectUnauthorized:false outside local dev.
+    ...(isLocal ? {} : { ssl: config.dbCaCert ? { ca: config.dbCaCert } : { rejectUnauthorized: true } }),
   });
 
   // An idle-client error would otherwise be an unhandled 'error' event and
