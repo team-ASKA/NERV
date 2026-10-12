@@ -10,7 +10,7 @@
  * the bottleneck is Redis connection count across replicas, not throughput.
  */
 
-import IORedis, { type RedisOptions } from 'ioredis';
+import { Redis, type RedisOptions } from 'ioredis';
 import { config, logger } from './config.js';
 
 function options(): RedisOptions {
@@ -21,8 +21,8 @@ function options(): RedisOptions {
     enableReadyCheck: false,
     // Exponential-ish backoff, capped, so a Redis outage doesn't become a
     // reconnect storm from every pod at once.
-    retryStrategy: (times) => Math.min(times * 200, 5_000),
-    reconnectOnError: (err) => {
+    retryStrategy: (times: number) => Math.min(times * 200, 5_000),
+    reconnectOnError: (err: Error) => {
       // Upstash and most managed providers issue READONLY on failover; the
       // right response is to reconnect, not to surface the error.
       if (err.message.includes('READONLY')) return 2;
@@ -32,17 +32,17 @@ function options(): RedisOptions {
   };
 }
 
-const connections: IORedis[] = [];
+const connections: Redis[] = [];
 
 /**
  * A new connection. BullMQ Workers must not share one — a blocked worker would
  * stall every other consumer on the same socket.
  */
-export function createRedis(role: string): IORedis {
+export function createRedis(role: string): Redis {
   if (!config.redisUrl) {
     throw new Error('REDIS_URL is not set; cannot create a Redis connection.');
   }
-  const client = new IORedis(config.redisUrl, options());
+  const client = new Redis(config.redisUrl, options());
   connections.push(client);
 
   client.on('error', (err) => logger.error({ role, err: err.message }, 'redis error'));
@@ -52,10 +52,10 @@ export function createRedis(role: string): IORedis {
   return client;
 }
 
-let shared: IORedis | null = null;
+let shared: Redis | null = null;
 
 /** Shared connection for non-blocking use (Queue producers, QueueEvents). */
-export function sharedRedis(): IORedis {
+export function sharedRedis(): Redis {
   if (!shared) shared = createRedis('shared');
   return shared;
 }

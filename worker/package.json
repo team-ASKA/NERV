@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": "20.x"
+    "node": ">=20.0.0"
   },
   "description": "BullMQ workers for NERV: resume ingestion and interview simulation. Deploys as a long-running process (Railway / Render / Fly / ECS) — not to Vercel, which cannot host a persistent consumer.",
   "scripts": {

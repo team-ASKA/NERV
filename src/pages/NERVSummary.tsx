@@ -302,7 +302,7 @@ const NERVSummary: React.FC = () => {
         if (cancelled) return;
         setReport(reportFromRecord(state.interviewData, resume));
       } else {
-        setReport(buildReport(state));
+        setReport(buildReport(state as Partial<import('../lib/interviewFlow').SummaryNavState>));
       }
       setLoading(false);
     };

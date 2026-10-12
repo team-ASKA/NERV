@@ -39,7 +39,6 @@ const SignUp = () => {
     register,
     handleSubmit,
     formState: { errors },
-    watch,
     trigger,
   } = useForm<SignUpFormData>();
 

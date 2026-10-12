@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "engines": {
-    "node": "20.x"
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
   },
   "scripts": {
     "dev": "vite",
@@ -14,7 +15,13 @@
     "typecheck:api": "tsc -p tsconfig.api.json --noEmit",
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "playwright test",
+    "check:env": "node scripts/check-env.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "check:bundle": "node scripts/check-bundle.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",

@@ -333,7 +333,7 @@ export function buildReport(state: Partial<SummaryNavState> | null | undefined):
   });
 
   const totalDuration =
-    s.totalDurationMinutes ?? (perRoundMinutes * Math.max(1, played.length)) ?? 0;
+    s.totalDurationMinutes ?? perRoundMinutes * Math.max(1, played.length);
 
   return assemble({
     rounds,

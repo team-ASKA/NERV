@@ -28,7 +28,7 @@ const Login = () => {
       setLoading(true);
       await login(data.email, data.password);
       navigate('/dashboard');
-    } catch (err) {
+    } catch {
       setError('Failed to sign in. Please check your credentials.');
     } finally {
       setLoading(false);

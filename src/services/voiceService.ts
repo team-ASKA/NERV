@@ -350,7 +350,9 @@ class VoiceService {
       if (data.degraded || !data.audio) return { kind: 'degraded', text: sentence };
       this.ttsConfigured = true;
       const bytes = base64ToBytes(data.audio);
-      const buffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
+      const copy = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(copy).set(bytes);
+      const buffer = await ctx.decodeAudioData(copy);
       return { kind: 'buffer', buffer };
     } catch (err) {
       logger.warn('[voice] synth error', (err as Error)?.message);
