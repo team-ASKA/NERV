@@ -52,9 +52,42 @@
     background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
     background-size: 22px 22px;
   }
+
+  /* --- Rehearsal room: the one lit stage -------------------------------
+     A single top light over a matte surface. Static gradient, no shadow
+     glow, no animation. Everything else on the page stays matte. */
+  .stage {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0) 34%),
+      #121218;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  /* Wings: quiet ledger rows separated by hairlines. One row, one job. */
+  .wing-row {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  }
+  .wing-row:last-child {
+    border-bottom: 0;
+  }
+
+  /* The stage settles once on mount: opacity + 6px rise, then still. */
+  .settle {
+    animation: settle 0.32s cubic-bezier(0.22, 0.61, 0.21, 1) both;
+  }
+  .settle-1 { animation-delay: 0.04s; }
+  .settle-2 { animation-delay: 0.08s; }
+  @keyframes settle {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 }
 
 @layer utilities {
+  /* Tabular numerals for counts, timers, scores. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
   /* Truncate to N lines. */
   .line-clamp-2 {
     display: -webkit-box;
@@ -121,5 +154,8 @@
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  .settle {
+    animation: none !important;
   }
 }

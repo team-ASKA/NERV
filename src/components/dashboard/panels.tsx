@@ -1,7 +1,34 @@
-/** Focused dashboard panels: one CTA per panel, distinct empty/error states. */
+/** Rehearsal room panels: one lit stage, quiet ruled wings. */
 import { Link } from 'react-router-dom';
-import { Button, Card, EmptyState } from '../ui';
+import { ArrowRight, ArrowUpRight } from 'lucide-react';
+import { Button, EmptyState } from '../ui';
 import type { DashboardData } from '../../hooks/useDashboardData';
+
+function StageShell({
+  eyebrow,
+  title,
+  body,
+  children,
+  status,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  children: React.ReactNode;
+  status?: React.ReactNode;
+}) {
+  return (
+    <section aria-label={title} className="stage settle rounded-[14px] p-6 sm:p-8">
+      <p className="text-[13px] font-medium text-calm-faint">{eyebrow}</p>
+      <h2 className="mt-2 font-montserrat text-[26px] font-semibold leading-[1.1] tracking-[-0.02em] text-white sm:text-[32px]">
+        {title}
+      </h2>
+      <p className="mt-2 max-w-[52ch] text-[15px] leading-[1.55] text-calm">{body}</p>
+      <div className="mt-6 flex flex-wrap items-center gap-3">{children}</div>
+      {status && <div className="mt-6 border-t border-white/10 pt-4">{status}</div>}
+    </section>
+  );
+}
 
 export function DashboardNextAction({
   data,
@@ -18,132 +45,178 @@ export function DashboardNextAction({
 }) {
   if (data.activeSession) {
     return (
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold">Pick up where you left off</h2>
-        <p className="mt-1 text-sm text-white/60">
-          {data.activeSession.currentRound} round in progress.
-        </p>
-        <Button className="mt-4" onClick={() => onResume(data.activeSession!.id)}>
+      <StageShell
+        eyebrow="Next step"
+        title="Pick up where you left off"
+        body={`Your ${data.activeSession.currentRound} round is waiting. Nothing was lost.`}
+        status={
+          <p className="text-[13px] text-calm-faint" aria-live="polite">
+            Paused interviews keep their transcript. Resume when ready.
+          </p>
+        }
+      >
+        <Button size="lg" onClick={() => onResume(data.activeSession!.id)} rightIcon={<ArrowRight className="h-4 w-4" />}>
           Resume interview
         </Button>
-      </Card>
+      </StageShell>
     );
   }
   if (!data.currentResume) {
     return (
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold">Upload your resume to begin</h2>
-        <p className="mt-1 text-sm text-white/60">
-          Questions are grounded in your experience. Up to 30 minutes; rounds may finish earlier.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <Button onClick={onUpload}>Upload resume</Button>
-          <Button variant="ghost" onClick={onStart} disabled={starting}>
-            Try a general interview
-          </Button>
-        </div>
-      </Card>
+      <StageShell
+        eyebrow="Next step"
+        title="Upload your resume to begin"
+        body="Every question is grounded in your experience. Up to 30 minutes. Rounds may finish earlier."
+      >
+        <Button size="lg" onClick={onUpload} rightIcon={<ArrowRight className="h-4 w-4" />}>
+          Upload resume
+        </Button>
+        <Button variant="ghost" onClick={onStart} disabled={starting}>
+          Try a general interview instead
+        </Button>
+      </StageShell>
     );
   }
   if (data.currentResume.reviewState === 'needs_review') {
     return (
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold">Review your extracted facts</h2>
-        <p className="mt-1 text-sm text-white/60">Check the skills and roles we found before starting.</p>
-        <Link to="/settings#resume" className="mt-4 inline-block">
-          <Button>Review resume</Button>
+      <StageShell
+        eyebrow="Next step"
+        title="Check what was extracted"
+        body="A quick look at the skills and roles found in your resume, then you can start."
+      >
+        <Link to="/settings#resume">
+          <Button size="lg" rightIcon={<ArrowRight className="h-4 w-4" />}>Review resume</Button>
         </Link>
-      </Card>
+      </StageShell>
     );
   }
   return (
-    <Card className="p-6">
-      <h2 className="text-lg font-semibold">Ready when you are</h2>
-      <p className="mt-1 text-sm text-white/60">Up to 30 minutes; rounds may finish earlier.</p>
-      <Button className="mt-4" onClick={onStart} disabled={starting}>
-        {starting ? 'Starting…' : 'Start interview'}
+    <StageShell
+      eyebrow="Next step"
+      title="Ready when you are"
+      body="Up to 30 minutes. Rounds may finish earlier, and you can pause any time."
+      status={
+        <p className="text-[13px] text-calm-faint">
+          {data.latestReport ? 'Your latest report is in the ledger below.' : 'Your first report will appear here after you finish.'}
+        </p>
+      }
+    >
+      <Button size="lg" onClick={onStart} loading={starting} rightIcon={<ArrowRight className="h-4 w-4" />}>
+        {starting ? 'Starting' : 'Start interview'}
       </Button>
-    </Card>
+    </StageShell>
   );
 }
 
+function WingRow({
+  label,
+  children,
+  action,
+}: {
+  label: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="wing-row grid grid-cols-[110px_1fr_auto] items-baseline gap-3 py-3 sm:grid-cols-[150px_1fr_auto]">
+      <p className="text-[13px] text-calm-faint">{label}</p>
+      <div className="min-w-0 text-[15px] leading-[1.5] text-white/90">{children}</div>
+      <div className="text-[14px]">{action}</div>
+    </div>
+  );
+}
+
+function WingLink({ to, children }: { to: string; children: React.ReactNode }) {
+  return (
+    <Link
+      to={to}
+      className="inline-flex items-center gap-1 text-[14px] font-medium text-accent-soft transition-colors hover:text-white"
+    >
+      {children}
+      <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+    </Link>
+  );
+}
+
+/** The wings: one ruled ledger, not a grid of competing cards. */
+export function WingsLedger({ data }: { data: DashboardData }) {
+  const r = data.currentResume;
+  const rep = data.latestReport;
+  const sessions = data.recentSessions.slice(0, 3);
+  const practice = data.practiceSuggestion;
+  if (!r && !rep && sessions.length === 0 && !practice) return null;
+  return (
+    <section aria-label="Your ledger" className="settle settle-1 rounded-[14px] border border-border bg-surface px-5 sm:px-6">
+      {r && (
+        <WingRow
+          label="Resume"
+          action={<WingLink to="/settings#resume">Replace</WingLink>}
+        >
+          <p className="truncate font-medium text-white">{r.name || 'Your resume'}</p>
+          <p className="truncate text-[14px] text-calm">{r.skills.slice(0, 5).join('  ·  ') || 'No skills extracted yet'}</p>
+          {r.warnings.length > 0 && <p className="mt-1 text-[13px] text-warning">{r.warnings[0]}</p>}
+        </WingRow>
+      )}
+      <WingRow
+        label="Report"
+        action={rep ? <WingLink to={`/reports/${rep.sessionId}`}>View</WingLink> : undefined}
+      >
+        {rep ? (
+          <p>
+            Latest report <span className="text-calm">is {rep.status}</span>
+          </p>
+        ) : (
+          <p className="text-calm">No reports yet. One appears here after your first interview.</p>
+        )}
+      </WingRow>
+      {sessions.length > 0 && (
+        <WingRow label="Sessions" action={<WingLink to="/history">History</WingLink>}>
+          <ul className="divide-y divide-white/5">
+            {sessions.map((s) => (
+              <li key={s.id} className="flex items-baseline justify-between gap-3 py-1.5">
+                <span className="tnum text-[14px] capitalize text-calm">
+                  {s.currentRound} <span aria-hidden>·</span> {s.status}
+                </span>
+                <Link to={`/interviews/${s.id}`} className="shrink-0 text-[14px] text-accent-soft hover:text-white">
+                  Open
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </WingRow>
+      )}
+      {practice && (
+        <WingRow
+          label="Practice"
+          action={
+            <WingLink to={`/training?topicId=${encodeURIComponent(practice.topicId)}&action=explain`}>
+              Practise
+            </WingLink>
+          }
+        >
+          <p className="font-medium text-white">{practice.label}</p>
+          <p className="text-[14px] text-calm">{practice.reason}</p>
+        </WingRow>
+      )}
+    </section>
+  );
+}
+
+// Kept for compatibility with secondary surfaces; the dashboard uses WingsLedger.
 export function ResumeStatusCard({ data }: { data: DashboardData }) {
   if (!data.currentResume) return null;
-  const r = data.currentResume;
-  return (
-    <Card className="p-5">
-      <h3 className="text-sm font-semibold text-white/80">Resume</h3>
-      <p className="mt-1 font-medium">{r.name || 'Your resume'}</p>
-      <p className="text-sm text-white/60">{r.skills.slice(0, 5).join(' · ') || 'No skills extracted yet'}</p>
-      {r.warnings.length > 0 && (
-        <p className="mt-2 text-xs text-amber-300">{r.warnings[0]}</p>
-      )}
-      <Link to="/settings#resume" className="mt-3 inline-block text-sm text-indigo-300 hover:text-indigo-200">
-        Replace resume
-      </Link>
-    </Card>
-  );
+  return <WingsLedger data={{ ...data, latestReport: null, recentSessions: [], practiceSuggestion: null }} />;
 }
 
 export function LatestReportCard({ data }: { data: DashboardData }) {
-  const r = data.latestReport;
-  if (!r) {
-    return (
-      <Card className="p-5">
-        <h3 className="text-sm font-semibold text-white/80">Latest report</h3>
-        <EmptyState title="No reports yet" description="Finish an interview to get evidence-based feedback." />
-      </Card>
-    );
-  }
-  return (
-    <Card className="p-5">
-      <h3 className="text-sm font-semibold text-white/80">Latest report</h3>
-      <p className="mt-1 text-sm text-white/60">Status: {r.status}</p>
-      <Link to={`/reports/${r.sessionId}`} className="mt-3 inline-block">
-        <Button variant="secondary">View report</Button>
-      </Link>
-    </Card>
-  );
+  if (data.latestReport) return null;
+  return <EmptyState title="No reports yet" description="Finish an interview to get evidence-based feedback." />;
 }
 
-export function RecentInterviewList({ data }: { data: DashboardData }) {
-  if (data.recentSessions.length === 0) return null;
-  return (
-    <Card className="p-5">
-      <h3 className="text-sm font-semibold text-white/80">Recent sessions</h3>
-      <ul className="mt-2 space-y-2">
-        {data.recentSessions.slice(0, 3).map((s) => (
-          <li key={s.id} className="flex items-center justify-between text-sm">
-            <span className="text-white/70">
-              {s.currentRound} · {s.status}
-            </span>
-            <Link to={`/interviews/${s.id}`} className="text-indigo-300 hover:text-indigo-200">
-              Open
-            </Link>
-          </li>
-        ))}
-      </ul>
-      <Link to="/history" className="mt-3 inline-block text-sm text-indigo-300 hover:text-indigo-200">
-        Full history
-      </Link>
-    </Card>
-  );
+export function RecentInterviewList() {
+  return null;
 }
 
-export function SuggestedPractice({ data }: { data: DashboardData }) {
-  const p = data.practiceSuggestion;
-  if (!p) return null;
-  return (
-    <Card className="p-5">
-      <h3 className="text-sm font-semibold text-white/80">Recommended practice</h3>
-      <p className="mt-1 font-medium">{p.label}</p>
-      <p className="text-sm text-white/60">{p.reason}</p>
-      <Link
-        to={`/training?topicId=${encodeURIComponent(p.topicId)}&action=explain`}
-        className="mt-3 inline-block"
-      >
-        <Button variant="secondary">Practise topic</Button>
-      </Link>
-    </Card>
-  );
+export function SuggestedPractice() {
+  return null;
 }

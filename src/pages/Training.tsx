@@ -1,12 +1,20 @@
-/** Durable standalone training: backend-loaded context, scoped tutor, typed exercises. */
+/** Practice as a quiet dialogue: marquee topic, ruled conversation, sticky composer. */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
 import { useAuth } from '../contexts/AuthContext';
 import { AppShell } from '../components/AppShell';
-import { Button, Card } from '../components/ui';
+import { Button } from '../components/ui';
+import { cn } from '../lib/cn';
 
 type Action = 'explain' | 'quiz' | 'flashcards' | 'deep-dive';
+
+const MODES: Array<{ id: Action; label: string }> = [
+  { id: 'explain', label: 'Explain' },
+  { id: 'quiz', label: 'Quiz' },
+  { id: 'flashcards', label: 'Flashcards' },
+  { id: 'deep-dive', label: 'Deep dive' },
+];
 
 interface QuizQ {
   question: string;
@@ -29,6 +37,7 @@ export default function Training() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reqId = useRef(0);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!topicId || !currentUser) return;
@@ -63,67 +72,165 @@ export default function Training() {
     }
   }, [topicId, action]);
 
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [messages.length, loading]);
+
   const score = submitted && quiz ? quiz.filter((q, i) => answers[i] === q.correct).length : null;
+
+  const modeHref = (m: Action) => {
+    const q = new URLSearchParams();
+    if (topicId) q.set('topicId', topicId);
+    q.set('action', m);
+    if (reportId) q.set('reportId', reportId);
+    return `/training?${q.toString()}`;
+  };
 
   return (
     <AppShell>
-      <div className="mx-auto grid max-w-5xl gap-4 p-4 md:grid-cols-[240px_1fr]">
-        <Card className="h-fit p-4">
-          <h1 className="font-bold">Practice</h1>
-          <p className="mt-1 text-sm text-white/60">{contextLabel || 'Choose a topic from your skill map.'}</p>
-          <p className="mt-1 text-xs text-white/40">Mode: {action}</p>
-        </Card>
-        <div className="space-y-3" style={{ minHeight: '100dvh' }}>
-          {messages.map((m, i) => (
-            <Card key={i} className="p-4">
-              <p className="text-xs uppercase text-white/40">{m.role}</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm">{m.text}</p>
-            </Card>
-          ))}
-          {quiz && (
-            <Card className="space-y-3 p-4">
-              <h2 className="font-semibold">Quiz</h2>
-              {quiz.map((q, qi) => (
-                <fieldset key={qi} className="space-y-1">
-                  <legend className="text-sm font-medium">{q.question}</legend>
-                  {q.options.map((opt, oi) => (
-                    <label key={oi} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name={`q${qi}`}
-                        checked={answers[qi] === oi}
-                        disabled={submitted}
-                        onChange={() => setAnswers((a) => ({ ...a, [qi]: oi }))}
-                      />
-                      {opt}
-                    </label>
-                  ))}
-                  {submitted && <p className="text-xs text-white/60">{q.explanation}</p>}
-                </fieldset>
-              ))}
-              {!submitted ? (
-                <Button onClick={() => setSubmitted(true)}>Submit answers</Button>
-              ) : (
-                <p className="text-sm" aria-live="polite">Score: {score} / {quiz.length} (graded locally — practice only, not an exam).</p>
-              )}
-            </Card>
+      <div className="mx-auto max-w-[860px] px-4 pb-40 pt-8 sm:px-6 sm:pt-12">
+        <header className="settle">
+          <p className="text-[13px] font-medium text-calm-faint">Practice</p>
+          <h1 className="mt-2 max-w-[18ch] font-montserrat text-[30px] font-semibold leading-[1.08] tracking-[-0.02em] text-white sm:text-[38px]">
+            {contextLabel || 'Choose a topic from your skill map.'}
+          </h1>
+          {!topicId && (
+            <p className="mt-3 max-w-[52ch] text-[15px] leading-[1.55] text-calm">
+              Open the skill map on your dashboard and pick something to work on.
+            </p>
           )}
-          {error && <p className="text-sm text-red-300" role="alert">{error}</p>}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const fd = new FormData(e.currentTarget);
-              const text = String(fd.get('message') ?? '').trim();
-              if (!text) return;
-              e.currentTarget.reset();
-              void ask(text);
-            }}
-            className="flex gap-2"
-          >
-            <input name="message" aria-label="Message the tutor" placeholder="Ask about this topic…" className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-input-bg px-3 text-sm text-white" />
-            <Button type="submit" disabled={loading}>{loading ? '…' : 'Send'}</Button>
-          </form>
+        </header>
+
+        <nav aria-label="Practice mode" className="settle settle-1 mt-6">
+          <div className="inline-flex rounded-[10px] border border-border bg-surface p-1" role="list">
+            {MODES.map((m) => {
+              const active = action === m.id;
+              return (
+                <Link
+                  key={m.id}
+                  role="listitem"
+                  to={modeHref(m.id)}
+                  aria-current={active ? 'page' : undefined}
+                  className={cn(
+                    'rounded-[7px] px-3.5 py-2 text-[14px] font-medium transition-colors duration-180 ease-settle sm:px-4',
+                    active ? 'bg-white/10 text-white' : 'text-calm hover:text-white',
+                  )}
+                >
+                  {m.label}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div className="mt-8" aria-live="polite">
+          {messages.length === 0 && !quiz && !loading && (
+            <p className="border-t border-white/10 pt-6 text-[15px] leading-[1.55] text-calm">
+              Ask anything about this topic to begin. Short questions get the best answers.
+            </p>
+          )}
+          {messages.map((m, i) =>
+            m.role === 'user' ? (
+              <div key={i} className="flex justify-end border-t border-white/10 py-5">
+                <p className="max-w-[85%] whitespace-pre-wrap text-right text-[15px] leading-[1.55] text-calm">
+                  {m.text}
+                </p>
+              </div>
+            ) : (
+              <div key={i} className="border-t border-white/10 py-5">
+                <p className="max-w-[62ch] whitespace-pre-wrap text-[15px] leading-[1.6] text-white/90">{m.text}</p>
+              </div>
+            ),
+          )}
+          {loading && (
+            <div className="border-t border-white/10 py-5" aria-label="Tutor is writing">
+              <div className="h-4 w-40 animate-pulse rounded bg-white/10" />
+            </div>
+          )}
+
+          {quiz && (
+            <section aria-label="Quiz" className="stage mt-6 rounded-[14px] p-6 sm:p-8">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="font-montserrat text-[20px] font-semibold tracking-[-0.01em] text-white">Quiz</h2>
+                {submitted && score !== null && (
+                  <p className="tnum text-[14px] text-calm" aria-live="polite">
+                    {score} of {quiz.length} correct
+                  </p>
+                )}
+              </div>
+              <ol className="mt-4 space-y-6">
+                {quiz.map((q, qi) => (
+                  <li key={qi} className="border-t border-white/10 pt-5 first:border-t-0 first:pt-1">
+                    <p className="text-[15px] font-medium leading-[1.5] text-white">
+                      <span className="tnum mr-2 text-calm-faint">{qi + 1}.</span>
+                      {q.question}
+                    </p>
+                    <div className="mt-3 space-y-1" role="radiogroup" aria-label={`Question ${qi + 1}`}>
+                      {q.options.map((opt, oi) => {
+                        const picked = answers[qi] === oi;
+                        const reveal = submitted && oi === q.correct;
+                        return (
+                          <label
+                            key={oi}
+                            className={cn(
+                              'flex cursor-pointer items-baseline gap-3 rounded-[10px] px-3 py-2.5 text-[15px] transition-colors duration-180 ease-settle',
+                              picked && !submitted && 'bg-white/5 text-white',
+                              reveal && 'bg-success-muted text-white',
+                              !picked && !reveal && 'text-calm hover:bg-white/5 hover:text-white',
+                              submitted && 'cursor-default',
+                            )}
+                          >
+                            <input
+                              type="radio"
+                              name={`q${qi}`}
+                              className="mt-1 accent-[#818CF8]"
+                              checked={picked}
+                              disabled={submitted}
+                              onChange={() => setAnswers((a) => ({ ...a, [qi]: oi }))}
+                            />
+                            <span>{opt}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {submitted && <p className="mt-2 text-[14px] leading-[1.55] text-calm">{q.explanation}</p>}
+                  </li>
+                ))}
+              </ol>
+              {!submitted ? (
+                <Button className="mt-6" onClick={() => setSubmitted(true)}>Check answers</Button>
+              ) : (
+                <p className="mt-6 text-[14px] text-calm-faint">Practice only, not an exam. Run it again from the skill map any time.</p>
+              )}
+            </section>
+          )}
+          {error && <p className="mt-4 text-[14px] text-red-300" role="alert">{error}</p>}
+          <div ref={bottomRef} />
         </div>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-[#080808]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.currentTarget);
+            const text = String(fd.get('message') ?? '').trim();
+            if (!text) return;
+            e.currentTarget.reset();
+            void ask(text);
+          }}
+          className="mx-auto flex max-w-[860px] items-center gap-2 px-4 py-3 sm:px-6"
+        >
+          <label htmlFor="tutor-message" className="sr-only">Message the tutor</label>
+          <input
+            id="tutor-message"
+            name="message"
+            autoComplete="off"
+            placeholder={topicId ? `Ask about ${contextLabel || 'this topic'}` : 'Pick a topic first, then ask'}
+            className="h-11 min-w-0 flex-1 rounded-[10px] border border-border bg-input-bg px-4 text-[15px] text-white"
+          />
+          <Button type="submit" disabled={loading}>{loading ? 'Thinking' : 'Send'}</Button>
+        </form>
       </div>
     </AppShell>
   );

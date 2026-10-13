@@ -394,34 +394,37 @@ export function KnowledgeGraph(props: KnowledgeGraphProps) {
       )}
 
       {selected && (
-        <div className="rounded-xl border border-border bg-surface-raised p-4" aria-live="polite">
-          <p className="font-semibold text-white">{selected.label}</p>
-          <p className="mt-0.5 text-sm text-white/60">
-            {coverageLabel(selected)} · {selected.evidence.replace('-', ' ')}
+        <div className="rounded-[14px] border border-border bg-surface px-5 py-4" aria-live="polite">
+          <p className="text-[15px] font-medium text-white">{selected.label}</p>
+          <p className="mt-0.5 text-[13px] text-calm-faint">
+            {coverageLabel(selected)} <span aria-hidden>·</span> {selected.evidence.replace('-', ' ')}
           </p>
-          {selected.sourceText && <p className="mt-2 text-sm text-white/80">{selected.sourceText}</p>}
+          {selected.sourceText && <p className="mt-2 text-[14px] leading-[1.55] text-calm">{selected.sourceText}</p>}
           {selected.actionable ? (
             <div className="mt-3 flex flex-wrap gap-2">
-              {availableActions.map((a) => (
+              {availableActions.map((a, i) => (
                 <button
                   key={a}
                   type="button"
                   onClick={() => fireAction(a)}
-                  className="h-10 rounded-lg bg-accent px-3 text-sm font-semibold text-white hover:bg-accent-hover"
+                  className={
+                    i === 0
+                      ? 'h-10 rounded-[10px] bg-accent px-4 text-sm font-semibold text-white transition-colors hover:bg-accent-hover'
+                      : 'h-10 rounded-[10px] border border-border px-4 text-sm font-medium text-calm transition-colors hover:text-white'
+                  }
                 >
                   {ACTION_LABELS[a]}
                 </button>
               ))}
             </div>
           ) : (
-            <p className="mt-2 text-sm text-white/50">Categories group topics — pick a skill, project, or experience to practise.</p>
+            <p className="mt-2 text-[14px] text-calm">Categories group topics. Pick a skill, project, or experience to practise.</p>
           )}
         </div>
       )}
 
-      <p className="text-xs text-white/40">
-        Node size and legend agree: categories are boxes; topics are dots. Color shows evidence, never size. A mention alone
-        never marks a skill supported.
+      <p className="text-[13px] text-calm-faint">
+        Color shows evidence, never size. A mention alone never marks a skill supported.
       </p>
     </div>
   );
@@ -471,8 +474,10 @@ function TopicList({
               type="button"
               onClick={() => onPick(n)}
               aria-pressed={selectedId === n.id}
-              className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
-                selectedId === n.id ? 'border-accent bg-accent text-white' : 'border-border bg-surface-raised text-white'
+              className={`w-full rounded-[10px] border px-3 py-2 text-left text-sm transition-colors ${
+                selectedId === n.id
+                  ? 'border-white/20 bg-white/10 text-white'
+                  : 'border-border bg-transparent text-calm hover:text-white'
               }`}
             >
               <span className="font-semibold">{n.label}</span>

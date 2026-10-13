@@ -25,6 +25,16 @@ export default {
           overlay: '#1D1D23', // modal / popover
         },
 
+        // --- Rehearsal room: the one lit stage + calm secondary text ---
+        stage: {
+          DEFAULT: '#121218', // lit stage surface (top light via CSS)
+          edge: 'rgba(255, 255, 255, 0.12)',
+        },
+        calm: {
+          DEFAULT: '#A9ABB4', // secondary body text, 7+:1 on ground
+          faint: '#7E818B', // meta only, 12px+, 4.6:1 on ground
+        },
+
         // --- Borders / hairlines ---
         border: {
           DEFAULT: 'rgba(255, 255, 255, 0.08)',
@@ -56,6 +66,10 @@ export default {
         card: '0 1px 0 0 rgba(255,255,255,0.03) inset, 0 12px 32px -16px rgba(0,0,0,0.7)',
         glow: '0 0 0 1px rgba(99,102,241,0.4), 0 10px 40px -12px rgba(99,102,241,0.45)',
         focus: '0 0 0 3px rgba(99,102,241,0.35)',
+        none: 'none',
+      },
+      transitionTimingFunction: {
+        settle: 'cubic-bezier(0.22, 0.61, 0.21, 1)',
       },
       keyframes: {
         shimmer: {
