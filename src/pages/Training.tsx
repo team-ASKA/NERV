@@ -30,6 +30,7 @@ export default function Training() {
   const action = (params.get('action') ?? 'explain') as Action;
   const reportId = params.get('reportId');
   const [contextLabel, setContextLabel] = useState(topicId);
+  const [topicChoices, setTopicChoices] = useState<string[]>([]);
   const [messages, setMessages] = useState<Array<{ role: string; text: string }>>([]);
   const [quiz, setQuiz] = useState<QuizQ[] | null>(null);
   const [answers, setAnswers] = useState<Record<number, number>>({});
@@ -40,12 +41,20 @@ export default function Training() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!topicId || !currentUser) return;
-    const q = new URLSearchParams({ topicId, action });
-    if (reportId) q.set('reportId', reportId);
-    apiFetch<{ label: string }>(`/api/training?${q.toString()}`)
-      .then((c) => setContextLabel(c.label))
-      .catch(() => setContextLabel(topicId));
+    if (topicId) {
+      if (!currentUser) return;
+      const q = new URLSearchParams({ topicId, action });
+      if (reportId) q.set('reportId', reportId);
+      apiFetch<{ label: string }>(`/api/training?${q.toString()}`)
+        .then((c) => setContextLabel(c.label))
+        .catch(() => setContextLabel(topicId));
+    } else {
+      // The picker must work before any context exists, including demo mode
+      // with no signed-in user. Failure stays silent: no topics listed.
+      apiFetch<{ resume: { skills?: string[] } | null }>('/api/resume/current')
+        .then(({ resume }) => setTopicChoices((resume?.skills ?? []).slice(0, 12)))
+        .catch(() => setTopicChoices([]));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topicId]);
 
@@ -86,18 +95,43 @@ export default function Training() {
     return `/training?${q.toString()}`;
   };
 
+  const chipHref = (topic: string) => {
+    const q = new URLSearchParams({ topicId: topic, action });
+    if (reportId) q.set('reportId', reportId);
+    return `/training?${q.toString()}`;
+  };
+
   return (
     <AppShell>
       <div className="mx-auto max-w-[860px] px-4 pb-40 pt-8 sm:px-6 sm:pt-12">
         <header className="settle">
-          <p className="text-[13px] font-medium text-calm-faint">Practice</p>
-          <h1 className="mt-2 max-w-[18ch] font-montserrat text-[30px] font-semibold leading-[1.08] tracking-[-0.02em] text-white sm:text-[38px]">
+          <p className="font-mono text-[12px] font-medium uppercase tracking-[0.16em] text-calm-faint">Practice</p>
+          <h1 className="mt-3 max-w-[18ch] font-montserrat text-[30px] font-bold leading-[1.06] tracking-[-0.02em] text-white sm:text-[38px]">
             {contextLabel || 'Choose a topic from your skill map.'}
           </h1>
           {!topicId && (
-            <p className="mt-3 max-w-[52ch] text-[15px] leading-[1.55] text-calm">
-              Open the skill map on your dashboard and pick something to work on.
-            </p>
+            <div className="mt-3 max-w-[52ch]">
+              <p className="text-[15px] leading-[1.55] text-calm">
+                Open the skill map on your dashboard and pick something to work on.
+              </p>
+              {topicChoices.length > 0 && (
+                <>
+                  <p className="mt-4 text-[13px] text-calm-faint">Or start with one of these:</p>
+                  <ul className="mt-2 flex flex-wrap gap-2">
+                    {topicChoices.map((t) => (
+                      <li key={t}>
+                        <Link
+                          to={chipHref(t)}
+                          className="inline-block rounded-full border border-border px-3.5 py-2 text-[14px] text-calm transition-colors hover:border-white/25 hover:text-white"
+                        >
+                          {t}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
           )}
         </header>
 
@@ -112,7 +146,7 @@ export default function Training() {
                   to={modeHref(m.id)}
                   aria-current={active ? 'page' : undefined}
                   className={cn(
-                    'rounded-[7px] px-3.5 py-2 text-[14px] font-medium transition-colors duration-180 ease-settle sm:px-4',
+                    'whitespace-nowrap rounded-[7px] px-2.5 py-2 text-[14px] font-medium transition-colors duration-180 ease-settle sm:px-4',
                     active ? 'bg-white/10 text-white' : 'text-calm hover:text-white',
                   )}
                 >
@@ -183,7 +217,7 @@ export default function Training() {
                             <input
                               type="radio"
                               name={`q${qi}`}
-                              className="mt-1 accent-[#818CF8]"
+                              className="mt-1 accent-white"
                               checked={picked}
                               disabled={submitted}
                               onChange={() => setAnswers((a) => ({ ...a, [qi]: oi }))}

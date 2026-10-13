@@ -42,9 +42,6 @@ export function AppShell({ children, container = true, className }: AppShellProp
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-6">
             <Link to="/dashboard" className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent font-montserrat text-sm font-bold text-white">
-                N
-              </span>
               <span className="font-montserrat text-lg font-bold tracking-tight text-white">NERV</span>
             </Link>
             <nav className="hidden items-center gap-1 sm:flex" aria-label="Primary">
@@ -58,7 +55,7 @@ export function AppShell({ children, container = true, className }: AppShellProp
                     className={cn(
                       'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                       active
-                        ? 'bg-accent-muted text-accent-soft'
+                        ? 'bg-white/10 text-white'
                         : 'text-muted hover:bg-white/5 hover:text-white',
                     )}
                   >
@@ -83,12 +80,13 @@ export function AppShell({ children, container = true, className }: AppShellProp
             </Button>
             <button
               type="button"
-              className="rounded-lg p-2 text-white sm:hidden"
+              className="inline-flex items-center gap-1.5 rounded-lg p-2 text-[14px] font-medium text-white sm:hidden"
               aria-label={menuOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((v) => !v)}
             >
               {menuOpen ? <X size={20} /> : <Menu size={20} />}
+              <span aria-hidden>Menu</span>
             </button>
           </div>
         </div>

@@ -10,19 +10,19 @@ import { motion } from 'framer-motion';
 interface InterviewerAvatarProps {
     isAvatarSpeaking?: boolean;
     isUserSpeaking?: boolean;
-    accentColor?: 'blue' | 'green' | 'purple';
+    accentColor?: 'white' | 'dim' | 'green';
 }
 
 const RING_COLORS: Record<string, string> = {
-    blue: 'border-blue-400/40 shadow-blue-500/30',
+    white: 'border-white/50 shadow-white/20',
+    dim: 'border-white/20 shadow-black/40',
     green: 'border-green-400/40 shadow-green-500/30',
-    purple: 'border-purple-400/40 shadow-purple-500/30',
 };
 
 export function InterviewerAvatar({
     isAvatarSpeaking = false,
     isUserSpeaking = false,
-    accentColor = 'blue',
+    accentColor = 'white',
 }: InterviewerAvatarProps) {
     const videoRefA = useRef<HTMLVideoElement>(null);
     const videoRefB = useRef<HTMLVideoElement>(null);
@@ -128,7 +128,7 @@ export function InterviewerAvatar({
                     {[1, 1.5, 2].map((scale, i) => (
                         <motion.div
                             key={i}
-                            className={`absolute inset-0 rounded-full border-4 ${RING_COLORS[accentColor]?.split(' ')[0] || RING_COLORS.blue.split(' ')[0]}`}
+                            className={`absolute inset-0 rounded-full border-4 ${RING_COLORS[accentColor]?.split(' ')[0] || RING_COLORS.white.split(' ')[0]}`}
                             initial={{ scale: 0.8, opacity: 0 }}
                             animate={{
                                 scale: scale * 1.2,

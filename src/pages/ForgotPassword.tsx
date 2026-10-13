@@ -25,7 +25,7 @@ export default function ForgotPassword() {
     return (
       <div className="mx-auto max-w-md p-8">
         <SetupNotice section="password reset" />
-        <Link to="/login" className="mt-4 inline-block text-sm text-indigo-300">Back to login</Link>
+        <Link to="/login" className="mt-4 inline-block text-sm font-bold text-white">Back to login</Link>
       </div>
     );
   }
@@ -43,7 +43,7 @@ export default function ForgotPassword() {
             <Button type="submit" fullWidth>Send reset link</Button>
           </form>
         )}
-        <Link to="/login" className="block text-center text-sm text-indigo-300">Back to login</Link>
+        <Link to="/login" className="block text-center text-sm font-bold text-white">Back to login</Link>
       </Card>
     </div>
   );

@@ -24,7 +24,7 @@ export default function Dashboard() {
   const [showGraph, setShowGraph] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const firstName = data.profile?.displayName?.split(' ')[0] || 'there';
+  const name = data.profile?.displayName?.split(' ')[0] || '';
 
   const startInterview = async (generic = false) => {
     setStarting(true);
@@ -92,8 +92,8 @@ export default function Dashboard() {
         {!isFirebaseConfigured() && <SetupNotice section="dashboard data" />}
 
         <header className="settle">
-          <h1 className="max-w-[16ch] font-montserrat text-[34px] font-semibold leading-[1.05] tracking-[-0.02em] text-white sm:text-[44px]">
-            Good to see you, {firstName}.
+          <h1 className="max-w-[22ch] font-montserrat text-[34px] font-bold leading-[1.04] tracking-[-0.02em] text-white sm:text-[44px]">
+            {name ? `Good to see you, ${name}.` : 'Good to see you.'}
           </h1>
           <p className="mt-3 max-w-[52ch] text-[16px] leading-[1.55] text-calm">
             {data.activeSession
@@ -139,7 +139,7 @@ export default function Dashboard() {
                     role={uploadBusy ? 'progressbar' : undefined}
                     aria-label={uploadBusy ? 'Uploading resume' : undefined}
                   >
-                    {uploadBusy && <div className="h-full w-1/3 animate-shimmer bg-accent-soft/70" />}
+                    {uploadBusy && <div className="h-full w-1/3 animate-shimmer bg-white/50" />}
                   </div>
                   <p className="mt-2 text-[14px] text-calm">{uploadNote}</p>
                   <p className="mt-0.5 text-[13px] text-calm-faint">

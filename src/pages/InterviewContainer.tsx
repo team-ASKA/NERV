@@ -118,7 +118,7 @@ export default function InterviewContainer() {
                 role="tab"
                 aria-selected={round === r}
                 onClick={() => setRound(r)}
-                className={`h-10 rounded-lg px-4 text-sm font-medium ${round === r ? 'bg-accent text-white' : 'bg-white/5 text-white/70'}`}
+                className={`h-10 rounded-lg px-4 text-sm font-medium ${round === r ? 'bg-white font-bold text-black' : 'bg-white/5 text-white/70'}`}
               >
                 {r}
               </button>

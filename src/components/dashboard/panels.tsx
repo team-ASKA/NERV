@@ -19,8 +19,8 @@ function StageShell({
 }) {
   return (
     <section aria-label={title} className="stage settle rounded-[14px] p-6 sm:p-8">
-      <p className="text-[13px] font-medium text-calm-faint">{eyebrow}</p>
-      <h2 className="mt-2 font-montserrat text-[26px] font-semibold leading-[1.1] tracking-[-0.02em] text-white sm:text-[32px]">
+      <p className="font-mono text-[12px] font-medium uppercase tracking-[0.16em] text-calm-faint">{eyebrow}</p>
+      <h2 className="mt-3 font-montserrat text-[26px] font-bold leading-[1.08] tracking-[-0.02em] text-white sm:text-[32px]">
         {title}
       </h2>
       <p className="mt-2 max-w-[52ch] text-[15px] leading-[1.55] text-calm">{body}</p>
@@ -71,8 +71,8 @@ export function DashboardNextAction({
         <Button size="lg" onClick={onUpload} rightIcon={<ArrowRight className="h-4 w-4" />}>
           Upload resume
         </Button>
-        <Button variant="ghost" onClick={onStart} disabled={starting}>
-          Try a general interview instead
+        <Button size="lg" variant="outline" onClick={onStart} disabled={starting}>
+          General interview
         </Button>
       </StageShell>
     );
@@ -119,7 +119,7 @@ function WingRow({
 }) {
   return (
     <div className="wing-row grid grid-cols-[110px_1fr_auto] items-baseline gap-3 py-3 sm:grid-cols-[150px_1fr_auto]">
-      <p className="text-[13px] text-calm-faint">{label}</p>
+      <p className="font-mono text-[12px] uppercase tracking-[0.12em] text-calm-faint">{label}</p>
       <div className="min-w-0 text-[15px] leading-[1.5] text-white/90">{children}</div>
       <div className="text-[14px]">{action}</div>
     </div>
@@ -130,7 +130,7 @@ function WingLink({ to, children }: { to: string; children: React.ReactNode }) {
   return (
     <Link
       to={to}
-      className="inline-flex items-center gap-1 text-[14px] font-medium text-accent-soft transition-colors hover:text-white"
+      className="inline-flex items-center gap-1 text-[14px] font-bold text-white transition-colors hover:text-calm"
     >
       {children}
       <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
@@ -177,7 +177,7 @@ export function WingsLedger({ data }: { data: DashboardData }) {
                 <span className="tnum text-[14px] capitalize text-calm">
                   {s.currentRound} <span aria-hidden>·</span> {s.status}
                 </span>
-                <Link to={`/interviews/${s.id}`} className="shrink-0 text-[14px] text-accent-soft hover:text-white">
+                <Link to={`/interviews/${s.id}`} className="shrink-0 text-[14px] font-bold text-white hover:text-calm">
                   Open
                 </Link>
               </li>

@@ -41,7 +41,8 @@ export default function Settings() {
   return (
     <AppShell>
       <div className="mx-auto max-w-2xl space-y-4 p-4">
-        <h1 className="text-xl font-bold">Settings</h1>
+        <p className="font-mono text-[12px] font-medium uppercase tracking-[0.16em] text-calm-faint">Control</p>
+        <h1 className="font-montserrat text-[28px] font-bold tracking-[-0.02em] text-white">Settings</h1>
         <Card className="space-y-3 p-5">
           <h2 className="font-semibold">Profile</h2>
           <Input label="Display name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={120} />

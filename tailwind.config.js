@@ -10,12 +10,15 @@ export default {
         secondary: '#1A1A1A', // legacy raised panel
         'input-bg': '#141414',
 
-        // --- Accent (indigo) ---
+        // --- Signal (monochrome white). The visual language is carried by
+        // type weight and spacing, not hue. One white signal, used rarely:
+        // the primary action and active states only. Status hues
+        // (success/warning/danger) stay reserved for real status. ---
         accent: {
-          DEFAULT: '#6366F1',
-          hover: '#4F46E5',
-          soft: '#818CF8',
-          muted: 'rgba(99, 102, 241, 0.12)',
+          DEFAULT: '#F5F5F6',
+          hover: '#D9D9DE',
+          soft: '#EDEDEF',
+          muted: 'rgba(255, 255, 255, 0.08)',
         },
 
         // --- Semantic surfaces (raised above `primary`) ---
@@ -64,9 +67,8 @@ export default {
       },
       boxShadow: {
         card: '0 1px 0 0 rgba(255,255,255,0.03) inset, 0 12px 32px -16px rgba(0,0,0,0.7)',
-        glow: '0 0 0 1px rgba(99,102,241,0.4), 0 10px 40px -12px rgba(99,102,241,0.45)',
-        focus: '0 0 0 3px rgba(99,102,241,0.35)',
-        none: 'none',
+        glow: '0 0 0 1px rgba(255,255,255,0.22), 0 10px 40px -12px rgba(0,0,0,0.8)',
+        focus: '0 0 0 3px rgba(255,255,255,0.45)',
       },
       transitionTimingFunction: {
         settle: 'cubic-bezier(0.22, 0.61, 0.21, 1)',

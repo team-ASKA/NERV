@@ -39,7 +39,7 @@ const ACTION_LABELS: Record<GraphSelection['action'], string> = {
 function evidenceColor(ev: TopicNode['evidence']): string {
   switch (ev) {
     case 'discussed':
-      return '#6366F1';
+      return '#C9CAD1';
     case 'supported':
       return '#22C55E';
     case 'needs-practice':
@@ -253,20 +253,23 @@ export function KnowledgeGraph(props: KnowledgeGraphProps) {
   // Diff data in place; never recreate the instance on selection/callbacks.
   useEffect(() => {
     if (status !== 'ready' || !nodesDs.current || !edgesDs.current) return;
-    const visNodes = visible.list.map((n) => ({
+    const visNodes = visible.list.map((n) => {
+      const isActive = n.id === (selectedId ?? activeNodeId);
+      return {
       id: n.id,
       label: `${n.shortLabel}`,
       title: `${n.label}\n${coverageLabel(n)}`,
       color: {
-        background: n.id === (selectedId ?? activeNodeId) ? '#818CF8' : evidenceColor(n.evidence),
-        border: '#C7D2FE',
-        highlight: { background: '#818CF8', border: '#C7D2FE' },
+        background: isActive ? '#F5F5F6' : evidenceColor(n.evidence),
+        border: isActive ? '#FFFFFF' : 'rgba(255,255,255,0.35)',
+        highlight: { background: '#F5F5F6', border: '#FFFFFF' },
       },
-      font: { size: 13, color: '#FFFFFF', face: 'Inter, sans-serif' },
+      font: { size: 13, color: isActive ? '#080808' : '#FFFFFF', face: 'Inter, sans-serif', bold: isActive ? '700' : '400' },
       shape: n.kind === 'category' ? 'box' : n.evidence === 'unassessed' ? 'dot' : 'dot',
       size: n.kind === 'category' ? 22 : 16,
-      borderWidth: n.id === (selectedId ?? activeNodeId) ? 3 : 1,
-    }));
+      borderWidth: isActive ? 3 : 1,
+      };
+    });
     const nodeIds = new Set(visNodes.map((n) => n.id));
     try {
       const existing: string[] = nodesDs.current.getIds();
@@ -358,7 +361,7 @@ export function KnowledgeGraph(props: KnowledgeGraphProps) {
           <option value="supported">Supported</option>
           <option value="needs-practice">Needs practice</option>
         </select>
-        <button type="button" onClick={fit} className="h-10 rounded-lg bg-accent px-3 text-sm font-semibold text-white">
+        <button type="button" onClick={fit} className="h-10 rounded-[10px] border border-border px-3 text-sm font-medium text-white transition-colors hover:bg-white/5">
           Fit
         </button>
         <button
@@ -409,7 +412,7 @@ export function KnowledgeGraph(props: KnowledgeGraphProps) {
                   onClick={() => fireAction(a)}
                   className={
                     i === 0
-                      ? 'h-10 rounded-[10px] bg-accent px-4 text-sm font-semibold text-white transition-colors hover:bg-accent-hover'
+                      ? 'h-10 rounded-[10px] bg-white px-4 text-sm font-bold text-black transition-colors hover:bg-white/85'
                       : 'h-10 rounded-[10px] border border-border px-4 text-sm font-medium text-calm transition-colors hover:text-white'
                   }
                 >
@@ -461,7 +464,7 @@ function TopicList({
         <p className="mb-2 text-sm text-white/60" role="status">
           {notice}{' '}
           {onRetry && (
-            <button type="button" onClick={onRetry} className="text-indigo-300 underline">
+            <button type="button" onClick={onRetry} className="text-white underline underline-offset-2">
               Retry
             </button>
           )}

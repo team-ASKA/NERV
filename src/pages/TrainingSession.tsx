@@ -1143,7 +1143,7 @@ export default function TrainingSession() {
                   <InterviewerAvatar
                     isAvatarSpeaking={speaking}
                     isUserSpeaking={userSpeaking || recording}
-                    accentColor="purple"
+                    accentColor="white"
                   />
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">

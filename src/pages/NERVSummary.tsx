@@ -537,7 +537,7 @@ const NERVSummary: React.FC = () => {
                       cy="18"
                       r="15.5"
                       fill="none"
-                      stroke="#6366F1"
+                      stroke="#EDEDEF"
                       strokeWidth="3"
                       strokeLinecap="round"
                       strokeDasharray={`${(report.resumeScore / 100) * 97.4} 97.4`}

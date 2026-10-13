@@ -33,3 +33,6 @@ dist-ssr
 # Sensitive files - never commit these
 secrets.txt
 NERV-mirror/
+
+# Local QA screenshots - never commit these
+.shots/

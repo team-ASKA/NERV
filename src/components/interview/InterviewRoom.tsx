@@ -498,7 +498,7 @@ export function InterviewRoom({
               <InterviewerAvatar
                 isAvatarSpeaking={session.phase === 'speaking'}
                 isUserSpeaking={session.isUserSpeaking}
-                accentColor="purple"
+                accentColor="white"
               />
             </div>
           </div>

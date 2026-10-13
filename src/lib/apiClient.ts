@@ -42,7 +42,10 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (demoAllowed()) {
-    return mockFetch<T>(path, init);
+    const mocked = await mockFetch<T>(path, init);
+    // Mocks return the envelope shape; unwrap it like the live path does.
+    const inner = (mocked as unknown as { data?: unknown }).data;
+    return (inner ?? mocked) as T;
   }
   const headers: Record<string, string> = {
     ...(init.body ? { 'Content-Type': 'application/json' } : {}),

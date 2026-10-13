@@ -53,7 +53,7 @@ const LandingPage = () => {
           lazy artwork with stable dimensions and a useful fallback. */}
       <div className="relative flex min-h-[92vh] w-full flex-col items-center justify-center overflow-hidden px-4">
         <h1 className="z-10 max-w-3xl text-center font-montserrat text-4xl font-bold sm:text-5xl">
-          Practise interviews grounded in <span className="text-indigo-400">your resume</span>
+          Practise interviews grounded in <span className="font-extrabold text-white">your resume</span>
         </h1>
         <p className="z-10 mt-4 max-w-xl text-center text-lg text-gray-300">
           Three rounds, voice or text, and an evidence-based report that shows its work.
@@ -152,8 +152,8 @@ const LandingPage = () => {
             {benefits.map((benefit, index) => (
               <motion.div
                 key={index}
-                initial={{ opacity: 0, x: index % 2 === 0 ? -30 : 30 }}
-                whileInView={{ opacity: 1, x: 0 }}
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: index * 0.15, ease: "easeOut" }}
                 whileHover={{
                   backgroundColor: "rgba(255, 255, 255, 0.05)",

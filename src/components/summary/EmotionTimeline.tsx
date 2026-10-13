@@ -25,7 +25,7 @@ import type { QuestionRecord } from '../../lib/reportData';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
 
-const ACCENT = '#6366F1';
+const ACCENT = '#EDEDEF';
 const GRID = 'rgba(255, 255, 255, 0.06)';
 const TEXT = '#9CA3AF';
 

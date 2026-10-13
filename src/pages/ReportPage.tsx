@@ -87,7 +87,7 @@ export default function ReportPage({ legacy }: { legacy?: boolean }) {
               <p className="mt-3 text-sm"><strong>Next step:</strong> {state.report.evaluation.nextStep}</p>
             )}
             {state.report.evaluation?.quotes?.length ? (
-              <blockquote className="mt-4 border-l-2 border-accent pl-3 text-sm italic text-white/80">
+              <blockquote className="mt-4 border-l-2 border-white/40 pl-3 text-sm italic text-white/80">
                 “{state.report.evaluation.quotes[0]!.quote}”
               </blockquote>
             ) : null}

@@ -53,8 +53,17 @@ Palette (roles, all AA on ground unless noted):
 - ground `#080808` (page), stage `#121218` (the one lit surface, top light)
 - ink `#F5F5F6`, muted `#A9ABB4` (body secondary, 7+:1 on ground)
 - faint `#7E818B` (meta only, 4.6:1, 12px and up)
-- line `rgba(255,255,255,0.09)` hairlines, accent `#818CF8` (primary action
-  and active states ONLY, never decoration), curtain `#050506`.
+- line `rgba(255,255,255,0.09)` hairlines, signal `#F5F5F6` (the primary
+  action and active states ONLY, never decoration), curtain `#050506`.
+- No hue anywhere in chrome. Status keeps its own hues (green/amber/red);
+  graph evidence keeps supported green and needs-practice amber, discussed
+  is light gray. Visual language is carried by weight and spacing.
+
+Type: Montserrat 700 display (greeting, stage title, topic), tight tracking
+-0.02em, leading 1.04 to 1.08. Inter for everything else, 15-16px body, 1.55
+leading, measure under 60ch. System mono (`font-mono`) speaks for the
+machine: 12px uppercase eyebrows, ledger labels, status hairlines. Tabular
+numerals for counts and timers. No new families: the tone stays the project's.
 
 Type: Montserrat 600 display (greeting, stage title, topic), tight tracking
 -0.02em, leading 1.05. Inter for everything else, 15-16px body, 1.55 leading,
@@ -84,10 +93,30 @@ Composition plan (ASCII, one family per block):
 
 Genericness test: a generic model would ship a 2x2 SaaS card grid, indigo glow
 on every panel, eyebrow labels and gradient washes. Changed: wings are ruled
-ledger rows, accent fires once per screen, surfaces matte, section titles are
-plain sentences, no glow, no wash. What stays generic (single CTA card) stays
-because the plan mandates one primary action.
+ledger rows, the single signal is white and fires once per screen, surfaces
+matte, section titles are plain sentences, no glow, no wash, no hue in chrome.
+Machine-mono labels plus weight contrast (700 display vs 400 meta) carry the
+futuristic interviewer voice instead of color.
 
 Copy rules: sentence case, no em or en dashes in visible text, specific nouns,
 numbers only when true. Placeholders: none added (all content is real app
 state); demo fixtures remain clearly labelled dev-only.
+
+## QA (two critic passes, production-feel harness)
+
+Harness: `scripts/shots.mjs` (desktop 1440, phone 390, reduced-motion phone,
+keyboard-focus frames) over 7 routes on a demo-mode build. Zero console
+errors, zero overflow on every route after fixes. Checks: typecheck (3 trees),
+lint 0 errors, 15 vitest green, vite build green.
+
+Bugs the screenshots caught and fixed: History crash in demo (envelope not
+unwrapped), mobile home overflow (toast viewport + reveal transforms),
+topic chips gated on user (now fetch without identity), "there." orphan,
+wrapping mode tab, hairline SetupNotice, dead training/history/404 states,
+icon-only mobile menu.
+
+Critic pass 1: 5.7 (hero collision, env dump, dead ends). Critic pass 2 after
+the monochrome turn: 6.8, idea reads as "a calm, monochrome voice-first
+coach". Hero findings declined: the hero is out of scope for this pass and
+stays as the owner left it. Remaining lift sits with real user data (reports,
+topics, imagery) and the hero, both outside this brief.

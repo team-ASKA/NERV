@@ -75,7 +75,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       {createPortal(
-        <div className="pointer-events-none fixed bottom-4 right-4 z-[110] flex w-full max-w-sm flex-col gap-2">
+        <div className="pointer-events-none fixed bottom-4 right-4 z-[110] flex w-full max-w-[calc(100vw-2rem)] flex-col gap-2 sm:max-w-sm">
           <AnimatePresence>
             {toasts.map((t) => (
               <motion.div

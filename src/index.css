@@ -6,6 +6,9 @@
   html {
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
+    /* Transformed off-screen elements (e.g. scroll reveals) must never
+       widen the page. `clip` keeps sticky working, unlike `hidden`. */
+    overflow-x: clip;
   }
 
   body {
@@ -25,7 +28,7 @@
   }
 
   ::selection {
-    background: rgba(99, 102, 241, 0.35);
+    background: rgba(255, 255, 255, 0.28);
     color: #fff;
   }
 
@@ -41,7 +44,7 @@
     @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors;
   }
   .btn-primary {
-    @apply bg-accent text-white hover:bg-accent-hover;
+    @apply bg-white text-black hover:bg-white/85;
   }
   .btn-secondary {
     @apply bg-surface-raised text-white hover:bg-surface-overlay;
@@ -118,7 +121,7 @@
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(99, 102, 241, 0.5);
+  background: rgba(255, 255, 255, 0.28);
   background-clip: content-box;
 }
 
