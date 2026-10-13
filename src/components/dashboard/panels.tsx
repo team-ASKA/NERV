@@ -18,14 +18,14 @@ function StageShell({
   status?: React.ReactNode;
 }) {
   return (
-    <section aria-label={title} className="stage settle rounded-[14px] p-6 sm:p-8">
+    <section aria-label={title} className="stage settle rounded-[14px] p-5 sm:p-6">
       <p className="font-mono text-[12px] font-medium uppercase tracking-[0.16em] text-calm-faint">{eyebrow}</p>
-      <h2 className="mt-3 font-montserrat text-[26px] font-bold leading-[1.08] tracking-[-0.02em] text-white sm:text-[32px]">
+      <h2 className="mt-2 font-montserrat text-[22px] font-bold leading-[1.08] tracking-[-0.02em] text-white sm:text-[26px]">
         {title}
       </h2>
-      <p className="mt-2 max-w-[52ch] text-[15px] leading-[1.55] text-calm">{body}</p>
-      <div className="mt-6 flex flex-wrap items-center gap-3">{children}</div>
-      {status && <div className="mt-6 border-t border-white/10 pt-4">{status}</div>}
+      <p className="mt-1.5 max-w-[52ch] text-[14px] leading-[1.5] text-calm">{body}</p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">{children}</div>
+      {status && <div className="mt-4 border-t border-white/10 pt-3">{status}</div>}
     </section>
   );
 }
@@ -97,7 +97,8 @@ export function DashboardNextAction({
       body="Up to 30 minutes. Rounds may finish earlier, and you can pause any time."
       status={
         <p className="text-[13px] text-calm-faint">
-          {data.latestReport ? 'Your latest report is in the ledger below.' : 'Your first report will appear here after you finish.'}
+          {data.latestReport ? 'Your latest report is in the ledger below.' : 'Your first report will appear here after you finish.'}{' '}
+          <span className="font-cursive text-[17px] text-calm">pause anytime, no pressure</span>
         </p>
       }
     >
@@ -118,7 +119,7 @@ function WingRow({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="wing-row grid grid-cols-[110px_1fr_auto] items-baseline gap-3 py-3 sm:grid-cols-[150px_1fr_auto]">
+    <div className="wing-row grid grid-cols-[110px_1fr_auto] items-baseline gap-3 py-2.5 sm:grid-cols-[150px_1fr_auto]">
       <p className="font-mono text-[12px] uppercase tracking-[0.12em] text-calm-faint">{label}</p>
       <div className="min-w-0 text-[15px] leading-[1.5] text-white/90">{children}</div>
       <div className="text-[14px]">{action}</div>
@@ -146,7 +147,7 @@ export function WingsLedger({ data }: { data: DashboardData }) {
   const practice = data.practiceSuggestion;
   if (!r && !rep && sessions.length === 0 && !practice) return null;
   return (
-    <section aria-label="Your ledger" className="settle settle-1 rounded-[14px] border border-border bg-surface px-5 sm:px-6">
+    <section aria-label="Your ledger" className="settle settle-1 rounded-[14px] border border-border bg-surface px-4 sm:px-5">
       {r && (
         <WingRow
           label="Resume"

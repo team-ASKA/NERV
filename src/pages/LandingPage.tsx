@@ -1,9 +1,7 @@
-import { Suspense, lazy } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, Mic, Brain, BarChart as ChartBar, CheckCircle, Zap, BookOpen, Award } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
-const SplineComponent = lazy(() => import('../components/Spline'));
+import SplineComponent from '../components/Spline';
 
 const features = [
   {
@@ -49,34 +47,31 @@ const benefits = [
 const LandingPage = () => {
   return (
     <div className="relative">
-      {/* Hero: real DOM headline + CTA at every breakpoint. Spline is optional
-          lazy artwork with stable dimensions and a useful fallback. */}
-      <div className="relative flex min-h-[92vh] w-full flex-col items-center justify-center overflow-hidden px-4">
-        <h1 className="z-10 max-w-3xl text-center font-montserrat text-4xl font-bold sm:text-5xl">
-          Practise interviews grounded in <span className="font-extrabold text-white">your resume</span>
-        </h1>
-        <p className="z-10 mt-4 max-w-xl text-center text-lg text-gray-300">
-          Three rounds, voice or text, and an evidence-based report that shows its work.
-        </p>
-        <div className="z-10 mt-8 flex flex-col items-center gap-3 sm:flex-row">
-          <Link
-            to="/signup"
-            className="inline-flex items-center px-8 py-4 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all font-semibold text-lg"
-          >
-            Start practising
-            <ArrowRight className="ml-2 h-5 w-5" />
-          </Link>
-          <Link
-            to="/login"
-            className="px-8 py-4 text-center rounded-lg border border-white/20 font-semibold text-lg hover:bg-white/5"
-          >
-            Sign in
-          </Link>
+      {/* Spline component as the main interactive element with responsive handling */}
+      <div className="h-screen w-full overflow-hidden">
+        <div className="scale-[1.30] md:block hidden">
+          <SplineComponent />
         </div>
-        <div className="pointer-events-none absolute inset-0 hidden md:block" aria-hidden>
-          <Suspense fallback={null}>
-            <SplineComponent />
-          </Suspense>
+        <div className="md:hidden flex flex-col items-center justify-center h-full px-4 bg-black">
+          <h1 className="font-montserrat font-bold text-4xl text-center mb-8">
+            Master Your Interviews with
+            <span className="text-green"> AI-Powered</span> Practice
+          </h1>
+          <div className="flex flex-col items-center gap-4 w-full">
+            <Link
+              to="/signup"
+              className="flex items-center justify-center w-full px-10 py-4 bg-white text-black rounded-lg hover:bg-black hover:text-white transition-colors font-semibold text-lg"
+            >
+              Get Started
+              <ArrowRight className="ml-2 h-5 w-5" />
+            </Link>
+            <Link
+              to="/login"
+              className="w-full text-center px-10 py-4 bg-secondary text-white rounded-lg hover:bg-white hover:text-black transition-colors font-semibold text-lg"
+            >
+              Login
+            </Link>
+          </div>
         </div>
       </div>
 

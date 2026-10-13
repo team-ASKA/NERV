@@ -59,6 +59,7 @@ export default {
       fontFamily: {
         montserrat: ['Montserrat', 'sans-serif'],
         inter: ['Inter', 'sans-serif'],
+        cursive: ['Caveat', 'cursive'],
       },
       borderRadius: {
         xl: '0.875rem',

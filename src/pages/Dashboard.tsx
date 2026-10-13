@@ -88,14 +88,18 @@ export default function Dashboard() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-[960px] px-4 pb-16 pt-8 sm:px-6 sm:pt-12">
+      <div className="mx-auto max-w-[960px] px-4 pb-10 pt-6 sm:px-6">
         {!isFirebaseConfigured() && <SetupNotice section="dashboard data" />}
 
         <header className="settle">
-          <h1 className="max-w-[22ch] font-montserrat text-[34px] font-bold leading-[1.04] tracking-[-0.02em] text-white sm:text-[44px]">
-            {name ? `Good to see you, ${name}.` : 'Good to see you.'}
+          <h1 className="max-w-[24ch] font-montserrat text-[27px] font-bold leading-[1.08] tracking-[-0.02em] text-white sm:text-[34px]">
+            {name ? (
+              <>Good to see you, <span className="font-cursive text-[1.25em] font-semibold tracking-normal">{name}.</span></>
+            ) : (
+              'Good to see you.'
+            )}
           </h1>
-          <p className="mt-3 max-w-[52ch] text-[16px] leading-[1.55] text-calm">
+          <p className="mt-2 max-w-[52ch] text-[14px] leading-[1.5] text-calm">
             {data.activeSession
               ? 'You have an interview in progress.'
               : data.currentResume
@@ -104,7 +108,7 @@ export default function Dashboard() {
           </p>
         </header>
 
-        <div className="mt-8">
+        <div className="mt-5">
           {loading ? (
             <div className="stage rounded-[14px] p-8" aria-busy="true">
               <div className="h-6 w-2/3 animate-pulse rounded bg-white/10" />
@@ -116,7 +120,7 @@ export default function Dashboard() {
               <Button className="mt-4" variant="secondary" onClick={() => void refresh()}>Retry</Button>
             </div>
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-5">
               <DashboardNextAction
                 data={data}
                 starting={starting}
@@ -153,7 +157,7 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => setShowGraph((v) => !v)}
                   aria-expanded={showGraph}
-                  className="group inline-flex items-center gap-2 text-[15px] font-medium text-white"
+                  className="group inline-flex items-center gap-2 text-[14px] font-medium text-white"
                 >
                   <ChevronDown
                     className={`h-4 w-4 text-calm-faint transition-transform duration-200 ease-settle ${showGraph ? 'rotate-180' : ''}`}
@@ -162,7 +166,7 @@ export default function Dashboard() {
                   {showGraph ? 'Put the skill map away' : 'Look at the skill map'}
                 </button>
                 {showGraph && (
-                  <div className="mt-4 h-96 overflow-hidden rounded-[14px] border border-border bg-surface">
+                  <div className="mt-3 h-80 overflow-hidden rounded-[14px] border border-border bg-surface">
                     <KnowledgeGraph
                       nodes={graph.nodes}
                       edges={graph.edges}
@@ -175,7 +179,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        <p className="mt-12 text-[13px] text-calm-faint">Signed in as {currentUser?.email ?? 'demo user'}.</p>
+        <p className="mt-8 font-cursive text-[19px] text-calm-faint">signed in as {currentUser?.email ?? 'demo user'}</p>
       </div>
     </AppShell>
   );
