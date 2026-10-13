@@ -1,13 +1,15 @@
-import React from 'react';
+import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, LayoutDashboard, GraduationCap } from 'lucide-react';
+import { LogOut, LayoutDashboard, GraduationCap, History, Settings, Menu, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/cn';
 import { Button } from './ui/Button';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/training-session', label: 'Training', icon: GraduationCap },
+  { to: '/training', label: 'Practice', icon: GraduationCap },
+  { to: '/history', label: 'History', icon: History },
+  { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export interface AppShellProps {
@@ -32,6 +34,7 @@ export function AppShell({ children, container = true, className }: AppShellProp
   };
 
   const initial = (currentUser?.email?.[0] ?? 'U').toUpperCase();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-primary">
@@ -44,13 +47,14 @@ export function AppShell({ children, container = true, className }: AppShellProp
               </span>
               <span className="font-montserrat text-lg font-bold tracking-tight text-white">NERV</span>
             </Link>
-            <nav className="hidden items-center gap-1 sm:flex">
+            <nav className="hidden items-center gap-1 sm:flex" aria-label="Primary">
               {navItems.map(({ to, label, icon: Icon }) => {
-                const active = location.pathname === to;
+                const active = location.pathname === to || location.pathname.startsWith(`${to}/`);
                 return (
                   <Link
                     key={to}
                     to={to}
+                    aria-current={active ? 'page' : undefined}
                     className={cn(
                       'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                       active
@@ -77,8 +81,32 @@ export function AppShell({ children, container = true, className }: AppShellProp
             <Button variant="ghost" size="sm" leftIcon={<LogOut size={16} />} onClick={handleLogout}>
               <span className="hidden sm:inline">Log out</span>
             </Button>
+            <button
+              type="button"
+              className="rounded-lg p-2 text-white sm:hidden"
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
           </div>
         </div>
+        {menuOpen && (
+          <nav className="border-t border-border/60 px-4 py-2 sm:hidden" aria-label="Mobile">
+            {navItems.map(({ to, label, icon: Icon }) => (
+              <Link
+                key={to}
+                to={to}
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-white hover:bg-white/5"
+              >
+                <Icon size={16} />
+                {label}
+              </Link>
+            ))}
+          </nav>
+        )}
       </header>
       <main className={cn(container && 'mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8', className)}>
         {children}

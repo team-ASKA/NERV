@@ -58,6 +58,23 @@ type FrameSource = HTMLVideoElement | (() => string | null);
 
 const UNAVAILABLE: EmotionAggregate = { available: false };
 
+/** Explicit per-session cloud consent (opt-in UI). Camera permission ≠ consent. */
+export function sessionCloudConsent(): boolean {
+  try {
+    return sessionStorage.getItem('nerv:cloudExpressionConsent') === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setSessionCloudConsent(granted: boolean): void {
+  try {
+    sessionStorage.setItem('nerv:cloudExpressionConsent', granted ? 'true' : 'false');
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Published while a provider is running but has not yet seen enough frames.
  * Exported so the UI can tell "still starting" apart from "this will not work"
@@ -156,16 +173,18 @@ class EmotionService {
   // ---- internals -----------------------------------------------------------
 
   /**
-   * Local first. Hume is better, but one socket and a frame-by-frame invoice
-   * per candidate is a poor default for a product that wants to run thousands
-   * of interviews at once — so it is an explicit choice, not an accident.
+   * Local first. Cloud (Hume) NEVER auto-escalates: `auto` means local-only,
+   * and a local failure stays unavailable unless the user explicitly opted
+   * into cloud processing for the session (E01). Camera permission alone is
+   * not cloud consent.
    */
   private providerOrder(): EmotionProvider[] {
-    const preference = (import.meta.env.VITE_EMOTION_PROVIDER || 'auto').toLowerCase();
-    if (preference === 'hume') return [new HumeProvider(), new MediaPipeProvider()];
-    if (preference === 'mediapipe' || preference === 'local') return [new MediaPipeProvider()];
+    const preference = (import.meta.env.VITE_EMOTION_PROVIDER || 'mediapipe').toLowerCase();
+    if (preference === 'hume' && sessionCloudConsent()) return [new HumeProvider(), new MediaPipeProvider()];
+    if (preference === 'hume' && !sessionCloudConsent()) return [new MediaPipeProvider()];
+    if (preference === 'mediapipe' || preference === 'local' || preference === 'auto') return [new MediaPipeProvider()];
     if (preference === 'off' || preference === 'none') return [];
-    return [new MediaPipeProvider(), new HumeProvider()];
+    return [new MediaPipeProvider()];
   }
 
   private ingest(scores: RawScore[]): void {

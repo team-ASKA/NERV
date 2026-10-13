@@ -22,7 +22,9 @@ import { checkRequirements, config, fatalMissing, hasModelProvider, logger } fro
 import { closeDb, pingDb, query } from './db.js';
 import { processInterviewSim } from './jobs/interviewSim.js';
 import { processResumeIngest } from './jobs/resumeIngest.js';
-import { closeQueues } from './queues.js';
+import { processReport } from './jobs/report.js';
+import { dispatchOutbox, reconcile } from './jobs/outbox.js';
+import { closeQueues, QUEUE_REPORT } from './queues.js';
 import { closeRedis, createRedis, pingRedis } from './redis.js';
 import { pingStorage } from './storage.js';
 
@@ -90,14 +92,33 @@ function startInterviewSim(): void {
   logger.info({ queue: QUEUE_INTERVIEW_SIM, concurrency: config.simConcurrency }, 'consumer started');
 }
 
+function startReportWorker(): void {
+  const worker = new Worker<{ sessionId: string; runId: string }>(QUEUE_REPORT, processReport as never, {
+    connection: createRedis(QUEUE_REPORT),
+    concurrency: 2,
+    lockDuration: 300_000,
+    stalledInterval: 120_000,
+    maxStalledCount: 1,
+  });
+  worker.on('failed', (job, err: Error) => {
+    logger.error({ bullId: job?.id, err: err.message }, 'report job failed');
+  });
+  worker.on('error', (err) => logger.error({ err: err.message }, 'report worker error'));
+  workers.push(worker);
+  logger.info('report consumer started');
+}
+
 function startSweeper(): void {
   const timer = setInterval(() => {
-    void query<{ reap_stalled_jobs: number }>('select reap_stalled_jobs() as reap_stalled_jobs')
-      .then((rows) => {
-        const reaped = rows[0]?.reap_stalled_jobs ?? 0;
-        if (reaped > 0) logger.warn({ reaped }, 'reaped stalled jobs');
+    void dispatchOutbox(20)
+      .then((n) => {
+        if (n > 0) logger.info({ n }, 'outbox dispatched');
       })
-      .catch((err) => logger.warn({ err: (err as Error).message }, 'sweeper failed'));
+      .catch((err) => logger.warn({ err: (err as Error).message }, 'outbox dispatch failed'));
+    void reconcile().catch((err) => logger.warn({ err: (err as Error).message }, 'reconcile failed'));
+    void query('select cleanup_expired_jobs() as c')
+      .then(() => undefined)
+      .catch(() => undefined);
 
     if (!config.enableInterviewSim) return;
     void query<{ reap_stalled_sims: number }>('select reap_stalled_sims() as reap_stalled_sims')
@@ -130,17 +151,29 @@ function startHealthServer(): void {
     if (url === '/readyz') {
       void (async () => {
         const missing = fatalMissing();
+        // Bounded probes: readiness must never hang indefinitely.
+        const withDeadline = async <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> => {
+          try {
+            return await Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('deadline')), ms))]);
+          } catch {
+            return fallback;
+          }
+        };
         const [redis, db, storage] = await Promise.all([
-          missing.length ? Promise.resolve(false) : pingRedis(),
-          missing.length ? Promise.resolve(false) : pingDb(),
-          missing.length ? Promise.resolve(false) : pingStorage(),
+          missing.length ? Promise.resolve(false) : withDeadline(pingRedis(), 5_000, false),
+          missing.length ? Promise.resolve(false) : withDeadline(pingDb(), 5_000, false),
+          missing.length ? Promise.resolve(false) : withDeadline(pingStorage(), 5_000, false),
         ]);
-        const ready = consuming && redis && db && storage;
-        res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json' });
+        const infraReady = consuming && redis && db && storage;
+        // Readiness distinguishes healthy infra from usable interview/extraction
+        // capability: a worker without a model provider is honestly "degraded".
+        const capability = hasModelProvider() ? 'full' : 'infra-only';
+        res.writeHead(infraReady ? 200 : 503, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify(
             {
-              ready,
+              ready: infraReady,
+              capability,
               consuming,
               missing,
               checks: { redis, db, storage, modelProvider: hasModelProvider() },
@@ -220,6 +253,7 @@ function main(): void {
   }
 
   startResumeIngest();
+  startReportWorker();
 
   if (config.enableInterviewSim) {
     if (hasModelProvider()) {

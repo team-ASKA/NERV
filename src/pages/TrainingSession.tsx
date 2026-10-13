@@ -442,7 +442,7 @@ export default function TrainingSession() {
   const [userSpeaking, setUserSpeaking] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
 
-  const [activeNodeId, setActiveNodeId] = useState<string | number | null>(null);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [activeTopic, setActiveTopic] = useState<string | null>(null);
   const [quizText, setQuizText] = useState('');
   const [showQuiz, setShowQuiz] = useState(false);
@@ -599,7 +599,7 @@ export default function TrainingSession() {
   // ---- topics --------------------------------------------------------------
 
   const focusTopic = useCallback(
-    (nodeId: string | number | null, label: string) => {
+    (nodeId: string | null, label: string) => {
       setActiveNodeId(nodeId);
       setActiveTopic(label);
       setPane('chat');
@@ -622,7 +622,7 @@ export default function TrainingSession() {
   );
 
   const handleNodeSelect = useCallback(
-    (nodeId: string | number, label: string) => {
+    (nodeId: string, label: string) => {
       const node = graphData.nodes.find((n) => n.id === nodeId);
       // Only leaves are topics; category nodes are structure.
       if (!node || (node.level !== 2 && node.level !== 3)) return;

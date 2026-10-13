@@ -52,6 +52,7 @@ export interface TutorContext {
   interviewSummary?: string;
   weakSkills?: string[];
   currentTopic?: string | null;
+  topic?: string | null;
   resume?: Partial<Pick<ResumeContext, 'projects' | 'experience' | 'education' | 'achievements'>>;
 }
 
@@ -60,7 +61,10 @@ export interface TutorContext {
  * the interviewer — grounded in the candidate's real resume, never inventing
  * work they did not do — but the register is a patient tutor, not an examiner.
  */
-export function buildTutorSystemPrompt(ctx: TutorContext): string {
+export function buildTutorSystemPrompt(
+  ctx: TutorContext,
+  action: 'explain' | 'quiz' | 'flashcards' | 'deep-dive' = 'explain',
+): string {
   const skills = ctx.resumeSkills?.length ? ctx.resumeSkills.slice(0, 30).join(', ') : '(none listed)';
   const weak = ctx.weakSkills?.length
     ? `Barely covered in the interview, so most worth practising: ${ctx.weakSkills.slice(0, 10).join(', ')}.`
@@ -91,7 +95,9 @@ RULES:
 - Teach interactively: after explaining, end with one short follow-up question.
 - No filler openers ("Great question!"), no emojis, no markdown decoration in spoken parts. Short code snippets are fine when they genuinely help.
 - Only produce a quiz when explicitly asked. Quiz format: numbered questions (1. 2. 3. 4.), options A. B. C. D., then one "Answer:" line and one "Explanation:" line per question, with no intro or outro text.
-- If asked something outside their material, answer briefly and steer back to what they are preparing for.`;
+- If asked something outside their material, answer briefly and steer back to what they are preparing for.
+${action === 'deep-dive' ? '- This is a deep-dive: a brief structured lesson (3-4 short paragraphs) plus exactly one follow-up exercise.' : ''}
+${action === 'flashcards' ? '- Flashcards: front/back pairs, one concept per card, no extra prose.' : ''}`;
 }
 
 /** Used when no provider is configured, so the tutor degrades honestly. */

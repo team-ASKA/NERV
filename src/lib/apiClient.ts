@@ -50,7 +50,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     ...(await authHeaders()),
   };
   const res = await fetch(apiUrl(path), { ...init, headers });
-  const requestId = res.headers.get('x-request-id') ?? 'unknown';
+  void res.headers.get('x-request-id');
   if (res.status === 204) return undefined as unknown as T;
   let body: unknown = null;
   try {

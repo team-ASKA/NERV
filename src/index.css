@@ -99,5 +99,27 @@
     background: #ffffff !important;
     filter: none !important;
   }
+  /* Explicitly convert dark cards/borders/white text to printable colors. */
+  .bg-surface-raised, .bg-surface-overlay, .bg-primary, .bg-black\/80, .bg-black\/30 {
+    background: #ffffff !important;
+    border-color: #d4d4d8 !important;
+  }
+  .text-white, .text-muted, .text-muted-foreground, .text-accent-soft {
+    color: #000000 !important;
+  }
+  .border-border, .border-border-strong {
+    border-color: #d4d4d8 !important;
+  }
+  .print\:text-black { color: #000000 !important; }
   .page-break { page-break-before: always; }
+  h1, h2, h3 { break-after: avoid; }
+  blockquote, pre { break-inside: avoid; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

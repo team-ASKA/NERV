@@ -11,11 +11,6 @@ function str(name: string): string {
   return t;
 }
 
-function requiredInProduction(name: string, aliases: string[] = []): string {
-  const v = str(name) || aliases.map(str).find(Boolean) || '';
-  return v;
-}
-
 export interface ServerConfig {
   appMode: string;
   isProduction: boolean;

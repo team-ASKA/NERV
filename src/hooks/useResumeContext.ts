@@ -56,11 +56,12 @@ export function useResumeContext(seed?: Partial<ResumeContext> | null): ResumeCo
       setLoading(true);
       try {
         const uid = currentUser?.uid;
-        const data = uid ? await getResumeData(uid) : fetchResumeDataFromLocalStorage();
+        // No identity → no cache read at all (never another account's data).
+        const data = uid ? await getResumeData(uid) : null;
         if (!cancelled) setResume(toContext(data));
       } catch (err) {
         logger.warn('[resume] load failed', (err as Error)?.message);
-        if (!cancelled) setResume(toContext(fetchResumeDataFromLocalStorage()));
+        if (!cancelled) setResume(toContext(fetchResumeDataFromLocalStorage(currentUser?.uid)));
       } finally {
         if (!cancelled) setLoading(false);
       }

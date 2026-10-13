@@ -14,10 +14,14 @@ import {
   type ResumeIngestJob,
 } from '../../shared/ingestion.js';
 import { SIM_JOB_OPTIONS, type InterviewSimJob } from '../../shared/simulation.js';
+import type { ReportJob } from './jobs/report.js';
 import { sharedRedis } from './redis.js';
+
+export const QUEUE_REPORT = 'report-generate';
 
 let ingestQueue: Queue<ResumeIngestJob> | null = null;
 let simQueue: Queue<InterviewSimJob> | null = null;
+let reportQ: Queue<ReportJob> | null = null;
 
 export function resumeIngestQueue(): Queue<ResumeIngestJob> {
   if (!ingestQueue) {
@@ -40,8 +44,25 @@ export function interviewSimQueue(): Queue<InterviewSimJob> {
 }
 
 export async function closeQueues(): Promise<void> {
-  const open = [ingestQueue, simQueue].filter((q): q is Queue => q !== null);
+  const open = [ingestQueue, simQueue, reportQ].filter((q): q is Queue => q !== null);
   ingestQueue = null;
   simQueue = null;
+  reportQ = null;
   await Promise.all(open.map((q) => q.close()));
+}
+
+/** Report queue: separate concurrency so long reports never starve uploads. */
+export function reportQueue(): Queue<ReportJob> {
+  if (!reportQ) {
+    reportQ = new Queue<ReportJob>(QUEUE_REPORT, {
+      connection: sharedRedis(),
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 10_000 },
+        removeOnComplete: { age: 3_600, count: 500 },
+        removeOnFail: { age: 86_400, count: 2_000 },
+      },
+    });
+  }
+  return reportQ;
 }

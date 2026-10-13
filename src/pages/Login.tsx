@@ -1,17 +1,25 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Mail, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+
+function safeReturnTo(raw: string | null): string {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return '/dashboard';
+  return raw;
+}
 
 type LoginFormData = {
   email: string;
   password: string;
+  remember: boolean;
 };
 
 const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const returnTo = safeReturnTo(params.get('returnTo'));
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -26,8 +34,8 @@ const Login = () => {
     try {
       setError('');
       setLoading(true);
-      await login(data.email, data.password);
-      navigate('/dashboard');
+      await login(data.email, data.password, data.remember !== false);
+      navigate(returnTo);
     } catch {
       setError('Failed to sign in. Please check your credentials.');
     } finally {
@@ -74,25 +82,30 @@ const Login = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">Password</label>
+              <label htmlFor="login-password" className="block text-sm font-medium mb-2">Password</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                 <input
+                  id="login-password"
                   {...register('password', { required: 'Password is required' })}
                   type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  aria-describedby={errors.password ? 'login-password-error' : undefined}
+                  aria-invalid={Boolean(errors.password)}
                   className="w-full pl-10 pr-12 py-3 bg-black/50 border border-white/20 rounded-lg focus:ring-2 focus:ring-white focus:border-white/50 focus:outline-none transition-colors"
                   placeholder="••••••••"
                 />
-                <button 
+                <button
                   type="button"
                   onClick={togglePasswordVisibility}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
                 >
                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-sm text-red-500">{errors.password.message}</p>
+                <p id="login-password-error" role="alert" className="mt-1 text-sm text-red-500">{errors.password.message}</p>
               )}
             </div>
 
@@ -100,6 +113,8 @@ const Login = () => {
               <label className="flex items-center">
                 <input
                   type="checkbox"
+                  {...register('remember')}
+                  defaultChecked
                   className="rounded-sm bg-transparent border-white/30 text-white focus:ring-white"
                 />
                 <span className="ml-2 text-sm text-gray-400">Remember me</span>

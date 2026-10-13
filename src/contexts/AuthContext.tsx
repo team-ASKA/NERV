@@ -49,7 +49,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const unconfigured = !isFirebaseConfigured() && !demoAllowed();
-  const demo = demoAllowed() || (!isFirebaseConfigured() && demoAllowed());
 
   function signup(email: string, password: string) {
     if (demoAllowed()) return Promise.resolve({ user: DEMO_USER });

@@ -47,13 +47,10 @@ import {
   useToast,
 } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
-import { supabaseInterviewService } from '../services/supabaseInterviewService';
 import { getResumeData, type ResumeData } from '../services/firebaseResumeService';
 import {
   buildReport,
   reportFromRecord,
-  toPersistedMetrics,
-  toPersistedReport,
   type QuestionRecord,
   type ReportData,
   type RoundRecord,
@@ -315,28 +312,10 @@ const NERVSummary: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHistorical, currentUser]);
 
-  // ---- persist a freshly finished interview, exactly once -------------------
-  useEffect(() => {
-    if (!report || isHistorical || savedRef.current) return;
-    if (!currentUser || report.totalQuestions === 0) return;
-
-    savedRef.current = true;
-    supabaseInterviewService
-      .saveInterviewSummary({
-        user_id: currentUser.uid,
-        total_duration_minutes: Math.round(report.totalDurationMinutes),
-        // Stored as -1 when nothing was measured, so history can tell "not
-        // measured" apart from "measured, and it was zero".
-        overall_confidence: report.overall ? report.overall.confidence : -1,
-        summary_markdown: report.summaryMarkdown,
-        questions_data: toPersistedReport(report),
-        metrics: toPersistedMetrics(report),
-      })
-      .catch((err) => {
-        logger.warn('[summary] save failed', (err as Error)?.message);
-        toast.warning('This report could not be saved to your history.');
-      });
-  }, [report, isHistorical, currentUser, toast]);
+  // Reports are durable now (F02): sessions finalize once via
+  // POST /sessions/:id/finalize and the worker saves exactly one row.
+  // This legacy navigation-state route is read-only; it must never insert.
+  void savedRef;
 
   const graphData = useMemo(
     () =>
@@ -766,9 +745,9 @@ const NERVSummary: React.FC = () => {
               <div className="h-[540px] overflow-hidden rounded-xl border border-border bg-surface-raised/40">
                 <KnowledgeGraph
                   data={graphData}
-                  onNodeSelect={(_, label) => goTrain(label)}
-                  onNodeExplain={(label) => goTrain(label)}
-                  onNodeQuiz={(label) => goTrain(label)}
+                  onNodeSelect={(_nodeId: string | number, label: string) => goTrain(label)}
+                  onNodeExplain={(label: string) => goTrain(label)}
+                  onNodeQuiz={(label: string) => goTrain(label)}
                 />
               </div>
             </Card>

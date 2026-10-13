@@ -84,6 +84,38 @@ export const LIMITS = {
     { limit: 10, windowMs: 60_000 },
     { limit: 50, windowMs: 3_600_000 },
   ],
+  dashboard: [{ limit: 120, windowMs: 60_000 }],
+  profileRead: [{ limit: 120, windowMs: 60_000 }],
+  profileWrite: [{ limit: 30, windowMs: 60_000 }],
+  history: [{ limit: 120, windowMs: 60_000 }],
+  sessionCreate: [
+    { limit: 10, windowMs: 60_000 },
+    { limit: 60, windowMs: 3_600_000 },
+  ],
+  sessionRead: [{ limit: 240, windowMs: 60_000 }],
+  sessionCheckpoint: [{ limit: 240, windowMs: 60_000 }],
+  sessionFinalize: [
+    { limit: 10, windowMs: 60_000 },
+    { limit: 60, windowMs: 3_600_000 },
+  ],
+  reportRead: [{ limit: 120, windowMs: 60_000 }],
+  reportRetry: [
+    { limit: 5, windowMs: 60_000 },
+    { limit: 20, windowMs: 3_600_000 },
+  ],
+  reportDelete: [
+    { limit: 10, windowMs: 60_000 },
+    { limit: 60, windowMs: 3_600_000 },
+  ],
+  trainingRead: [{ limit: 120, windowMs: 60_000 }],
+  trainingWrite: [
+    { limit: 30, windowMs: 60_000 },
+    { limit: 200, windowMs: 3_600_000 },
+  ],
+  resumeReview: [
+    { limit: 20, windowMs: 60_000 },
+    { limit: 100, windowMs: 3_600_000 },
+  ],
   /** Mints a working Hume credential. One per session is the real pattern. */
   emotionToken: [
     { limit: 10, windowMs: 60_000 },
@@ -151,7 +183,19 @@ const ALLOW: Decision = { allowed: true, limit: 0, remaining: 0, retryAfter: 0 }
  * pipeline either way.
  */
 export async function check(name: LimitName, uid: string): Promise<Decision> {
-  if (!hasRedis()) return ALLOW;
+  if (!hasRedis()) {
+    // Explicit production failure policy (O01): without Redis there is no
+    // per-user accounting. Development fails open; production fails closed
+    // unless the operator explicitly opts into degraded mode, so an outage
+    // cannot become unlimited paid spend.
+    const failClosed =
+      (process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production') &&
+      process.env.RATE_LIMIT_FAIL_OPEN !== 'true';
+    if (failClosed) {
+      return { allowed: false, limit: 0, remaining: 0, retryAfter: 30 };
+    }
+    return ALLOW;
+  }
 
   const windows = LIMITS[name] as readonly Window[];
 

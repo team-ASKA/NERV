@@ -324,6 +324,56 @@ cleanly. Full details in [`worker/README.md`](worker/README.md).
 
 ---
 
+## Revamp status (October 2026)
+
+The repository was rebuilt against `NERV_REVAMP_PLAN.md` / `PRODUCTION_READINESS.md`
+(see `docs/NERV_IMPLEMENTATION_TASKS.md` for the per-task evidence log):
+
+- **Data boundary (D1):** all application reads/writes go through authenticated
+  Vercel handlers (Firebase ID token → server-derived UID). The browser never
+  queries app tables directly; RLS is enabled with direct access revoked
+  (migrations `0003`–`0007`). New deploys do not need Supabase public keys.
+- **Durable interviews:** sessions/rounds/turns persist with CAS revision
+  checkpoints (`PATCH /api/sessions/:id/round`), response-close SSE
+  cancellation, attempt leases, and idempotent finalize → report job → worker.
+- **Providers:** configurable `GROQ_MODEL`/`GEMINI_MODEL` (REST, no legacy SDK),
+  current Sarvam TTS/STT contracts, bounded timeouts, no mid-stream provider
+  switch, truthful degraded states.
+- **Queues:** BullMQ-safe hex IDs (never colons), run fencing, outbox +
+  dispatcher + reconciler, separate report concurrency, verified TLS.
+- **Product:** minimal dashboard (`GET /api/dashboard`), durable
+  `/interviews/:id` and `/reports/:sessionId` routes, working vis-network
+  lifecycle with canonical builder + list fallback, typed tutor exercises,
+  local-first expression with explicit cloud opt-in.
+- **Ops:** CI for both runtimes, `check:env` / `check:secrets` / `check:bundle`,
+  `/readyz` capability reporting, retention cleanup, account export/delete with
+  tombstone fencing.
+
+**Not yet live-verified (need real credentials/deployment):** provider smoke on
+the target accounts, Postgres/Redis-backed migration + isolation tests,
+real-device media matrix, load/failure-injection runs, and the pilot release
+decision (O03/O04). The task ledger marks these explicitly — the build is not
+labelled production-ready until they pass.
+
+### Runbook (short)
+
+```bash
+npm ci --ignore-scripts && npm run typecheck && npm run lint && npm run test -- --run && npm run build
+cd worker && npm ci --ignore-scripts && npm run typecheck && npm run build
+node scripts/check-env.mjs && node scripts/check-secrets.mjs
+```
+
+- Migrations: apply `db/migrations/0001`–`0007` in order on a fresh DB; legacy
+  DBs migrate additively (no data loss; historical `interviews` rows stay
+  readable via `/reports/legacy/:interviewId`).
+- Rollback: additive-only schema → roll back API/worker/client independently;
+  keep old readers until backfill finishes; restore from snapshot before any
+  destructive cleanup.
+- Destructive production actions (pruning, cutover, publish) require explicit
+  authorization per rollout.
+
+---
+
 ## Roadmap
 
 - [ ] Panel interviews — multiple interviewer personas in one round

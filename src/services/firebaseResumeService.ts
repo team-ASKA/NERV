@@ -1,15 +1,16 @@
 /**
  * Resume reads for the interview flow.
  *
- * Supabase is the source of truth; localStorage is a cache that keeps the
- * round pages instant and lets the interview run offline after one successful
- * load. (Named `firebaseResumeService` for historical reasons — Firebase is
- * auth only.)
+ * API is the source of truth; UID-scoped localStorage is a cache that keeps
+ * the round pages instant. The old global keys were a cross-account leak
+ * (user B could read user A's cache on lookup failure) — all reads/writes
+ * are namespaced and late writes are guarded by the current account.
  */
 
 import { logger } from '../lib/logger';
+import { scopedKey, makeAccountGuard } from '../lib/accountCache';
 import { supabaseInterviewService } from './supabaseInterviewService';
-import { RESUME_CACHE_KEY, RESUME_TEXT_CACHE_KEY, type ParsedResume } from './resumeService';
+import { type ParsedResume } from './resumeService';
 
 export type ResumeData = ParsedResume;
 
@@ -38,10 +39,14 @@ function normalize(raw: unknown): ResumeData | null {
   return empty ? null : data;
 }
 
-/** Read the cached resume written after a successful parse. */
-export const fetchResumeDataFromLocalStorage = (): ResumeData | null => {
+/** Read the UID-scoped cached resume. Never falls back to another account. */
+export const fetchResumeDataFromLocalStorage = (uid?: string): ResumeData | null => {
   try {
-    const cached = localStorage.getItem(RESUME_CACHE_KEY);
+    if (!uid) {
+      // No identity: refuse the legacy global key outright.
+      return null;
+    }
+    const cached = localStorage.getItem(scopedKey(uid, 'resumeData'));
     return cached ? normalize(JSON.parse(cached)) : null;
   } catch (err) {
     logger.warn('[resume] could not read cache:', (err as Error)?.message);
@@ -50,40 +55,38 @@ export const fetchResumeDataFromLocalStorage = (): ResumeData | null => {
 };
 
 /** Raw resume text, when it was cached alongside the structured parse. */
-export const fetchResumeTextFromLocalStorage = (): string | null => {
+export const fetchResumeTextFromLocalStorage = (uid?: string): string | null => {
   try {
-    return localStorage.getItem(RESUME_TEXT_CACHE_KEY);
+    if (!uid) return null;
+    return localStorage.getItem(scopedKey(uid, 'resumeText'));
   } catch {
     return null;
   }
 };
 
-/** Fetch the latest parsed resume for a user from Supabase. */
+/** Fetch the latest parsed resume for the CALLER via the API (UID from token). */
 export const fetchResumeDataFromSupabase = async (userId: string): Promise<ResumeData | null> => {
   try {
-    return normalize(await supabaseInterviewService.getUserResume(userId));
+    const guard = makeAccountGuard(() => userId);
+    const resume = normalize(await supabaseInterviewService.getUserResume(userId));
+    if (resume && guard.alive()) {
+      guard.setLocal('resumeData', JSON.stringify(resume));
+    }
+    return resume;
   } catch (err) {
-    logger.warn('[resume] Supabase fetch failed:', (err as Error)?.message);
+    logger.warn('[resume] API resume fetch failed:', (err as Error)?.message);
     return null;
   }
 };
 
 /**
- * Preferred read path: Supabase first, then the local cache. A successful
- * remote read refreshes the cache so later pages skip the round trip.
+ * Preferred read path: API first, then the CALLER's scoped cache only.
+ * A failed remote read never substitutes another account's data.
  */
 export const getResumeData = async (userId: string): Promise<ResumeData | null> => {
   const remote = await fetchResumeDataFromSupabase(userId);
-  if (remote) {
-    try {
-      localStorage.setItem(RESUME_CACHE_KEY, JSON.stringify(remote));
-    } catch {
-      // Cache refresh is best-effort.
-    }
-    return remote;
-  }
-
-  const cached = fetchResumeDataFromLocalStorage();
+  if (remote) return remote;
+  const cached = fetchResumeDataFromLocalStorage(userId);
   if (cached) logger.info('[resume] using cached resume');
   return cached;
 };

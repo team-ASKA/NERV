@@ -48,7 +48,9 @@ const SignUp = () => {
       setLoading(true);
       
       // Create user account
-      const userCredential = await signup(data.email, data.password);
+      const userCredential = (await signup(data.email, data.password)) as unknown as {
+        user?: { uid?: string };
+      };
       
       // Prepare user profile data
       
@@ -68,7 +70,16 @@ const SignUp = () => {
       };
       
       
-      await setDoc(doc(db, 'users', userCredential.user.uid), userProfileData);
+      const uid = userCredential?.user?.uid;
+      if (uid) {
+        try {
+          await setDoc(doc(db, 'users', uid), userProfileData);
+        } catch (profileErr) {
+          // Profile seeding is best-effort: Supabase owns profiles after
+          // cutover (D03); a Firestore failure must not block signup.
+          console.warn('Profile seed failed:', (profileErr as Error)?.message);
+        }
+      }
       
       navigate('/dashboard');
     } catch (err: any) {

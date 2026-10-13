@@ -1,7 +1,7 @@
 /**
  * Structured report schema: evidence-led, no fabricated metrics.
  */
-import type { RoundKind } from './session';
+import type { RoundKind } from './session.js';
 
 export const REPORT_SCHEMA_VERSION = 1;
 

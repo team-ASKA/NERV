@@ -189,6 +189,10 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
   let micStream: MediaStream | null = null;
   let recorder: PcmRecorder | null = null;
   let abort: AbortController | null = null;
+  /** One answer submission/generation at a time: typed + VAD cannot double-advance. */
+  let submitting = false;
+  /** Last failed operation for op-specific retry: 'stt' preserves audio. */
+  let lastFailure: { op: 'stt' | 'generation'; pcm?: Float32Array; sampleRate?: number } | null = null;
   /**
    * Bumped on every teardown. Mic and VAD acquisition are async, so a request
    * issued before a teardown can resolve after it; adopting that handle would
@@ -225,8 +229,11 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
       micStream = stream;
       return micStream;
     } catch (err) {
-      logger.warn('[session] mic permission denied', (err as Error)?.message);
-      patch({ error: 'Microphone access is required. You can type your answers instead.' });
+      logger.warn('[session] mic unavailable', (err as Error)?.message);
+      // Mic denied or missing must never block answering: fall back to
+      // push-to-talk/text explicitly.
+      manualMode = true;
+      patch({ vadAvailable: false, manualMode: true, error: 'Microphone is unavailable — you can answer by typing or push-to-talk.' });
       return null;
     }
   };
@@ -235,8 +242,12 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
 
   const askNext = async () => {
     if (ended) return;
+    if (submitting) return; // one generation at a time
+    submitting = true;
+    const myAbort = new AbortController();
     abort?.abort();
-    abort = new AbortController();
+    abort = myAbort;
+    const gen = generation;
 
     setPhase(questionCount === 0 ? 'connecting' : 'thinking');
     patch({ liveText: '', error: null });
@@ -267,11 +278,13 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
     let spoken = false;
     let degraded = false;
     let rateLimited = 0;
+    let streamPartial = false;
     if (!primed) {
       try {
         for await (const ev of streamNextQuestion(req, abort.signal)) {
-          if (ended) {
+          if (ended || gen !== generation) {
             speech.cancel();
+            submitting = false;
             return;
           }
           if ('delta' in ev) {
@@ -279,6 +292,20 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
             spoken = true;
             speech.push(ev.delta);
             patch({ liveText: message });
+          } else if ('error' in ev) {
+            // Terminal stream error: partial output stays interrupted and the
+            // user retries the SAME generation — never a second question.
+            streamPartial = ev.error.partial;
+            if (!message.trim()) {
+              speech.cancel();
+              if (utterance === speech) utterance = null;
+              submitting = false;
+              lastFailure = { op: 'generation' };
+              setPhase('error');
+              patch({ liveText: '', degraded: true, error: 'The question was interrupted. Hit Retry to ask it again.' });
+              return;
+            }
+            break;
           } else {
             if (ev.done.message) message = ev.done.message;
             degraded = Boolean(ev.done.degraded);
@@ -290,8 +317,9 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
       }
     }
 
-    if (ended) {
+    if (ended || gen !== generation) {
       speech.cancel();
+      submitting = false;
       return;
     }
 
@@ -303,12 +331,31 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
     if (rateLimited > 0 && !message.trim()) {
       speech.cancel();
       if (utterance === speech) utterance = null;
+      submitting = false;
+      lastFailure = { op: 'generation' };
       setPhase('error');
       patch({
         liveText: '',
         degraded: true,
         error: `Too many requests in a row — wait about ${rateLimited}s, then hit Retry.`,
       });
+      return;
+    }
+
+    // Interrupted mid-stream with partial text: keep what was delivered,
+    // mark it, and ask the user to retry — never speak a replacement.
+    if (streamPartial) {
+      speech.cancel();
+      if (utterance === speech) utterance = null;
+      submitting = false;
+      lastFailure = { op: 'generation' };
+      currentQuestion = message.trim();
+      if (currentQuestion) {
+        appendTurn('interviewer', currentQuestion);
+        patch({ currentQuestion, liveText: '' });
+      }
+      setPhase('error');
+      patch({ degraded: true, error: 'The question was interrupted before it finished. Hit Retry to hear it again.' });
       return;
     }
 
@@ -323,12 +370,14 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
     appendTurn('interviewer', finalMessage);
     patch({ currentQuestion: finalMessage, liveText: '', degraded });
     optionsRef.current.onInterviewerTurn?.(finalMessage);
+    lastFailure = null;
 
     await speech.done;
+    submitting = false;
     if (utterance === speech) utterance = null;
     // A barge-in (or an end) has already moved us on; only a clean finish hands
     // the floor over.
-    if (!ended && phase === 'speaking') startListening();
+    if (!ended && gen === generation && phase === 'speaking') startListening();
   };
 
   /** Entering the speaking phase, from either speech path. */
@@ -402,7 +451,7 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
 
   const handleSpeechEnd = (pcm: Float32Array) => {
     patch({ isUserSpeaking: false });
-    if (phase !== 'listening') return;
+    if (phase !== 'listening' || submitting) return;
     vad?.pause();
     patch({ micActive: false });
     void processAnswer(pcm, 16000);
@@ -437,21 +486,31 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
 
   const processAnswer = async (pcm: Float32Array, sampleRate: number) => {
     if (ended) return;
+    if (submitting) return;
+    submitting = true;
     setPhase('transcribing');
+    // Bounded retention for STT retry: keep a capped copy, not the raw stream.
+    const kept = pcm.length > 1_440_000 ? pcm.slice(0, 1_440_000) : pcm.slice();
     const { text, retryAfter } = await voiceService.transcribe(pcm, sampleRate);
-    if (ended) return;
+    if (ended) {
+      submitting = false;
+      return;
+    }
 
-    // The answer was spoken but never transcribed. Say so and hold the floor —
+    // The answer was spoken but never transcribed. Keep it and hold the floor —
     // dropping through to `finishAnswer` would look identical to silence and
     // send them back to the mic to repeat it into the same limit.
     if (retryAfter) {
+      submitting = false;
+      lastFailure = { op: 'stt', pcm: kept, sampleRate };
       setPhase('error');
       patch({
         degraded: true,
-        error: `Couldn't send that answer — too many requests. Wait about ${retryAfter}s, then hit Retry.`,
+        error: `Couldn't send that answer — too many requests. Wait about ${retryAfter}s, then hit Retry to transcribe the same recording.`,
       });
       return;
     }
+    submitting = false;
 
     finishAnswer(text);
   };
@@ -533,18 +592,30 @@ function createEngine(patch: Patch, optionsRef: { current: UseInterviewSessionOp
   const retry = () => {
     if (ended) return;
     patch({ error: null });
+    // Operation-specific retry: a failed transcription re-sends the SAME
+    // captured audio instead of skipping the answer with a fresh question.
+    if (lastFailure?.op === 'stt' && lastFailure.pcm) {
+      const { pcm, sampleRate } = lastFailure;
+      lastFailure = null;
+      void processAnswer(pcm, sampleRate ?? 16000);
+      return;
+    }
+    lastFailure = null;
     void askNext();
   };
 
   const submitText = (text: string) => {
     if (ended) return;
     if (phase !== 'listening') return;
+    if (submitting) return; // typed + VAD speech-end cannot both advance the turn
+    submitting = true;
     if (recorder?.isRecording) {
       recorder.stop();
       patch({ recording: false });
     }
     vad?.pause();
     patch({ micActive: false, isUserSpeaking: false });
+    submitting = false;
     finishAnswer(text);
   };
 

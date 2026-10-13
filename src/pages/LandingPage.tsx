@@ -1,7 +1,9 @@
+import { Suspense, lazy } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, Mic, Brain, BarChart as ChartBar, CheckCircle, Zap, BookOpen, Award } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import SplineComponent from '../components/Spline';
+
+const SplineComponent = lazy(() => import('../components/Spline'));
 
 const features = [
   {
@@ -44,53 +46,37 @@ const benefits = [
   }
 ];
 
-const testimonials = [
-  {
-    quote: "This platform transformed my interview preparation. I landed my dream job after just two weeks of practice!",
-    author: "Sarah J., Software Engineer",
-    company: "Hired at Google"
-  },
-  {
-    quote: "The AI feedback helped me identify weaknesses in my responses that I never would have caught otherwise.",
-    author: "Michael T., Product Manager",
-    company: "Hired at Microsoft"
-  },
-  {
-    quote: "As someone with interview anxiety, this tool was a game-changer. I felt so much more confident going into my interviews.",
-    author: "Priya K., Data Scientist",
-    company: "Hired at Amazon"
-  }
-];
-
-
 const LandingPage = () => {
   return (
     <div className="relative">
-      {/* Spline component as the main interactive element with responsive handling */}
-      <div className="h-screen w-full overflow-hidden">
-        <div className="scale-[1.30] md:block hidden">
-          <SplineComponent />
+      {/* Hero: real DOM headline + CTA at every breakpoint. Spline is optional
+          lazy artwork with stable dimensions and a useful fallback. */}
+      <div className="relative flex min-h-[92vh] w-full flex-col items-center justify-center overflow-hidden px-4">
+        <h1 className="z-10 max-w-3xl text-center font-montserrat text-4xl font-bold sm:text-5xl">
+          Practise interviews grounded in <span className="text-indigo-400">your resume</span>
+        </h1>
+        <p className="z-10 mt-4 max-w-xl text-center text-lg text-gray-300">
+          Three rounds, voice or text, and an evidence-based report that shows its work.
+        </p>
+        <div className="z-10 mt-8 flex flex-col items-center gap-3 sm:flex-row">
+          <Link
+            to="/signup"
+            className="inline-flex items-center px-8 py-4 bg-white text-black rounded-lg hover:bg-black hover:text-white hover:border hover:border-white transition-all font-semibold text-lg"
+          >
+            Start practising
+            <ArrowRight className="ml-2 h-5 w-5" />
+          </Link>
+          <Link
+            to="/login"
+            className="px-8 py-4 text-center rounded-lg border border-white/20 font-semibold text-lg hover:bg-white/5"
+          >
+            Sign in
+          </Link>
         </div>
-        <div className="md:hidden flex flex-col items-center justify-center h-full px-4 bg-black">
-          <h1 className="font-montserrat font-bold text-4xl text-center mb-8">
-            Master Your Interviews with
-            <span className="text-green"> AI-Powered</span> Practice
-          </h1>
-          <div className="flex flex-col items-center gap-4 w-full">
-            <Link
-              to="/signup"
-              className="flex items-center justify-center w-full px-10 py-4 bg-white text-black rounded-lg hover:bg-black hover:text-white transition-colors font-semibold text-lg"
-            >
-              Get Started
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Link>
-            <Link
-              to="/login"
-              className="w-full text-center px-10 py-4 bg-secondary text-white rounded-lg hover:bg-white hover:text-black transition-colors font-semibold text-lg"
-            >
-              Login
-            </Link>
-          </div>
+        <div className="pointer-events-none absolute inset-0 hidden md:block" aria-hidden>
+          <Suspense fallback={null}>
+            <SplineComponent />
+          </Suspense>
         </div>
       </div>
 
@@ -189,49 +175,14 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* Testimonials Section */}
+      {/* How it works — honest product description, no outcome claims. */}
       <section className="py-24 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, ease: "easeOut" }}
-            viewport={{ once: true }}
-            className="text-center mb-16"
-          >
-            <h2 className="font-montserrat font-bold text-3xl sm:text-4xl mb-4">
-              Success Stories
-            </h2>
-            <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-              Hear from users who transformed their interview performance
-            </p>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.5 }}
-            viewport={{ once: true }}
-            className="grid grid-cols-1 md:grid-cols-3 gap-8"
-          >
-            {testimonials.map((testimonial, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 50 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.2, ease: "easeOut" }}
-                whileHover={{ y: -10, transition: { duration: 0.2 } }}
-                viewport={{ once: true }}
-                className="p-8 rounded-xl bg-black/30 backdrop-blur-sm border border-white/10 hover:border-white/30 relative transition-all"
-              >
-                <div className="text-4xl text-white/20 absolute top-4 left-4">"</div>
-                <p className="text-gray-300 mb-6 relative z-10 pt-6">"{testimonial.quote}"</p>
-                <div className="border-t border-white/20 pt-4">
-                  <p className="font-semibold">{testimonial.author}</p>
-                  <p className="text-white/70 text-sm">{testimonial.company}</p>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
+        <div className="max-w-5xl mx-auto text-center">
+          <h2 className="font-montserrat font-bold text-3xl sm:text-4xl mb-4">How practice works</h2>
+          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
+            Upload a resume, check what was extracted, run three interview rounds, and get a saved
+            report with quotes from your own answers. Then practise the weakest topic with a tutor.
+          </p>
         </div>
       </section>
 
@@ -249,7 +200,7 @@ const LandingPage = () => {
               Ready to Ace Your Next Interview?
             </h2>
             <p className="text-gray-300 text-lg max-w-2xl mx-auto mb-8">
-              Join thousands of professionals who have transformed their interview skills with our platform.
+              Free to try. Your resume stays yours — export or delete your data any time in Settings.
             </p>
             <motion.div
               whileHover={{ scale: 1.05 }}

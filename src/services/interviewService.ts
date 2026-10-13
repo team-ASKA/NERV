@@ -32,7 +32,10 @@ export interface NextQuestionResult {
   retryAfter?: number;
 }
 
-export type StreamEvent = { delta: string } | { done: NextQuestionResult };
+export type StreamEvent =
+  | { delta: string }
+  | { done: NextQuestionResult }
+  | { error: { code: string; retryable: boolean; partial: boolean } };
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -193,38 +196,87 @@ export async function* streamNextQuestion(req: NextQuestionRequest, signal?: Abo
   let buffer = '';
   let assembled = '';
   let finalResult: NextQuestionResult | null = null;
+  let terminal = false;
+
+  const parsePayload = (payload: string): void => {
+    if (payload === '[DONE]') {
+      terminal = true;
+      return;
+    }
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      return; // ignore malformed SSE fragment
+    }
+    const type = obj.type as string | undefined;
+    // New typed protocol (start/delta/complete/error), exactly one terminal.
+    if (type === 'delta' && typeof obj.text === 'string') {
+      assembled += obj.text;
+      void (async () => {})();
+    } else if (type === 'complete' && typeof obj.text === 'string') {
+      terminal = true;
+      finalResult = {
+        message: (obj.text as string).trim(),
+        round: req.round,
+        isFollowUp: req.transcript.some((t) => t.role === 'interviewer'),
+      };
+    } else if (type === 'error') {
+      terminal = true;
+      finalResult = {
+        message: assembled.trim(),
+        round: req.round,
+        isFollowUp: req.transcript.some((t) => t.role === 'interviewer'),
+        degraded: true,
+      };
+      (finalResult as NextQuestionResult & { streamError?: unknown }).streamError = {
+        code: obj.code,
+        retryable: obj.retryable,
+        partial: obj.partial,
+      };
+    } else if ((obj as { done?: boolean }).done) {
+      // Legacy fallback shape from older deploys.
+      const o = obj as { message?: string; round?: Round; isFollowUp?: boolean; degraded?: boolean };
+      terminal = true;
+      finalResult = {
+        message: ((o.message || assembled) as string).trim(),
+        round: o.round || req.round,
+        isFollowUp: Boolean(o.isFollowUp),
+        degraded: o.degraded,
+      };
+    } else if (typeof (obj as { delta?: unknown }).delta === 'string') {
+      assembled += (obj as { delta: string }).delta;
+    }
+  };
+
+  // Generator body streams deltas; collect first, yield after parse to keep
+  // chunked UTF-8, multi-event chunks, and partial lines correct.
+  const deltas: string[] = [];
+  const wrappedParse = (payload: string) => {
+    const before = assembled.length;
+    parsePayload(payload);
+    if (assembled.length > before && !terminal) {
+      deltas.push(assembled.slice(before));
+    }
+  };
 
   try {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      // Split on newlines but keep the last partial line buffered.
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
       for (const line of lines) {
         const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(':')) continue;
         if (!trimmed.startsWith('data:')) continue;
-        const payload = trimmed.slice(5).trim();
-        if (payload === '[DONE]') {
+        wrappedParse(trimmed.slice(5).trim());
+        while (deltas.length) yield { delta: deltas.shift()! };
+        if (terminal) {
           if (finalResult) yield { done: finalResult };
-          else yield { done: { message: assembled.trim(), round: req.round, isFollowUp: req.transcript.some((t) => t.role === 'interviewer') } };
           return;
-        }
-        try {
-          const obj = JSON.parse(payload) as { delta?: string; done?: boolean; message?: string; round?: Round; isFollowUp?: boolean; degraded?: boolean };
-          if (obj.done) {
-            finalResult = {
-              message: (obj.message || assembled).trim(),
-              round: obj.round || req.round,
-              isFollowUp: Boolean(obj.isFollowUp),
-              degraded: obj.degraded,
-            };
-          } else if (typeof obj.delta === 'string') {
-            assembled += obj.delta;
-            yield { delta: obj.delta };
-          }
-        } catch {
-          /* ignore malformed SSE fragment */
         }
       }
     }
@@ -232,12 +284,16 @@ export async function* streamNextQuestion(req: NextQuestionRequest, signal?: Abo
     if ((err as Error)?.name !== 'AbortError') {
       logger.warn('[interview] stream read error', (err as Error)?.message);
     }
+    return;
   }
 
   if (finalResult) {
     yield { done: finalResult };
   } else if (assembled.trim()) {
-    yield { done: { message: assembled.trim(), round: req.round, isFollowUp: req.transcript.some((t) => t.role === 'interviewer') } };
+    // Unexpected EOF with partial text: treat as interrupted, not complete.
+    yield {
+      error: { code: 'unexpected-eof', retryable: true, partial: true },
+    } as unknown as StreamEvent;
   } else {
     yield { done: await fetchNextQuestion(req, signal) };
   }
